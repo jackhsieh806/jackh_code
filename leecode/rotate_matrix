@@ -15,7 +15,7 @@ public:
                 matrix[n-tx][ty] = matrix[n-ty][n-tx];
                 matrix[n-ty][n-tx] = matrix[tx][n-ty];
                 matrix[tx][n-ty] = tempdata;
-                    //tempdata = putR90pixel(tx,ty,matrix, tempdata);
+                
                 }
                 x++;
             
