@@ -1,0 +1,53 @@
+class Solution {
+public:
+    bool isPalindrome(string s) {
+        int sz = s.size();
+        int st = 0,end = sz-1;
+        int res = true;
+        //string news = {};        
+
+        if (sz == 0 || sz == 1)
+            return true;
+        /*
+        for (int i = 0; i < sz; i++) {
+            if (s[i] >= 'a' && s[i] <= 'z')
+                news = news + s[i];
+            else if (s[i] >= 'A' && s[i] <= 'Z') {
+                s[i] = s[i]+32;
+                news = news + s[i];
+            } else if (s[i] >= '0' && s[i] <= '9') {                
+                news = news + s[i];
+            }
+        }
+        //printf("news = %s\r\n", news.c_str());
+        end = news.size() - 1;
+        */
+        while (st < sz && !isaplph(s[st]))
+            st++;
+        while (end >= 0 && !isaplph(s[end]))
+            end--;          
+        while (st < end) {
+            if (s[st] != s[end])
+                return false;
+
+            while (st < sz && !isaplph(s[++st]));
+                
+            while (end >= 0 && !isaplph(s[--end]));
+                               
+            
+        }
+        return res;
+    }
+    bool isaplph(char &c) {
+        if (c >= 'a' && c <= 'z')
+            return true;
+        if (c >= 'A' && c <= 'Z') {
+            c = c+32;
+            return true;                       
+        }
+        if (c >= '0' && c <= '9') {
+            return true;                       
+        }
+        return false;
+    }
+};
