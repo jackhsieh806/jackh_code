@@ -9,6 +9,11 @@ xclip -selection clipboard < ~/.ssh/id_rsa.pub
 
 ssh -T git@github.com
 
+//setting git config
+
+git config user.name "Jack"
+git config user.email "jackhsieh806@gmail.com"
+
 git remote add origin git@github.com:jackhsieh806/jack_code.git
 git remote set-url origin git@github.com:jackhsieh806/jackh_code.git
 git push -u origin master
