@@ -1,0 +1,23 @@
+ssh key ==>
+
+sudo apt-get install ssh
+ssh-keygen
+ls ~/.ssh
+xclip -selection clipboard < ~/.ssh/id_rsa.pub
+//check auth
+
+
+ssh -T git@github.com
+
+git remote add origin git@github.com:jackhsieh806/jack_code.git
+git remote set-url origin git@github.com:jackhsieh806/jackh_code.git
+git push -u origin master
+git remote -v
+
+
+
+push ==>
+
+git add xxx
+git commit
+git push
