@@ -7,7 +7,13 @@ sort(v.begin(), v.end(), [](int a, int b){
 
 priority_queue<int, vector<int>, greater<int> > q; //top = smallest == v[0] //not default
 */
-void printQueue(T& q)
+
+//C++ program to demonstrate the use of priority_queue
+#include <iostream>
+#include <queue>
+using namespace std;
+//  
+void printQueue(auto& q)
 {
     while (!q.empty())
     {
@@ -18,10 +24,17 @@ void printQueue(T& q)
 
 void SamplePriorityQueue()
 {
-    priority_queue<int, vector<int>, greater<int> > q;
+    //priority_queue<int, vector<int>, greater<int> > q;
+    priority_queue<int, vector<int>, less<int> > q;
 
     for(int n : {1,8,5,6,3,4,0,9,7,2})
         q.push(n);
 
     printQueue(q);
+}
+
+int main() {
+
+	SamplePriorityQueue();	
+	return 1;
 }
