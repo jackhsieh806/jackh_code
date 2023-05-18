@@ -1,0 +1,27 @@
+class Solution {
+public:
+    void rotate(vector<vector<int>>& matrix) {
+        int x = 0,y = 0;
+        int n = matrix.size() - 1;
+        int tx,ty;
+        int tempdata;
+
+        while(x < matrix.size()/2) {
+            for (int i = x; i < n-x; i++) {
+                tx = x;
+                ty = i;
+                tempdata = matrix[ty][tx];
+                matrix[ty][tx] = matrix[n-tx][ty];
+                matrix[n-tx][ty] = matrix[n-ty][n-tx];
+                matrix[n-ty][n-tx] = matrix[tx][n-ty];
+                matrix[tx][n-ty] = tempdata;
+                    //tempdata = putR90pixel(tx,ty,matrix, tempdata);
+                }
+                x++;
+            
+            }
+        }
+    
+
+
+};
