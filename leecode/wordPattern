@@ -1,0 +1,33 @@
+class Solution {
+public:
+    bool wordPattern(string pattern, string s) {
+        map<string,string> m;
+        int sz = pattern.size();
+        int ssz = s.size();
+        int j = 0;
+
+        for (int i = 0; i < sz; i++) {
+            string word = {};
+            while (j < ssz && s[j] != ' ') {
+                word += s[j++];                
+            }
+            j++; //to next word
+            if (word == "")
+                return false;
+            printf("word = %s\r\n", word.c_str());
+            string k = to_string(pattern[i]);
+            if (m.count(k) == 0) {
+                m[k] = word;
+                if (m.count(word) != 0) //it will not correct if double key map to the same word
+                    return false;
+                m[word] = k;
+            } else if (m[k] != word)
+                return false;
+        }
+        if (j < ssz)
+            return false;
+
+        return true;
+        
+    }
+};
