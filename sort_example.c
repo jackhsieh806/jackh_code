@@ -4,6 +4,7 @@ sort(begin, end, greater<Type>())   // 6 5 4 3 2 1.
 sort(v.begin(), v.end(), [](int a, int b){
         return a < b; // 升序排列
     });
+https://shengyu7697.github.io/std-sort/
 
 priority_queue<int, vector<int>, greater<int> > q; //top = smallest == v[0] //not default
 */
