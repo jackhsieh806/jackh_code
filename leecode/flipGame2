@@ -1,0 +1,72 @@
+/******************************************************************************
+
+Welcome to GDB Online.
+GDB online is an online compiler and debugger tool for C, C++, Python, Java, PHP, Ruby, Perl,
+C#, OCaml, VB, Swift, Pascal, Fortran, Haskell, Objective-C, Assembly, HTML, CSS, JS, SQLite, Prolog.
+Code, Compile, Run and Debug online from anywhere in world.
+
+*******************************************************************************/
+#include <iostream>
+#include <vector>
+using namespace std;
+vector<string> flipWay(string s);
+int main()
+{
+    //cout<<"Hello World";
+    
+    string test = {'+','+','+','+','+'};
+    
+    
+    //printf("res = %d\r\n",res);
+    
+    vector<string> nexstep;
+    int count = 1;
+    
+    nexstep = flipWay(test);
+    
+    while (nexstep.size() > 0) {
+        vector<string> res;
+        vector<string> nn;
+        
+        for (auto t : nexstep) {
+            if (count%2) {
+                res = flipWay(t);
+                if (res.size() == 0) {
+                    printf("first play win!!\r\n");
+                    return true;
+                } else {
+                    for (auto a : res)
+                        nn.push_back(a);
+                }
+            }
+        }
+            count++;
+            nexstep = nn;
+        }
+    printf("first play can not win!!\r\n");
+    return false;
+}
+    
+
+
+
+
+
+vector<string> flipWay(string s) {
+    vector<string> res;
+    int sz = s.size();
+    int idx = 0;
+    while (idx+1 < sz) {
+        if (s[idx] == '+' && s[idx+1] == '+') {
+            string temp = s;
+            temp[idx] = '-';
+            temp[idx+1] = '-';
+            res.push_back(temp);
+        }
+        idx++;
+        
+    }
+    return res;
+    
+    
+}
