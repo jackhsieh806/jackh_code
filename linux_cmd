@@ -1,0 +1,17 @@
+grep "imx214_mipi_raw"  -r /
+grep "imx214_mipi_raw"  -r ./
+
+grep "IMX214_MIPI_RAW"  -r ./
+"imx214mipiraw_Sensor.c
+
+
+find ./ -name "imx214mipiraw_Sensor.c"
+
+
+tar -zcvf myfolder.tar.gz myfolder
+
+tar -zcvf img0616.tar.gz tmp/deploy/images/genio-1200-evk-ufs/
+
+sudo adduser jackh
+
+scp -r root@192.168.20.198:/var/log log
