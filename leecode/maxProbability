@@ -1,0 +1,44 @@
+class Solution {
+public:
+    double maxProbability(int n, vector<vector<int>>& edges, vector<double>& succProb, int start, int end) {
+        vector<vector<pair<int,double>>> route(n);
+        int m = edges.size();
+        pair<int,double> node;
+        queue<pair<int,double>> bfsq;
+        vector<double> visited(n,0);
+        double maxb = 0;
+
+        for (int i = 0;i < m; i++) {
+            route[edges[i][0]].push_back(make_pair(edges[i][1],succProb[i]));
+            route[edges[i][1]].push_back(make_pair(edges[i][0],succProb[i]));
+        }
+        node = make_pair(start,1);
+        bfsq.push(node);
+
+        while(!bfsq.empty()) {
+            int sz = bfsq.size();
+            for (int i = 0; i < sz; i++) {
+                node = bfsq.front(); bfsq.pop();
+                //printf("node[%d] start]\r\n",node.first);
+                for (auto a : route[node.first]) {
+                    double p = node.second*a.second; //connect path probility
+                    if (a.first == end) {
+                        if(p > maxb)
+                            maxb = p;
+                    } else if (p > visited[a.first]) {
+                        //printf("node[%d] to node[%d]\r\n",node.first,a.first);
+                        visited[a.first] = p;
+                        pair<int,double> x = make_pair(a.first,p);
+                        bfsq.push(x);
+                    }
+                }
+                
+            }
+        }
+
+
+
+
+        return maxb;
+    }
+};
