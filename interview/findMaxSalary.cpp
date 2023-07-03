@@ -1,7 +1,22 @@
+#include <stdio.h>
+#include <vector>
+#include <string>
 
-string findMaxSarlayPath(vector<int> a, vector<int> b) {
+using namespace std;
+string findMaxSarlayPath(vector<int> &a, vector<int> &b);
+int main()
+{
+    printf("Hello World");
+    vector<int> a = {115,30,1,2,7000,180};
+    vector<int> b = {3,3,1010,20,70,180};
+    findMaxSarlayPath(a,b);
+
+    return 0;
+}
+
+string findMaxSarlayPath(vector<int> &a, vector<int> &b) {
     int n = a.size();
-    vector<vecotor<pairt<int,string> dp(n, vector<int>(4,make_pair(0,{})));
+    vector<vector<pair<int,string>>> dp(n, vector<pair<int, string>>(4,make_pair(0, "")));
     //dp[x][0] = from x to n-1 day,max x day work in a city salay
     //dp[x][1] = from x to n-1 day,max x day work in b city salay
     //dp[x][2] = from x to n-1 day,max x day from a city trip for b salay
@@ -24,11 +39,11 @@ string findMaxSarlayPath(vector<int> a, vector<int> b) {
          }
     }
     if (dp[0][0].first > dp[0][1].first) {
-        prtinf("res = %s, max salary = %d\r\n", dp[0][0].second.c_str(), dp[0][0].first);
+        printf("res = %s, max salary = %d\r\n", dp[0][0].second.c_str(), dp[0][0].first);
         return dp[0][0].second;
     }
     else    
-        prtinf("res = %s, max salary = %d\r\n", dp[0][1].second.c_str(), dp[0][1].first);
+        printf("res = %s, max salary = %d\r\n", dp[0][1].second.c_str(), dp[0][1].first);
     
     return dp[0][1].second;
 }
