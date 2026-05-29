@@ -351,6 +351,57 @@ textarea {
   margin: 6px 0 0;
 }
 
+.settings-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.88);
+}
+
+.settings-card label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settings-card input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  padding: 11px 12px;
+  outline: 0;
+  font-size: 16px;
+}
+
+.settings-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.sync-status,
+.sync-banner {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+.sync-banner {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.92);
+  box-shadow: 0 8px 24px rgba(57, 48, 34, 0.08);
+}
+
 .schema {
   display: flex;
   flex-wrap: wrap;
@@ -501,6 +552,10 @@ textarea {
   }
 
   .editor-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-actions {
     grid-template-columns: 1fr;
   }
 }

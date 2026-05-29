@@ -1,4 +1,5 @@
 const DATA_FILE = "data.xlsx";
+const CONFIG_KEY = "notebookGoogleSheetsConfig";
 const HEADERS = [
   "id",
   "status",
@@ -84,6 +85,8 @@ const fallbackRows = [
 let rows = [];
 let route = { view: "home" };
 let dirty = false;
+let syncMessage = "";
+let config = loadConfig();
 
 const content = document.querySelector("#content");
 const pageTitle = document.querySelector("#pageTitle");
@@ -93,11 +96,37 @@ const searchInput = document.querySelector("#searchInput");
 const drawer = document.querySelector("#drawer");
 const editorModal = document.querySelector("#editorModal");
 const editorForm = document.querySelector("#editorForm");
+const googleUrlInput = document.querySelector("#googleScriptUrl");
+const googlePasscodeInput = document.querySelector("#googlePasscode");
+const syncStatus = document.querySelector("#syncStatus");
 
 const normalize = (value) => String(value ?? "").trim();
 const slug = (value) => encodeURIComponent(normalize(value));
 const today = () => new Date().toISOString().slice(0, 10);
 const activeRows = () => rows.filter((row) => normalize(row.status).toLowerCase() !== "archived");
+
+function loadConfig() {
+  try {
+    return JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveConfig() {
+  config = {
+    scriptUrl: normalize(googleUrlInput.value),
+    passcode: normalize(googlePasscodeInput.value),
+  };
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  setSyncStatus(config.scriptUrl ? "Google Sheets 連線設定已儲存。" : "尚未設定 Google Sheets。");
+}
+
+function setSyncStatus(message) {
+  syncMessage = message;
+  if (syncStatus) syncStatus.textContent = message;
+  if (route.view === "home") render();
+}
 
 function escapeHtml(value) {
   return normalize(value)
@@ -165,9 +194,10 @@ function barsForTheme(items, color) {
 function renderHome() {
   const themes = groupBy(getFilteredRows(), "theme");
   pageTitle.textContent = "生活記事本";
-  crumbLabel.textContent = dirty ? "有未下載的修改" : "個人資料庫";
+  crumbLabel.textContent = dirty ? "有尚未同步的修改" : config.scriptUrl ? "Google Sheets 已連線" : "個人資料庫";
   backButton.style.visibility = "hidden";
 
+  const notice = syncMessage ? `<div class="sync-banner">${escapeHtml(syncMessage)}</div>` : "";
   const html = Object.entries(themes)
     .map(([theme, items]) => {
       const first = items[0] || {};
@@ -183,7 +213,7 @@ function renderHome() {
     })
     .join("");
 
-  content.innerHTML = html ? `<div class="tile-grid">${html}</div>` : empty("找不到符合的記事。");
+  content.innerHTML = notice + (html ? `<div class="tile-grid">${html}</div>` : empty("找不到符合的記事。"));
   content.querySelectorAll("[data-theme]").forEach((button) => {
     button.addEventListener("click", () => setRoute({ view: "theme", theme: button.dataset.theme }));
   });
@@ -339,26 +369,33 @@ function formValues() {
   return values;
 }
 
-function saveForm(event) {
+async function saveForm(event) {
   event.preventDefault();
   const values = formValues();
+  upsertLocal(values);
+  closeEditor();
+  setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
+  await syncRow(values);
+}
+
+function upsertLocal(values) {
   const index = rows.findIndex((row) => normalize(row.id) === values.id);
   if (index >= 0) rows[index] = { ...rows[index], ...values };
   else rows.push(values);
   dirty = true;
-  closeEditor();
-  setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
 }
 
-function archiveCurrent() {
+async function archiveCurrent() {
   const id = normalize(editorForm.elements.id.value);
   const index = rows.findIndex((row) => normalize(row.id) === id);
   if (index < 0) return;
   rows[index].status = "archived";
   rows[index].updated_at = today();
   dirty = true;
+  const archived = { ...rows[index] };
   closeEditor();
   setRoute({ view: "home" });
+  await syncRow(archived);
 }
 
 function downloadWorkbook() {
@@ -366,13 +403,7 @@ function downloadWorkbook() {
     alert("Excel 套件尚未載入，請稍後再試。");
     return;
   }
-  const cleanRows = rows.map((row) => {
-    const clean = {};
-    HEADERS.forEach((key) => {
-      clean[key] = normalize(row[key]);
-    });
-    return clean;
-  });
+  const cleanRows = rows.map(normalizeRow);
   const workbook = XLSX.utils.book_new();
   const notes = XLSX.utils.json_to_sheet(cleanRows, { header: HEADERS });
   XLSX.utils.book_append_sheet(workbook, notes, "notes");
@@ -396,23 +427,127 @@ function downloadWorkbook() {
   render();
 }
 
+function normalizeRow(row) {
+  const clean = {};
+  HEADERS.forEach((key) => {
+    clean[key] = normalize(row[key]);
+  });
+  return clean;
+}
+
+function googleParams(extra = {}) {
+  const params = new URLSearchParams(extra);
+  if (config.passcode) params.set("passcode", config.passcode);
+  return params;
+}
+
+function loadGoogleRows() {
+  return new Promise((resolve, reject) => {
+    if (!config.scriptUrl) {
+      reject(new Error("Google Apps Script URL is missing."));
+      return;
+    }
+    const callback = `notebookCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const params = googleParams({ action: "list", callback });
+    const script = document.createElement("script");
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Google Sheets 同步逾時。"));
+    }, 15000);
+
+    function cleanup() {
+      window.clearTimeout(timer);
+      delete window[callback];
+      script.remove();
+    }
+
+    window[callback] = (payload) => {
+      cleanup();
+      if (!payload || payload.ok === false) {
+        reject(new Error(payload?.error || "Google Sheets 回傳錯誤。"));
+        return;
+      }
+      resolve((payload.rows || []).map(normalizeRow));
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("無法讀取 Google Sheets。"));
+    };
+    script.src = `${config.scriptUrl}?${params.toString()}`;
+    document.body.appendChild(script);
+  });
+}
+
+async function syncRow(row) {
+  if (!config.scriptUrl) {
+    setSyncStatus("已儲存在目前頁面，尚未設定 Google Sheets。");
+    return;
+  }
+  try {
+    setSyncStatus("正在寫入 Google Sheets...");
+    await fetch(config.scriptUrl, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "upsert",
+        passcode: config.passcode || "",
+        row: normalizeRow(row),
+      }),
+    });
+    dirty = false;
+    setSyncStatus("已送出到 Google Sheets。請按同步確認最新資料。");
+  } catch (error) {
+    setSyncStatus(`Google Sheets 寫入失敗：${error.message}`);
+  }
+}
+
+async function syncFromGoogle() {
+  saveConfig();
+  if (!config.scriptUrl) {
+    setSyncStatus("請先貼上 Apps Script Web App URL。");
+    return;
+  }
+  try {
+    setSyncStatus("正在從 Google Sheets 同步...");
+    rows = await loadGoogleRows();
+    dirty = false;
+    readRoute();
+    setSyncStatus(`已從 Google Sheets 載入 ${rows.length} 筆資料。`);
+    render();
+  } catch (error) {
+    setSyncStatus(`Google Sheets 同步失敗：${error.message}`);
+  }
+}
+
 async function loadWorkbookFromArrayBuffer(buffer) {
   if (!window.XLSX) throw new Error("SheetJS library is unavailable.");
   const workbook = XLSX.read(buffer, { type: "array" });
   const sheet = workbook.Sheets.notes || workbook.Sheets[workbook.SheetNames[0]];
-  rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }).map(normalizeRow);
   dirty = false;
   readRoute();
   render();
 }
 
 async function loadDefaultData() {
+  googleUrlInput.value = config.scriptUrl || "";
+  googlePasscodeInput.value = config.passcode || "";
+  if (config.scriptUrl) {
+    try {
+      await syncFromGoogle();
+      return;
+    } catch {
+      // syncFromGoogle already reports the error.
+    }
+  }
   try {
     const response = await fetch(DATA_FILE, { cache: "no-store" });
     if (!response.ok) throw new Error("data.xlsx not found");
     await loadWorkbookFromArrayBuffer(await response.arrayBuffer());
   } catch (error) {
-    rows = fallbackRows;
+    rows = fallbackRows.map(normalizeRow);
     readRoute();
     render();
   }
@@ -460,6 +595,8 @@ document.querySelector("#newItemButton").addEventListener("click", () => {
 });
 
 document.querySelector("#downloadCurrentButton").addEventListener("click", downloadWorkbook);
+document.querySelector("#saveGoogleConfigButton").addEventListener("click", saveConfig);
+document.querySelector("#syncGoogleButton").addEventListener("click", syncFromGoogle);
 document.querySelector("#closeEditorButton").addEventListener("click", closeEditor);
 document.querySelector("#archiveButton").addEventListener("click", archiveCurrent);
 editorForm.addEventListener("submit", saveForm);

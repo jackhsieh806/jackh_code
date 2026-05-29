@@ -38,14 +38,31 @@
       <div class="drawer-panel">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">Excel 資料源</p>
+            <p class="eyebrow">資料源</p>
             <h2>資料維護</h2>
           </div>
           <button class="icon-button" id="closeDrawerButton" type="button" aria-label="關閉">×</button>
         </div>
         <div class="drawer-body">
           <button class="primary-action" id="newItemButton" type="button">新增記事</button>
-          <button class="secondary-action" id="downloadCurrentButton" type="button">下載更新後 Excel</button>
+
+          <div class="settings-card">
+            <p class="eyebrow">Google Sheets</p>
+            <label>Apps Script Web App URL
+              <input id="googleScriptUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+            </label>
+            <label>寫入密碼
+              <input id="googlePasscode" type="password" placeholder="與 Apps Script PASSCODE 相同">
+            </label>
+            <div class="settings-actions">
+              <button class="secondary-action" id="saveGoogleConfigButton" type="button">儲存設定</button>
+              <button class="secondary-action" id="syncGoogleButton" type="button">同步資料</button>
+            </div>
+            <p class="sync-status" id="syncStatus">尚未設定 Google Sheets。</p>
+          </div>
+
+          <button class="secondary-action" id="downloadCurrentButton" type="button">下載目前資料 Excel</button>
+          <a class="secondary-action" href="google-apps-script.js" download>下載 Apps Script 程式</a>
           <a class="secondary-action" href="data.xlsx" download>下載原始 Excel</a>
           <label class="file-loader">
             <span>載入本機 Excel 編輯</span>
@@ -53,11 +70,11 @@
           </label>
           <div class="note">
             <strong>手機編輯方式</strong>
-            <p>新增或編輯後，請按「下載更新後 Excel」。GitHub Pages 無法由瀏覽器直接覆寫網站上的 <code>data.xlsx</code>，但會幫你產生已更新的 Excel 檔。</p>
+            <p>設定 Google Apps Script 後，新增、編輯、封存會直接寫回 Google Sheets。Excel 下載保留為備份。</p>
           </div>
           <div class="note">
             <strong>避免誤刪</strong>
-            <p>不提供永久刪除。若要隱藏資料，把狀態改成 <code>archived</code>，資料仍會留在 Excel 裡。</p>
+            <p>不提供永久刪除。若要隱藏資料，把狀態改成 <code>archived</code>，資料仍會留在 Google Sheets 與 Excel 裡。</p>
           </div>
         </div>
       </div>
