@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#faf7ef">
+    <title>生活記事本</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <button class="icon-button" id="backButton" type="button" aria-label="返回">
+          <span aria-hidden="true">‹</span>
+        </button>
+        <div>
+          <p class="eyebrow" id="crumbLabel">個人資料庫</p>
+          <h1 id="pageTitle">生活記事本</h1>
+        </div>
+        <button class="icon-button" id="toolsButton" type="button" aria-label="資料維護">
+          <span aria-hidden="true">☰</span>
+        </button>
+      </header>
+
+      <main>
+        <section class="search-band" aria-label="搜尋">
+          <label class="search-field">
+            <span aria-hidden="true">⌕</span>
+            <input id="searchInput" type="search" placeholder="搜尋主題、分類、名稱或內容">
+          </label>
+        </section>
+
+        <section id="content" class="content" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <aside class="drawer" id="drawer" aria-hidden="true">
+      <div class="drawer-panel">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">Excel 資料源</p>
+            <h2>資料維護</h2>
+          </div>
+          <button class="icon-button" id="closeDrawerButton" type="button" aria-label="關閉">×</button>
+        </div>
+        <div class="drawer-body">
+          <a class="primary-action" href="data.xlsx" download>下載 Excel 範本</a>
+          <label class="file-loader">
+            <span>載入本機 Excel 預覽</span>
+            <input id="excelInput" type="file" accept=".xlsx,.xls">
+          </label>
+          <div class="note">
+            <strong>維護方式</strong>
+            <p>新增或修改資料時，編輯 <code>data.xlsx</code> 的 <code>notes</code> 工作表。不要刪除舊列；把 <code>status</code> 改成 <code>archived</code> 即可從網站隱藏。</p>
+          </div>
+          <div class="schema">
+            <span>id</span><span>status</span><span>theme</span><span>category</span><span>title</span><span>content</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
