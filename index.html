@@ -44,21 +44,78 @@
           <button class="icon-button" id="closeDrawerButton" type="button" aria-label="關閉">×</button>
         </div>
         <div class="drawer-body">
-          <a class="primary-action" href="data.xlsx" download>下載 Excel 範本</a>
+          <button class="primary-action" id="newItemButton" type="button">新增記事</button>
+          <button class="secondary-action" id="downloadCurrentButton" type="button">下載更新後 Excel</button>
+          <a class="secondary-action" href="data.xlsx" download>下載原始 Excel</a>
           <label class="file-loader">
-            <span>載入本機 Excel 預覽</span>
+            <span>載入本機 Excel 編輯</span>
             <input id="excelInput" type="file" accept=".xlsx,.xls">
           </label>
           <div class="note">
-            <strong>維護方式</strong>
-            <p>新增或修改資料時，編輯 <code>data.xlsx</code> 的 <code>notes</code> 工作表。不要刪除舊列；把 <code>status</code> 改成 <code>archived</code> 即可從網站隱藏。</p>
+            <strong>手機編輯方式</strong>
+            <p>新增或編輯後，請按「下載更新後 Excel」。GitHub Pages 無法由瀏覽器直接覆寫網站上的 <code>data.xlsx</code>，但會幫你產生已更新的 Excel 檔。</p>
           </div>
-          <div class="schema">
-            <span>id</span><span>status</span><span>theme</span><span>category</span><span>title</span><span>content</span>
+          <div class="note">
+            <strong>避免誤刪</strong>
+            <p>不提供永久刪除。若要隱藏資料，把狀態改成 <code>archived</code>，資料仍會留在 Excel 裡。</p>
           </div>
         </div>
       </div>
     </aside>
+
+    <div class="modal" id="editorModal" aria-hidden="true">
+      <form class="editor-panel" id="editorForm">
+        <div class="editor-header">
+          <div>
+            <p class="eyebrow" id="editorModeLabel">新增</p>
+            <h2 id="editorTitle">記事</h2>
+          </div>
+          <button class="icon-button" id="closeEditorButton" type="button" aria-label="關閉">×</button>
+        </div>
+        <div class="editor-body">
+          <input id="editId" name="id" type="hidden">
+          <div class="form-grid">
+            <label>狀態
+              <select name="status">
+                <option value="active">active 顯示</option>
+                <option value="archived">archived 隱藏</option>
+              </select>
+            </label>
+            <label>大主題
+              <input name="theme" required placeholder="例如：食譜">
+            </label>
+            <label>主題圖示
+              <input name="theme_icon" placeholder="例如：🍳">
+            </label>
+            <label>主題色碼
+              <input name="theme_color" placeholder="#b14f35">
+            </label>
+            <label>分類
+              <input name="category" required placeholder="例如：中式">
+            </label>
+            <label>名稱
+              <input name="title" required placeholder="例如：番茄炒蛋">
+            </label>
+            <label class="wide">摘要
+              <input name="summary" placeholder="列表顯示的短說明">
+            </label>
+            <label class="wide">內容
+              <textarea name="content" rows="9" placeholder="做法、步驟或備忘內容"></textarea>
+            </label>
+            <label>標籤
+              <input name="tags" placeholder="快速,家常">
+            </label>
+            <label>更新日期
+              <input name="updated_at" type="date">
+            </label>
+          </div>
+        </div>
+        <div class="editor-actions">
+          <button class="secondary-action" id="archiveButton" type="button">封存</button>
+          <button class="primary-action" type="submit">儲存</button>
+        </div>
+      </form>
+    </div>
 
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>

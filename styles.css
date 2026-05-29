@@ -27,7 +27,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -305,18 +307,27 @@ input {
 }
 
 .primary-action,
+.secondary-action,
 .file-loader {
   min-height: 48px;
+  border: 0;
   border-radius: 8px;
   display: grid;
   place-items: center;
   text-decoration: none;
   font-weight: 800;
+  cursor: pointer;
 }
 
 .primary-action {
   background: var(--accent);
   color: white;
+}
+
+.secondary-action {
+  border: 1px solid var(--line);
+  background: rgba(255, 253, 247, 0.95);
+  color: var(--accent);
 }
 
 .file-loader {
@@ -355,6 +366,104 @@ input {
   font-weight: 700;
 }
 
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: none;
+  background: rgba(36, 33, 28, 0.34);
+  padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom);
+  overflow: auto;
+}
+
+.modal.is-open {
+  display: grid;
+  place-items: start center;
+}
+
+.editor-panel {
+  width: min(680px, 100%);
+  margin: 18px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.editor-header {
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  gap: 12px;
+  align-items: center;
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.editor-header h2 {
+  margin: 2px 0 0;
+  font-size: 24px;
+}
+
+.editor-body {
+  padding: 18px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.form-grid label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.form-grid label.wide {
+  grid-column: 1 / -1;
+}
+
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  padding: 11px 12px;
+  outline: 0;
+  font-size: 16px;
+}
+
+.form-grid textarea {
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.editor-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.detail-actions .secondary-action {
+  min-width: 96px;
+  min-height: 42px;
+}
+
 @media (max-width: 520px) {
   .topbar {
     grid-template-columns: 42px 1fr 42px;
@@ -385,5 +494,13 @@ input {
 
   .tile h2 {
     font-size: 19px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-actions {
+    grid-template-columns: 1fr;
   }
 }

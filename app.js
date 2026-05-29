@@ -1,4 +1,17 @@
 const DATA_FILE = "data.xlsx";
+const HEADERS = [
+  "id",
+  "status",
+  "theme",
+  "theme_icon",
+  "theme_color",
+  "category",
+  "title",
+  "summary",
+  "content",
+  "tags",
+  "updated_at",
+];
 
 const fallbackRows = [
   {
@@ -70,6 +83,7 @@ const fallbackRows = [
 
 let rows = [];
 let route = { view: "home" };
+let dirty = false;
 
 const content = document.querySelector("#content");
 const pageTitle = document.querySelector("#pageTitle");
@@ -77,10 +91,22 @@ const crumbLabel = document.querySelector("#crumbLabel");
 const backButton = document.querySelector("#backButton");
 const searchInput = document.querySelector("#searchInput");
 const drawer = document.querySelector("#drawer");
+const editorModal = document.querySelector("#editorModal");
+const editorForm = document.querySelector("#editorForm");
 
 const normalize = (value) => String(value ?? "").trim();
 const slug = (value) => encodeURIComponent(normalize(value));
+const today = () => new Date().toISOString().slice(0, 10);
 const activeRows = () => rows.filter((row) => normalize(row.status).toLowerCase() !== "archived");
+
+function escapeHtml(value) {
+  return normalize(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 function groupBy(items, key) {
   return items.reduce((groups, item) => {
@@ -116,7 +142,7 @@ function readRoute() {
 function summaryForTheme(items) {
   const categories = groupBy(items, "category");
   return Object.entries(categories)
-    .map(([name, list]) => `${name} (${list.length})`)
+    .map(([name, list]) => `${escapeHtml(name)} (${list.length})`)
     .join(" | ");
 }
 
@@ -127,8 +153,8 @@ function barsForTheme(items, color) {
     .slice(0, 4)
     .map(([name, list]) => {
       const width = Math.round((list.length / max) * 100);
-      return `<div class="bar" style="--tile-color:${color};">
-        <span>${name}</span>
+      return `<div class="bar" style="--tile-color:${escapeHtml(color)};">
+        <span>${escapeHtml(name)}</span>
         <span class="bar-track"><span class="bar-fill" style="--bar-width:${width}%"></span></span>
         <span>${list.length}</span>
       </div>`;
@@ -139,17 +165,17 @@ function barsForTheme(items, color) {
 function renderHome() {
   const themes = groupBy(getFilteredRows(), "theme");
   pageTitle.textContent = "生活記事本";
-  crumbLabel.textContent = "個人資料庫";
+  crumbLabel.textContent = dirty ? "有未下載的修改" : "個人資料庫";
   backButton.style.visibility = "hidden";
 
   const html = Object.entries(themes)
     .map(([theme, items]) => {
       const first = items[0] || {};
       const color = normalize(first.theme_color) || "#2e6f6b";
-      return `<button class="tile" type="button" style="--tile-color:${color};" data-theme="${theme}">
+      return `<button class="tile" type="button" style="--tile-color:${escapeHtml(color)};" data-theme="${escapeHtml(theme)}">
         <div>
-          <span class="tile-icon">${normalize(first.theme_icon) || "□"}</span>
-          <h2>${theme}</h2>
+          <span class="tile-icon">${escapeHtml(first.theme_icon) || "□"}</span>
+          <h2>${escapeHtml(theme)}</h2>
           <p>${summaryForTheme(items)}</p>
         </div>
         <div class="count-strip">${barsForTheme(items, color)}</div>
@@ -173,10 +199,10 @@ function renderTheme() {
   backButton.style.visibility = "visible";
 
   const html = Object.entries(categories)
-    .map(([category, items]) => `<button class="tile" type="button" style="--tile-color:${color};" data-category="${category}">
+    .map(([category, items]) => `<button class="tile" type="button" style="--tile-color:${escapeHtml(color)};" data-category="${escapeHtml(category)}">
       <div>
-        <span class="tile-icon">${normalize(first.theme_icon) || "□"}</span>
-        <h2>${category}</h2>
+        <span class="tile-icon">${escapeHtml(first.theme_icon) || "□"}</span>
+        <h2>${escapeHtml(category)}</h2>
         <p>${items.length} 筆記事</p>
       </div>
       <div class="count-strip">${barsForTheme(items, color)}</div>
@@ -198,10 +224,10 @@ function renderCategory() {
   backButton.style.visibility = "visible";
 
   const html = list
-    .map((row) => `<button class="list-item" type="button" data-id="${normalize(row.id)}">
-      <h2>${normalize(row.title)}</h2>
-      <div class="meta-line">${normalize(row.updated_at)} · ${normalize(row.tags)}</div>
-      <p class="summary">${normalize(row.summary)}</p>
+    .map((row) => `<button class="list-item" type="button" data-id="${escapeHtml(row.id)}">
+      <h2>${escapeHtml(row.title)}</h2>
+      <div class="meta-line">${escapeHtml(row.updated_at)} · ${escapeHtml(row.tags)}</div>
+      <p class="summary">${escapeHtml(row.summary)}</p>
     </button>`)
     .join("");
 
@@ -228,20 +254,25 @@ function renderDetail() {
     .split(",")
     .map((tag) => tag.trim())
     .filter(Boolean)
-    .map((tag) => `<span class="tag">${tag}</span>`)
+    .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
     .join("");
 
   content.innerHTML = `<article class="detail-card">
-    <h2>${normalize(item.title)}</h2>
-    <div class="meta-line">${normalize(item.updated_at)} · ${normalize(item.theme)} · ${normalize(item.category)}</div>
-    <p class="summary">${normalize(item.summary)}</p>
-    <div class="content-block">${normalize(item.content)}</div>
+    <div class="detail-actions">
+      <button class="secondary-action" id="editCurrentButton" type="button">編輯</button>
+    </div>
+    <h2>${escapeHtml(item.title)}</h2>
+    <div class="meta-line">${escapeHtml(item.updated_at)} · ${escapeHtml(item.theme)} · ${escapeHtml(item.category)}</div>
+    <p class="summary">${escapeHtml(item.summary)}</p>
+    <div class="content-block">${escapeHtml(item.content)}</div>
     <div class="tag-row">${tags}</div>
   </article>`;
+
+  document.querySelector("#editCurrentButton").addEventListener("click", () => openEditor(item));
 }
 
 function empty(message) {
-  return `<div class="empty-state">${message}</div>`;
+  return `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
 function render() {
@@ -251,11 +282,126 @@ function render() {
   else renderHome();
 }
 
+function openEditor(item = null) {
+  const isEdit = Boolean(item);
+  document.querySelector("#editorModeLabel").textContent = isEdit ? "編輯" : "新增";
+  document.querySelector("#editorTitle").textContent = isEdit ? normalize(item.title) : "記事";
+  editorForm.reset();
+
+  const defaults = {
+    id: "",
+    status: "active",
+    theme: route.theme || "食譜",
+    theme_icon: "🍳",
+    theme_color: "#b14f35",
+    category: route.category || "",
+    title: "",
+    summary: "",
+    content: "",
+    tags: "",
+    updated_at: today(),
+    ...item,
+  };
+
+  HEADERS.forEach((key) => {
+    if (editorForm.elements[key]) editorForm.elements[key].value = normalize(defaults[key]);
+  });
+  document.querySelector("#archiveButton").style.visibility = isEdit ? "visible" : "hidden";
+  editorModal.classList.add("is-open");
+  editorModal.setAttribute("aria-hidden", "false");
+}
+
+function closeEditor() {
+  editorModal.classList.remove("is-open");
+  editorModal.setAttribute("aria-hidden", "true");
+}
+
+function makeId(values) {
+  const base = `${values.theme}-${values.category}-${values.title}`
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  const stamp = Date.now().toString(36);
+  return `${base || "note"}-${stamp}`;
+}
+
+function formValues() {
+  const data = Object.fromEntries(new FormData(editorForm).entries());
+  const values = {};
+  HEADERS.forEach((key) => {
+    values[key] = normalize(data[key]);
+  });
+  values.status = values.status || "active";
+  values.theme_icon = values.theme_icon || "□";
+  values.theme_color = values.theme_color || "#2e6f6b";
+  values.updated_at = values.updated_at || today();
+  values.id = values.id || makeId(values);
+  return values;
+}
+
+function saveForm(event) {
+  event.preventDefault();
+  const values = formValues();
+  const index = rows.findIndex((row) => normalize(row.id) === values.id);
+  if (index >= 0) rows[index] = { ...rows[index], ...values };
+  else rows.push(values);
+  dirty = true;
+  closeEditor();
+  setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
+}
+
+function archiveCurrent() {
+  const id = normalize(editorForm.elements.id.value);
+  const index = rows.findIndex((row) => normalize(row.id) === id);
+  if (index < 0) return;
+  rows[index].status = "archived";
+  rows[index].updated_at = today();
+  dirty = true;
+  closeEditor();
+  setRoute({ view: "home" });
+}
+
+function downloadWorkbook() {
+  if (!window.XLSX) {
+    alert("Excel 套件尚未載入，請稍後再試。");
+    return;
+  }
+  const cleanRows = rows.map((row) => {
+    const clean = {};
+    HEADERS.forEach((key) => {
+      clean[key] = normalize(row[key]);
+    });
+    return clean;
+  });
+  const workbook = XLSX.utils.book_new();
+  const notes = XLSX.utils.json_to_sheet(cleanRows, { header: HEADERS });
+  XLSX.utils.book_append_sheet(workbook, notes, "notes");
+  const guide = XLSX.utils.aoa_to_sheet([
+    ["欄位", "說明"],
+    ["id", "唯一代號，不要重複。"],
+    ["status", "active 顯示；archived 隱藏，建議不要刪資料。"],
+    ["theme", "大主題，例如食譜、生活備忘。"],
+    ["theme_icon", "主題圖示。"],
+    ["theme_color", "主題色碼。"],
+    ["category", "分類，例如中式、西式、日式。"],
+    ["title", "記事或食譜名稱。"],
+    ["summary", "列表摘要。"],
+    ["content", "內頁內容，可換行。"],
+    ["tags", "半形逗號分隔。"],
+    ["updated_at", "更新日期。"],
+  ]);
+  XLSX.utils.book_append_sheet(workbook, guide, "guide");
+  XLSX.writeFile(workbook, `data-updated-${today()}.xlsx`);
+  dirty = false;
+  render();
+}
+
 async function loadWorkbookFromArrayBuffer(buffer) {
   if (!window.XLSX) throw new Error("SheetJS library is unavailable.");
   const workbook = XLSX.read(buffer, { type: "array" });
   const sheet = workbook.Sheets.notes || workbook.Sheets[workbook.SheetNames[0]];
   rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  dirty = false;
   readRoute();
   render();
 }
@@ -305,6 +451,20 @@ document.querySelector("#excelInput").addEventListener("change", async (event) =
   const [file] = event.target.files;
   if (!file) return;
   await loadWorkbookFromArrayBuffer(await file.arrayBuffer());
+});
+
+document.querySelector("#newItemButton").addEventListener("click", () => {
+  drawer.classList.remove("is-open");
+  drawer.setAttribute("aria-hidden", "true");
+  openEditor();
+});
+
+document.querySelector("#downloadCurrentButton").addEventListener("click", downloadWorkbook);
+document.querySelector("#closeEditorButton").addEventListener("click", closeEditor);
+document.querySelector("#archiveButton").addEventListener("click", archiveCurrent);
+editorForm.addEventListener("submit", saveForm);
+editorModal.addEventListener("click", (event) => {
+  if (event.target === editorModal) closeEditor();
 });
 
 loadDefaultData();
