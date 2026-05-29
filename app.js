@@ -24,7 +24,8 @@ const fallbackRows = [
     category: "中式",
     title: "家常滷肉",
     summary: "適合便當與拌飯的基礎滷肉。",
-    content: "1. 五花肉切小塊，乾鍋煸出油香。\n2. 加入蒜、醬油、米酒、冰糖炒上色。\n3. 加水蓋過食材，小火燉 45 分鐘。\n4. 起鍋前試鹹度，可加水煮蛋一起滷。",
+    content:
+      "1. 五花肉切小塊，乾鍋煸出油香。\n2. 加入蒜、醬油、米酒、冰糖炒上色。\n3. 加水蓋過食材，小火燉 45 分鐘。\n4. 起鍋前試鹹度，可加水煮蛋一起滷。",
     tags: "便當,下飯",
     updated_at: "2026-05-29",
   },
@@ -37,7 +38,8 @@ const fallbackRows = [
     category: "中式",
     title: "番茄炒蛋",
     summary: "十分鐘完成的日常菜。",
-    content: "1. 蛋加少許鹽打散，先炒至半熟盛起。\n2. 番茄切塊下鍋炒出汁。\n3. 加回蛋，補少許糖與鹽。\n4. 撒蔥花後起鍋。",
+    content:
+      "1. 蛋加少許鹽打散，先炒至半熟盛起。\n2. 番茄切塊下鍋炒出汁。\n3. 加回蛋，補少許糖與鹽。\n4. 撒蔥花後起鍋。",
     tags: "快速,家常",
     updated_at: "2026-05-29",
   },
@@ -50,7 +52,8 @@ const fallbackRows = [
     category: "西式",
     title: "蒜香橄欖油義大利麵",
     summary: "材料少、很適合平日晚餐。",
-    content: "1. 義大利麵煮到比包裝時間少 1 分鐘。\n2. 橄欖油小火煸香蒜片與辣椒。\n3. 加入麵與少量煮麵水乳化。\n4. 以鹽、黑胡椒與巴西里調味。",
+    content:
+      "1. 義大利麵煮到比包裝時間少 1 分鐘。\n2. 橄欖油小火煸香蒜片與辣椒。\n3. 加入麵與少量煮麵水乳化。\n4. 以鹽、黑胡椒與巴西里調味。",
     tags: "麵食,快速",
     updated_at: "2026-05-29",
   },
@@ -63,7 +66,8 @@ const fallbackRows = [
     category: "日式",
     title: "日式咖哩飯",
     summary: "可一次煮多份冷藏。",
-    content: "1. 洋蔥炒到透明後加入肉塊煎香。\n2. 加紅蘿蔔、馬鈴薯與水燉煮。\n3. 關火放入咖哩塊，融化後再小火煮濃。\n4. 配白飯與福神漬。",
+    content:
+      "1. 洋蔥炒到透明後加入肉塊煎香。\n2. 加紅蘿蔔、馬鈴薯與水燉煮。\n3. 關火放入咖哩塊，融化後再小火煮濃。\n4. 配白飯與福神漬。",
     tags: "備餐,飯食",
     updated_at: "2026-05-29",
   },
@@ -76,7 +80,8 @@ const fallbackRows = [
     category: "家務",
     title: "週末整理清單",
     summary: "固定整理項目，避免漏掉。",
-    content: "1. 更換床單與枕套。\n2. 清洗浴室排水孔。\n3. 檢查冰箱即期食材。\n4. 補充垃圾袋、洗碗精與衛生紙。",
+    content:
+      "1. 更換床單與枕套。\n2. 清洗浴室排水孔。\n3. 檢查冰箱即期食材。\n4. 補充垃圾袋、洗碗精與衛生紙。",
     tags: "週末,清潔",
     updated_at: "2026-05-29",
   },
@@ -149,11 +154,11 @@ function groupBy(items, key) {
 function getFilteredRows() {
   const query = normalize(searchInput.value).toLowerCase();
   if (!query) return activeRows();
-  return activeRows().filter((row) => {
-    return ["theme", "category", "title", "summary", "content", "tags"].some((key) =>
+  return activeRows().filter((row) =>
+    ["theme", "category", "title", "summary", "content", "tags"].some((key) =>
       normalize(row[key]).toLowerCase().includes(query),
-    );
-  });
+    ),
+  );
 }
 
 function setRoute(nextRoute) {
@@ -229,19 +234,23 @@ function renderTheme() {
   backButton.style.visibility = "visible";
 
   const html = Object.entries(categories)
-    .map(([category, items]) => `<button class="tile" type="button" style="--tile-color:${escapeHtml(color)};" data-category="${escapeHtml(category)}">
+    .map(
+      ([category, items]) => `<button class="tile" type="button" style="--tile-color:${escapeHtml(color)};" data-category="${escapeHtml(category)}">
       <div>
         <span class="tile-icon">${escapeHtml(first.theme_icon) || "□"}</span>
         <h2>${escapeHtml(category)}</h2>
         <p>${items.length} 筆記事</p>
       </div>
       <div class="count-strip">${barsForTheme(items, color)}</div>
-    </button>`)
+    </button>`,
+    )
     .join("");
 
   content.innerHTML = html ? `<div class="tile-grid">${html}</div>` : empty("這個主題目前沒有資料。");
   content.querySelectorAll("[data-category]").forEach((button) => {
-    button.addEventListener("click", () => setRoute({ view: "category", theme: route.theme, category: button.dataset.category }));
+    button.addEventListener("click", () =>
+      setRoute({ view: "category", theme: route.theme, category: button.dataset.category }),
+    );
   });
 }
 
@@ -254,11 +263,13 @@ function renderCategory() {
   backButton.style.visibility = "visible";
 
   const html = list
-    .map((row) => `<button class="list-item" type="button" data-id="${escapeHtml(row.id)}">
+    .map(
+      (row) => `<button class="list-item" type="button" data-id="${escapeHtml(row.id)}">
       <h2>${escapeHtml(row.title)}</h2>
       <div class="meta-line">${escapeHtml(row.updated_at)} · ${escapeHtml(row.tags)}</div>
       <p class="summary">${escapeHtml(row.summary)}</p>
-    </button>`)
+    </button>`,
+    )
     .join("");
 
   content.innerHTML = html ? `<div class="list-stack">${html}</div>` : empty("這個分類目前沒有資料。");
@@ -369,62 +380,11 @@ function formValues() {
   return values;
 }
 
-async function saveForm(event) {
-  event.preventDefault();
-  const values = formValues();
-  upsertLocal(values);
-  closeEditor();
-  setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
-  await syncRow(values);
-}
-
 function upsertLocal(values) {
   const index = rows.findIndex((row) => normalize(row.id) === values.id);
   if (index >= 0) rows[index] = { ...rows[index], ...values };
   else rows.push(values);
   dirty = true;
-}
-
-async function archiveCurrent() {
-  const id = normalize(editorForm.elements.id.value);
-  const index = rows.findIndex((row) => normalize(row.id) === id);
-  if (index < 0) return;
-  rows[index].status = "archived";
-  rows[index].updated_at = today();
-  dirty = true;
-  const archived = { ...rows[index] };
-  closeEditor();
-  setRoute({ view: "home" });
-  await syncRow(archived);
-}
-
-function downloadWorkbook() {
-  if (!window.XLSX) {
-    alert("Excel 套件尚未載入，請稍後再試。");
-    return;
-  }
-  const cleanRows = rows.map(normalizeRow);
-  const workbook = XLSX.utils.book_new();
-  const notes = XLSX.utils.json_to_sheet(cleanRows, { header: HEADERS });
-  XLSX.utils.book_append_sheet(workbook, notes, "notes");
-  const guide = XLSX.utils.aoa_to_sheet([
-    ["欄位", "說明"],
-    ["id", "唯一代號，不要重複。"],
-    ["status", "active 顯示；archived 隱藏，建議不要刪資料。"],
-    ["theme", "大主題，例如食譜、生活備忘。"],
-    ["theme_icon", "主題圖示。"],
-    ["theme_color", "主題色碼。"],
-    ["category", "分類，例如中式、西式、日式。"],
-    ["title", "記事或食譜名稱。"],
-    ["summary", "列表摘要。"],
-    ["content", "內頁內容，可換行。"],
-    ["tags", "半形逗號分隔。"],
-    ["updated_at", "更新日期。"],
-  ]);
-  XLSX.utils.book_append_sheet(workbook, guide, "guide");
-  XLSX.writeFile(workbook, `data-updated-${today()}.xlsx`);
-  dirty = false;
-  render();
 }
 
 function normalizeRow(row) {
@@ -441,19 +401,24 @@ function googleParams(extra = {}) {
   return params;
 }
 
-function loadGoogleRows() {
+function jsonpRequest(action, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     if (!config.scriptUrl) {
       reject(new Error("Google Apps Script URL is missing."));
       return;
     }
+
     const callback = `notebookCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const params = googleParams({ action: "list", callback });
+    const params = googleParams({ action, callback });
     const script = document.createElement("script");
     const timer = window.setTimeout(() => {
       cleanup();
-      reject(new Error("Google Sheets 同步逾時。"));
-    }, 15000);
+      reject(
+        new Error(
+          "Google Sheets 同步逾時。請確認 Web App 已部署成「任何人可存取」，URL 是 /exec，而且腳本可以直接讀到試算表。",
+        ),
+      );
+    }, timeoutMs);
 
     function cleanup() {
       window.clearTimeout(timer);
@@ -467,16 +432,31 @@ function loadGoogleRows() {
         reject(new Error(payload?.error || "Google Sheets 回傳錯誤。"));
         return;
       }
-      resolve((payload.rows || []).map(normalizeRow));
+      resolve(payload);
     };
 
     script.onerror = () => {
       cleanup();
-      reject(new Error("無法讀取 Google Sheets。"));
+      reject(
+        new Error(
+          "無法讀取 Google Sheets。請確認 Apps Script Web App 設定為「執行身分：我」與「誰可以存取：任何人」，並且腳本已綁定試算表或已填入 SPREADSHEET_ID。",
+        ),
+      );
     };
+
     script.src = `${config.scriptUrl}?${params.toString()}`;
     document.body.appendChild(script);
   });
+}
+
+async function pingGoogle() {
+  if (!config.scriptUrl) return;
+  await jsonpRequest("ping", 10000);
+}
+
+async function loadGoogleRows() {
+  const payload = await jsonpRequest("list");
+  return (payload.rows || []).map(normalizeRow);
 }
 
 async function syncRow(row) {
@@ -484,6 +464,7 @@ async function syncRow(row) {
     setSyncStatus("已儲存在目前頁面，尚未設定 Google Sheets。");
     return;
   }
+
   try {
     setSyncStatus("正在寫入 Google Sheets...");
     await fetch(config.scriptUrl, {
@@ -509,8 +490,10 @@ async function syncFromGoogle() {
     setSyncStatus("請先貼上 Apps Script Web App URL。");
     return;
   }
+
   try {
-    setSyncStatus("正在從 Google Sheets 同步...");
+    setSyncStatus("正在連線到 Google Sheets...");
+    await pingGoogle();
     rows = await loadGoogleRows();
     dirty = false;
     readRoute();
@@ -518,7 +501,38 @@ async function syncFromGoogle() {
     render();
   } catch (error) {
     setSyncStatus(`Google Sheets 同步失敗：${error.message}`);
+    throw error;
   }
+}
+
+function downloadWorkbook() {
+  if (!window.XLSX) {
+    alert("Excel 套件尚未載入，請稍後再試。");
+    return;
+  }
+
+  const cleanRows = rows.map(normalizeRow);
+  const workbook = XLSX.utils.book_new();
+  const notes = XLSX.utils.json_to_sheet(cleanRows, { header: HEADERS });
+  XLSX.utils.book_append_sheet(workbook, notes, "notes");
+  const guide = XLSX.utils.aoa_to_sheet([
+    ["欄位", "說明"],
+    ["id", "唯一代號，不要重複。"],
+    ["status", "active 顯示；archived 隱藏，建議不要刪資料。"],
+    ["theme", "大主題，例如食譜、生活備忘。"],
+    ["theme_icon", "主題圖示。"],
+    ["theme_color", "主題色碼。"],
+    ["category", "分類，例如中式、西式、日式。"],
+    ["title", "記事或食譜名稱。"],
+    ["summary", "列表摘要。"],
+    ["content", "內頁內容，可換行。"],
+    ["tags", "半形逗號分隔。"],
+    ["updated_at", "更新日期。"],
+  ]);
+  XLSX.utils.book_append_sheet(workbook, guide, "guide");
+  XLSX.writeFile(workbook, `data-updated-${today()}.xlsx`);
+  dirty = false;
+  render();
 }
 
 async function loadWorkbookFromArrayBuffer(buffer) {
@@ -534,23 +548,57 @@ async function loadWorkbookFromArrayBuffer(buffer) {
 async function loadDefaultData() {
   googleUrlInput.value = config.scriptUrl || "";
   googlePasscodeInput.value = config.passcode || "";
+
   if (config.scriptUrl) {
     try {
       await syncFromGoogle();
       return;
     } catch {
-      // syncFromGoogle already reports the error.
+      // Fall back to local Excel if Sheets is not reachable yet.
     }
   }
+
   try {
     const response = await fetch(DATA_FILE, { cache: "no-store" });
     if (!response.ok) throw new Error("data.xlsx not found");
     await loadWorkbookFromArrayBuffer(await response.arrayBuffer());
-  } catch (error) {
+  } catch {
     rows = fallbackRows.map(normalizeRow);
     readRoute();
     render();
   }
+}
+
+function archiveCurrent() {
+  const id = normalize(editorForm.elements.id.value);
+  const index = rows.findIndex((row) => normalize(row.id) === id);
+  if (index < 0) return;
+  rows[index].status = "archived";
+  rows[index].updated_at = today();
+  dirty = true;
+  const archived = { ...rows[index] };
+  closeEditor();
+  setRoute({ view: "home" });
+  syncRow(archived);
+}
+
+function saveForm(event) {
+  event.preventDefault();
+  const values = formValues();
+  upsertLocal(values);
+  closeEditor();
+  setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
+  syncRow(values);
+}
+
+function openTools() {
+  drawer.classList.add("is-open");
+  drawer.setAttribute("aria-hidden", "false");
+}
+
+function closeTools() {
+  drawer.classList.remove("is-open");
+  drawer.setAttribute("aria-hidden", "true");
 }
 
 backButton.addEventListener("click", () => {
@@ -565,21 +613,10 @@ window.addEventListener("hashchange", () => {
   render();
 });
 
-document.querySelector("#toolsButton").addEventListener("click", () => {
-  drawer.classList.add("is-open");
-  drawer.setAttribute("aria-hidden", "false");
-});
-
-document.querySelector("#closeDrawerButton").addEventListener("click", () => {
-  drawer.classList.remove("is-open");
-  drawer.setAttribute("aria-hidden", "true");
-});
-
+document.querySelector("#toolsButton").addEventListener("click", openTools);
+document.querySelector("#closeDrawerButton").addEventListener("click", closeTools);
 drawer.addEventListener("click", (event) => {
-  if (event.target === drawer) {
-    drawer.classList.remove("is-open");
-    drawer.setAttribute("aria-hidden", "true");
-  }
+  if (event.target === drawer) closeTools();
 });
 
 document.querySelector("#excelInput").addEventListener("change", async (event) => {
@@ -589,14 +626,18 @@ document.querySelector("#excelInput").addEventListener("change", async (event) =
 });
 
 document.querySelector("#newItemButton").addEventListener("click", () => {
-  drawer.classList.remove("is-open");
-  drawer.setAttribute("aria-hidden", "true");
+  closeTools();
   openEditor();
 });
 
 document.querySelector("#downloadCurrentButton").addEventListener("click", downloadWorkbook);
-document.querySelector("#saveGoogleConfigButton").addEventListener("click", saveConfig);
-document.querySelector("#syncGoogleButton").addEventListener("click", syncFromGoogle);
+document.querySelector("#saveGoogleConfigButton").addEventListener("click", () => {
+  saveConfig();
+});
+document.querySelector("#syncGoogleButton").addEventListener("click", async () => {
+  saveConfig();
+  await syncFromGoogle();
+});
 document.querySelector("#closeEditorButton").addEventListener("click", closeEditor);
 document.querySelector("#archiveButton").addEventListener("click", archiveCurrent);
 editorForm.addEventListener("submit", saveForm);

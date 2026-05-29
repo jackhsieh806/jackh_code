@@ -24,6 +24,12 @@ id	status	theme	theme_icon	theme_color	category	title	summary	content	tags	updat
 const PASSCODE = "change-this-passcode";
 ```
 
+如果你不是從 Google Sheet 裡面開 Apps Script，而是自己新建了一個獨立專案，請再把這行填上你的試算表 ID：
+
+```js
+const SPREADSHEET_ID = "your-spreadsheet-id";
+```
+
 ## 3. 部署 Web App
 
 選：
@@ -51,3 +57,12 @@ https://script.google.com/macros/s/....../exec
 按 `儲存設定`，再按 `同步資料`。
 
 之後手機新增、編輯、封存都會送到 Google Sheets。若 Apps Script 重新部署，請貼新的 Web App URL。
+
+## 5. 如果還是讀不到
+
+請再檢查部署設定：
+
+- `執行身分` 要選 `我`
+- `誰可以存取` 要選 `任何人`
+- URL 要用 `/exec`，不是 `/dev`
+- 如果是獨立專案，`SPREADSHEET_ID` 不能留空
