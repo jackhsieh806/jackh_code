@@ -49,16 +49,15 @@
           <div class="settings-card">
             <p class="eyebrow">Google Sheets</p>
             <label>Apps Script Web App URL
-              <input id="googleScriptUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+              <input id="googleScriptUrl" type="url" readonly>
             </label>
             <label>寫入密碼
-              <input id="googlePasscode" type="password" placeholder="與 Apps Script PASSCODE 相同">
+              <input id="googlePasscode" type="password" readonly>
             </label>
             <div class="settings-actions">
-              <button class="secondary-action" id="saveGoogleConfigButton" type="button">儲存設定</button>
               <button class="secondary-action" id="syncGoogleButton" type="button">同步資料</button>
             </div>
-            <p class="sync-status" id="syncStatus">尚未設定 Google Sheets。</p>
+            <p class="sync-status" id="syncStatus">正在準備同步設定。</p>
           </div>
 
           <button class="secondary-action" id="downloadCurrentButton" type="button">下載目前資料 Excel</button>
@@ -70,7 +69,7 @@
           </label>
           <div class="note">
             <strong>手機編輯方式</strong>
-            <p>設定 Google Apps Script 後，新增、編輯、封存會直接寫回 Google Sheets。Excel 下載保留為備份。</p>
+            <p>設定已固定成你提供的 Google Apps Script，新增、編輯、封存會直接送往 Google Sheets。Excel 下載保留為備份。</p>
           </div>
           <div class="note">
             <strong>避免誤刪</strong>

@@ -1,8 +1,10 @@
 # Google Sheets 連線設定
 
-## 1. 建立 Google Sheet
+這個版本已經把前端固定連到你提供的 Web App URL，密碼也固定為 `3141`。
 
-建立一個新的 Google 試算表，第一張工作表命名為 `notes`，第一列貼上欄位：
+## 1. Google Sheet
+
+建立一個新的 Google 試算表，第一張工作表命名為 `notes`，第一列欄位如下：
 
 ```text
 id	status	theme	theme_icon	theme_color	category	title	summary	content	tags	updated_at
@@ -10,21 +12,17 @@ id	status	theme	theme_icon	theme_color	category	title	summary	content	tags	updat
 
 也可以先把網站下載的 `data.xlsx` 匯入 Google Sheets。
 
-## 2. 建立 Apps Script
+## 2. Apps Script
 
 在 Google Sheet 裡選：
 
 `擴充功能` -> `Apps Script`
 
-把本專案的 `google-apps-script.js` 內容貼進去。
+把本專案的 [google-apps-script.js](./google-apps-script.js) 內容貼進去。
 
-把這行改成你自己的寫入密碼：
+如果你是從 Google Sheet 裡面開這個 Apps Script，通常 `SPREADSHEET_ID` 可以留空。
 
-```js
-const PASSCODE = "change-this-passcode";
-```
-
-如果你不是從 Google Sheet 裡面開 Apps Script，而是自己新建了一個獨立專案，請再把這行填上你的試算表 ID：
+如果你是自己新建獨立專案，就把這行填成你的試算表 ID：
 
 ```js
 const SPREADSHEET_ID = "your-spreadsheet-id";
@@ -41,28 +39,20 @@ const SPREADSHEET_ID = "your-spreadsheet-id";
 - 執行身分：`我`
 - 誰可以存取：`任何人`
 
-部署後複製 Web App URL，格式會像：
+部署後確認 URL 使用 `/exec`，不是 `/dev`。
 
-```text
-https://script.google.com/macros/s/....../exec
-```
+## 4. 回到網站
 
-## 4. 回到手機網頁設定
-
-開網站右上角資料維護，貼上：
+現在網站右上角已經固定：
 
 - Apps Script Web App URL
-- 寫入密碼
+- 寫入密碼 `3141`
 
-按 `儲存設定`，再按 `同步資料`。
-
-之後手機新增、編輯、封存都會送到 Google Sheets。若 Apps Script 重新部署，請貼新的 Web App URL。
+你只需要按 `同步資料`。
 
 ## 5. 如果還是讀不到
 
-請再檢查部署設定：
-
-- `執行身分` 要選 `我`
-- `誰可以存取` 要選 `任何人`
-- URL 要用 `/exec`，不是 `/dev`
-- 如果是獨立專案，`SPREADSHEET_ID` 不能留空
+- 確認 Apps Script 已重新部署
+- 確認是 `/exec`
+- 確認 `SPREADSHEET_ID` 沒有留空
+- 確認 Apps Script 與試算表有對到同一份資料

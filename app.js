@@ -1,5 +1,7 @@
 const DATA_FILE = "data.xlsx";
 const CONFIG_KEY = "notebookGoogleSheetsConfig";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwif1Vtd9mc1PfJyX33EMaenRNj2sg2j4-3dlP5Qw0wAh7XLJECFY9SgcdtLXZhay0DXg/exec";
+const GOOGLE_PASSCODE = "3141";
 const HEADERS = [
   "id",
   "status",
@@ -111,20 +113,17 @@ const today = () => new Date().toISOString().slice(0, 10);
 const activeRows = () => rows.filter((row) => normalize(row.status).toLowerCase() !== "archived");
 
 function loadConfig() {
-  try {
-    return JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}");
-  } catch {
-    return {};
-  }
+  const fixed = { scriptUrl: GOOGLE_SCRIPT_URL, passcode: GOOGLE_PASSCODE };
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(fixed));
+  return fixed;
 }
 
 function saveConfig() {
-  config = {
-    scriptUrl: normalize(googleUrlInput.value),
-    passcode: normalize(googlePasscodeInput.value),
-  };
+  config = { scriptUrl: GOOGLE_SCRIPT_URL, passcode: GOOGLE_PASSCODE };
+  googleUrlInput.value = config.scriptUrl;
+  googlePasscodeInput.value = config.passcode;
   localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-  setSyncStatus(config.scriptUrl ? "Google Sheets 連線設定已儲存。" : "尚未設定 Google Sheets。");
+  setSyncStatus("Google Sheets 連線已固定。");
 }
 
 function setSyncStatus(message) {
@@ -548,6 +547,10 @@ async function loadWorkbookFromArrayBuffer(buffer) {
 async function loadDefaultData() {
   googleUrlInput.value = config.scriptUrl || "";
   googlePasscodeInput.value = config.passcode || "";
+  googleUrlInput.readOnly = true;
+  googlePasscodeInput.readOnly = true;
+  googleUrlInput.title = "這個設定已固定在程式中";
+  googlePasscodeInput.title = "這個設定已固定在程式中";
 
   if (config.scriptUrl) {
     try {
@@ -631,9 +634,6 @@ document.querySelector("#newItemButton").addEventListener("click", () => {
 });
 
 document.querySelector("#downloadCurrentButton").addEventListener("click", downloadWorkbook);
-document.querySelector("#saveGoogleConfigButton").addEventListener("click", () => {
-  saveConfig();
-});
 document.querySelector("#syncGoogleButton").addEventListener("click", async () => {
   saveConfig();
   await syncFromGoogle();

@@ -1,5 +1,5 @@
 const SHEET_NAME = "notes";
-const PASSCODE = "change-this-passcode";
+const PASSCODE = "3141";
 // Leave blank when bound to a Google Sheet.
 // If this is a standalone Apps Script project, paste the spreadsheet ID here.
 const SPREADSHEET_ID = "";
