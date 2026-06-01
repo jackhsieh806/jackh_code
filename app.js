@@ -1,5 +1,8 @@
 const DATA_FILE = "data.xlsx";
 const CONFIG_KEY = "notebookGoogleSheetsConfig";
+const CACHE_DB_NAME = "notebookLocalCache";
+const CACHE_STORE_NAME = "state";
+const CACHE_KEY = "snapshot";
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwif1Vtd9mc1PfJyX33EMaenRNj2sg2j4-3dlP5Qw0wAh7XLJECFY9SgcdtLXZhay0DXg/exec";
 const GOOGLE_PASSCODE = "3141";
 const HEADERS = [
@@ -92,8 +95,10 @@ const fallbackRows = [
 let rows = [];
 let route = { view: "home" };
 let dirty = false;
+let pendingSyncIds = new Set();
 let syncMessage = "";
 let config = loadConfig();
+let cacheLoadPromise = null;
 
 const content = document.querySelector("#content");
 const pageTitle = document.querySelector("#pageTitle");
@@ -106,11 +111,100 @@ const editorForm = document.querySelector("#editorForm");
 const googleUrlInput = document.querySelector("#googleScriptUrl");
 const googlePasscodeInput = document.querySelector("#googlePasscode");
 const syncStatus = document.querySelector("#syncStatus");
+const syncGoogleButton = document.querySelector("#syncGoogleButton");
+const refreshGoogleButton = document.querySelector("#refreshGoogleButton");
+
+if (syncGoogleButton) syncGoogleButton.textContent = "同步到雲端";
+if (!refreshGoogleButton && syncGoogleButton?.parentElement) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = "refreshGoogleButton";
+  button.className = "secondary-action";
+  button.textContent = "從雲端下載";
+  syncGoogleButton.parentElement.insertBefore(button, syncGoogleButton);
+}
 
 const normalize = (value) => String(value ?? "").trim();
 const slug = (value) => encodeURIComponent(normalize(value));
 const today = () => new Date().toISOString().slice(0, 10);
 const activeRows = () => rows.filter((row) => normalize(row.status).toLowerCase() !== "archived");
+
+function openCacheDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB is unavailable."));
+      return;
+    }
+
+    const request = indexedDB.open(CACHE_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(CACHE_STORE_NAME)) {
+        db.createObjectStore(CACHE_STORE_NAME, { keyPath: "key" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Unable to open local cache."));
+  });
+}
+
+async function readCacheState() {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CACHE_STORE_NAME, "readonly");
+    const store = tx.objectStore(CACHE_STORE_NAME);
+    const request = store.get(CACHE_KEY);
+    request.onsuccess = () => {
+      const result = request.result || null;
+      resolve(result);
+    };
+    request.onerror = () => reject(request.error || new Error("Unable to read local cache."));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error || new Error("Unable to read local cache."));
+    };
+  });
+}
+
+async function writeCacheState(state) {
+  const db = await openCacheDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CACHE_STORE_NAME, "readwrite");
+    const store = tx.objectStore(CACHE_STORE_NAME);
+    store.put({ key: CACHE_KEY, ...state });
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error || new Error("Unable to write local cache."));
+    };
+  });
+}
+
+async function saveLocalState() {
+  await writeCacheState({
+    rows: rows.map(normalizeRow),
+    pendingSyncIds: [...pendingSyncIds],
+    dirty,
+    savedAt: new Date().toISOString(),
+  });
+}
+
+function applyRows(nextRows, meta = {}) {
+  rows = nextRows.map(normalizeRow);
+  pendingSyncIds = new Set(meta.pendingSyncIds || []);
+  dirty = Boolean(meta.dirty ?? pendingSyncIds.size > 0);
+  readRoute();
+  render();
+}
+
+function setPending(rowId) {
+  pendingSyncIds.add(normalize(rowId));
+  dirty = true;
+}
 
 function loadConfig() {
   const fixed = { scriptUrl: GOOGLE_SCRIPT_URL, passcode: GOOGLE_PASSCODE };
@@ -572,6 +666,163 @@ async function loadDefaultData() {
   }
 }
 
+async function persistRow(values) {
+  const next = normalizeRow(values);
+  const index = rows.findIndex((row) => normalize(row.id) === next.id);
+  if (index >= 0) rows[index] = { ...rows[index], ...next };
+  else rows.push(next);
+  setPending(next.id);
+  await saveLocalState();
+}
+
+async function loadFromLocalCache() {
+  const state = await readCacheState().catch(() => null);
+  if (!state || !Array.isArray(state.rows) || state.rows.length === 0) return false;
+  rows = state.rows.map(normalizeRow);
+  pendingSyncIds = new Set((state.pendingSyncIds || []).map(normalize));
+  dirty = Boolean(state.dirty ?? pendingSyncIds.size > 0);
+  readRoute();
+  render();
+  setSyncStatus(
+    `已從本機快取載入 ${rows.length} 筆${state.savedAt ? `，快取時間 ${state.savedAt}` : ""}${
+      pendingSyncIds.size ? `，待同步 ${pendingSyncIds.size} 筆` : ""
+    }。`,
+  );
+  return true;
+}
+
+async function loadFromCloud() {
+  saveConfig();
+  if (!config.scriptUrl) {
+    setSyncStatus("需要先設定 Apps Script Web App URL。");
+    return;
+  }
+
+  setSyncStatus("正在從 Google Sheets 下載...");
+  await pingGoogle();
+  const cloudRows = await loadGoogleRows();
+  rows = cloudRows.map(normalizeRow);
+  pendingSyncIds = new Set();
+  dirty = false;
+  readRoute();
+  render();
+  await saveLocalState();
+  setSyncStatus(`已從 Google Sheets 下載 ${rows.length} 筆，並更新本機快取。`);
+}
+
+async function syncPendingRows() {
+  if (!config.scriptUrl) {
+    setSyncStatus("需要先設定 Apps Script Web App URL。");
+    return;
+  }
+
+  const pendingRows = rows.filter((row) => pendingSyncIds.has(normalize(row.id)));
+  if (pendingRows.length === 0) {
+    setSyncStatus("目前沒有待同步的變更。");
+    return;
+  }
+
+  setSyncStatus(`正在同步 ${pendingRows.length} 筆變更到 Google Sheets...`);
+  for (const row of pendingRows) {
+    await fetch(config.scriptUrl, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "upsert",
+        passcode: config.passcode || "",
+        row: normalizeRow(row),
+      }),
+    });
+  }
+
+  pendingRows.forEach((row) => pendingSyncIds.delete(normalize(row.id)));
+  dirty = pendingSyncIds.size > 0;
+  await saveLocalState();
+  setSyncStatus(`已同步 ${pendingRows.length} 筆到 Google Sheets，並更新本機快取。`);
+}
+
+async function refreshFromCloud() {
+  if (pendingSyncIds.size > 0) {
+    setSyncStatus("先同步本機待上傳變更，再重新從雲端下載。");
+    return;
+  }
+  await loadFromCloud();
+}
+
+async function syncFromGoogle() {
+  await syncPendingRows();
+}
+
+async function loadWorkbookFromArrayBuffer(buffer) {
+  if (!window.XLSX) throw new Error("SheetJS library is unavailable.");
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheet = workbook.Sheets.notes || workbook.Sheets[workbook.SheetNames[0]];
+  rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }).map(normalizeRow);
+  pendingSyncIds = new Set();
+  dirty = false;
+  readRoute();
+  render();
+  await saveLocalState();
+}
+
+async function loadDefaultData() {
+  googleUrlInput.value = config.scriptUrl || "";
+  googlePasscodeInput.value = config.passcode || "";
+  googleUrlInput.readOnly = true;
+  googlePasscodeInput.readOnly = true;
+  googleUrlInput.title = "這個設定已固定在程式中";
+  googlePasscodeInput.title = "這個設定已固定在程式中";
+
+  if (await loadFromLocalCache()) {
+    return;
+  }
+
+  if (config.scriptUrl) {
+    try {
+      await loadFromCloud();
+      return;
+    } catch {
+      // Fall back to local Excel if Sheets is not reachable yet.
+    }
+  }
+
+  try {
+    const response = await fetch(DATA_FILE, { cache: "no-store" });
+    if (!response.ok) throw new Error("data.xlsx not found");
+    await loadWorkbookFromArrayBuffer(await response.arrayBuffer());
+    setSyncStatus("已從本機 Excel 載入，並同步到快取。");
+  } catch {
+    rows = fallbackRows.map(normalizeRow);
+    pendingSyncIds = new Set();
+    dirty = false;
+    readRoute();
+    render();
+    await saveLocalState().catch(() => {});
+    setSyncStatus("已使用內建資料作為首次快取。");
+  }
+}
+
+async function saveForm(event) {
+  event.preventDefault();
+  const values = formValues();
+  await persistRow(values);
+  closeEditor();
+  setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
+  setSyncStatus(`已儲存本機：${values.title}，待同步 ${pendingSyncIds.size} 筆。`);
+}
+
+async function archiveCurrent() {
+  const id = normalize(editorForm.elements.id.value);
+  const index = rows.findIndex((row) => normalize(row.id) === id);
+  if (index < 0) return;
+  const archived = { ...rows[index], status: "archived", updated_at: today() };
+  await persistRow(archived);
+  closeEditor();
+  setRoute({ view: "home" });
+  setSyncStatus(`已封存本機：${archived.title}，待同步 ${pendingSyncIds.size} 筆。`);
+}
+
 function archiveCurrent() {
   const id = normalize(editorForm.elements.id.value);
   const index = rows.findIndex((row) => normalize(row.id) === id);
@@ -637,6 +888,10 @@ document.querySelector("#downloadCurrentButton").addEventListener("click", downl
 document.querySelector("#syncGoogleButton").addEventListener("click", async () => {
   saveConfig();
   await syncFromGoogle();
+});
+document.querySelector("#refreshGoogleButton")?.addEventListener("click", async () => {
+  saveConfig();
+  await refreshFromCloud();
 });
 document.querySelector("#closeEditorButton").addEventListener("click", closeEditor);
 document.querySelector("#archiveButton").addEventListener("click", archiveCurrent);
