@@ -1,4 +1,4 @@
-const DATA_FILE = "data.xlsx";
+﻿const DATA_FILE = "data.xlsx";
 const CONFIG_KEY = "notebookGoogleSheetsConfig";
 const CACHE_DB_NAME = "notebookLocalCache";
 const CACHE_STORE_NAME = "state";
@@ -108,19 +108,27 @@ const searchInput = document.querySelector("#searchInput");
 const drawer = document.querySelector("#drawer");
 const editorModal = document.querySelector("#editorModal");
 const editorForm = document.querySelector("#editorForm");
+const advancedToggleButton = document.querySelector("#advancedToggleButton");
+const advancedFields = document.querySelector("#advancedFields");
+const themeSelect = document.querySelector("#themeSelect");
+const categorySelect = document.querySelector("#categorySelect");
+const themeCustomRow = document.querySelector("#themeCustomRow");
+const categoryCustomRow = document.querySelector("#categoryCustomRow");
+const themeCustomInput = document.querySelector("#themeCustomInput");
+const categoryCustomInput = document.querySelector("#categoryCustomInput");
 const googleUrlInput = document.querySelector("#googleScriptUrl");
 const googlePasscodeInput = document.querySelector("#googlePasscode");
 const syncStatus = document.querySelector("#syncStatus");
 const syncGoogleButton = document.querySelector("#syncGoogleButton");
 const refreshGoogleButton = document.querySelector("#refreshGoogleButton");
 
-if (syncGoogleButton) syncGoogleButton.textContent = "同步到雲端";
+if (syncGoogleButton) syncGoogleButton.textContent = "Sync to cloud";
 if (!refreshGoogleButton && syncGoogleButton?.parentElement) {
   const button = document.createElement("button");
   button.type = "button";
   button.id = "refreshGoogleButton";
   button.className = "secondary-action";
-  button.textContent = "從雲端下載";
+  button.textContent = "Refresh from cloud";
   syncGoogleButton.parentElement.insertBefore(button, syncGoogleButton);
 }
 
@@ -416,17 +424,47 @@ function render() {
   else renderHome();
 }
 
+function uniqueSortedValues(key) {
+  return [...new Set(rows.map((row) => normalize(row[key])).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "zh-Hant"),
+  );
+}
+
+function setSelectOptions(selectEl, options, currentValue) {
+  if (!selectEl) return;
+  selectEl.innerHTML = `${options
+    .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
+    .join("")}<option value="__custom__">+ Custom value</option>`;
+  if (currentValue && options.includes(currentValue)) selectEl.value = currentValue;
+  else if (currentValue) selectEl.value = "__custom__";
+  else if (options.length) selectEl.selectedIndex = 0;
+}
+
+function toggleCustomRow(selectEl, rowEl, inputEl, currentValue = "") {
+  if (!selectEl || !rowEl || !inputEl) return;
+  const isCustom = selectEl.value === "__custom__";
+  rowEl.classList.toggle("is-hidden", !isCustom);
+  if (isCustom) inputEl.value = currentValue || inputEl.value || "";
+  else inputEl.value = "";
+}
+
+function collectChosenValue(selectEl, customInputEl, fallback = "") {
+  if (!selectEl) return fallback;
+  if (selectEl.value === "__custom__") return normalize(customInputEl?.value) || fallback;
+  return normalize(selectEl.value) || fallback;
+}
+
 function openEditor(item = null) {
   const isEdit = Boolean(item);
-  document.querySelector("#editorModeLabel").textContent = isEdit ? "編輯" : "新增";
-  document.querySelector("#editorTitle").textContent = isEdit ? normalize(item.title) : "記事";
+  document.querySelector("#editorModeLabel").textContent = isEdit ? "Edit" : "New";
+  document.querySelector("#editorTitle").textContent = isEdit ? normalize(item.title) || "Edit note" : "New note";
   editorForm.reset();
 
   const defaults = {
     id: "",
     status: "active",
-    theme: route.theme || "食譜",
-    theme_icon: "🍳",
+    theme: route.theme || "",
+    theme_icon: "",
     theme_color: "#b14f35",
     category: route.category || "",
     title: "",
@@ -440,7 +478,16 @@ function openEditor(item = null) {
   HEADERS.forEach((key) => {
     if (editorForm.elements[key]) editorForm.elements[key].value = normalize(defaults[key]);
   });
-  document.querySelector("#archiveButton").style.visibility = isEdit ? "visible" : "hidden";
+
+  setSelectOptions(themeSelect, uniqueSortedValues("theme"), normalize(defaults.theme));
+  setSelectOptions(categorySelect, uniqueSortedValues("category"), normalize(defaults.category));
+  toggleCustomRow(themeSelect, themeCustomRow, themeCustomInput, normalize(defaults.theme));
+  toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput, normalize(defaults.category));
+  advancedFields?.classList.add("is-collapsed");
+  if (advancedToggleButton) advancedToggleButton.textContent = "Show advanced fields";
+
+  const archiveButton = document.querySelector("#archiveButton");
+  if (archiveButton) archiveButton.style.visibility = isEdit ? "visible" : "hidden";
   editorModal.classList.add("is-open");
   editorModal.setAttribute("aria-hidden", "false");
 }
@@ -465,9 +512,13 @@ function formValues() {
   HEADERS.forEach((key) => {
     values[key] = normalize(data[key]);
   });
+  values.theme = collectChosenValue(themeSelect, themeCustomInput, route.theme || "");
+  values.category = collectChosenValue(categorySelect, categoryCustomInput, route.category || "");
   values.status = values.status || "active";
-  values.theme_icon = values.theme_icon || "□";
+  values.theme_icon = values.theme_icon || "";
   values.theme_color = values.theme_color || "#2e6f6b";
+  values.summary = values.summary || values.content.slice(0, 40);
+  values.tags = "";
   values.updated_at = values.updated_at || today();
   values.id = values.id || makeId(values);
   return values;
@@ -809,40 +860,16 @@ async function saveForm(event) {
   await persistRow(values);
   closeEditor();
   setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
-  setSyncStatus(`已儲存本機：${values.title}，待同步 ${pendingSyncIds.size} 筆。`);
+  setSyncStatus(`Saved ${values.title}. Pending sync: ${pendingSyncIds.size}.`);
 }
 
 async function archiveCurrent() {
-  const id = normalize(editorForm.elements.id.value);
-  const index = rows.findIndex((row) => normalize(row.id) === id);
-  if (index < 0) return;
-  const archived = { ...rows[index], status: "archived", updated_at: today() };
-  await persistRow(archived);
+  const current = rows.find((row) => normalize(row.id) === normalize(editorForm.elements.id.value));
+  if (!current) return;
+  await persistRow({ ...current, status: "archived", updated_at: today() });
   closeEditor();
   setRoute({ view: "home" });
-  setSyncStatus(`已封存本機：${archived.title}，待同步 ${pendingSyncIds.size} 筆。`);
-}
-
-function archiveCurrent() {
-  const id = normalize(editorForm.elements.id.value);
-  const index = rows.findIndex((row) => normalize(row.id) === id);
-  if (index < 0) return;
-  rows[index].status = "archived";
-  rows[index].updated_at = today();
-  dirty = true;
-  const archived = { ...rows[index] };
-  closeEditor();
-  setRoute({ view: "home" });
-  syncRow(archived);
-}
-
-function saveForm(event) {
-  event.preventDefault();
-  const values = formValues();
-  upsertLocal(values);
-  closeEditor();
-  setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
-  syncRow(values);
+  setSyncStatus(`Archived ${current.title}. Pending sync: ${pendingSyncIds.size}.`);
 }
 
 function openTools() {
@@ -893,6 +920,21 @@ document.querySelector("#refreshGoogleButton")?.addEventListener("click", async 
   saveConfig();
   await refreshFromCloud();
 });
+
+advancedToggleButton?.addEventListener("click", () => {
+  if (!advancedFields) return;
+  const collapsed = advancedFields.classList.toggle("is-collapsed");
+  if (advancedToggleButton) advancedToggleButton.textContent = collapsed ? "Show advanced fields" : "Hide advanced fields";
+});
+
+themeSelect?.addEventListener("change", () => {
+  toggleCustomRow(themeSelect, themeCustomRow, themeCustomInput);
+});
+
+categorySelect?.addEventListener("change", () => {
+  toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput);
+});
+
 document.querySelector("#closeEditorButton").addEventListener("click", closeEditor);
 document.querySelector("#archiveButton").addEventListener("click", archiveCurrent);
 editorForm.addEventListener("submit", saveForm);

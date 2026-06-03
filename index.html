@@ -4,20 +4,20 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#faf7ef">
-    <title>生活記事本</title>
+    <title>菜單生活記事本</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
         <button class="icon-button" id="backButton" type="button" aria-label="返回">
-          <span aria-hidden="true">‹</span>
+          <span aria-hidden="true">←</span>
         </button>
         <div>
-          <p class="eyebrow" id="crumbLabel">個人資料庫</p>
-          <h1 id="pageTitle">生活記事本</h1>
+          <p class="eyebrow" id="crumbLabel">本機資料</p>
+          <h1 id="pageTitle">菜單生活記事本</h1>
         </div>
-        <button class="icon-button" id="toolsButton" type="button" aria-label="資料維護">
+        <button class="icon-button" id="toolsButton" type="button" aria-label="工具">
           <span aria-hidden="true">☰</span>
         </button>
       </header>
@@ -29,7 +29,6 @@
             <input id="searchInput" type="search" placeholder="搜尋主題、分類、名稱或內容">
           </label>
         </section>
-
         <section id="content" class="content" aria-live="polite"></section>
       </main>
     </div>
@@ -38,20 +37,20 @@
       <div class="drawer-panel">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">資料源</p>
-            <h2>資料維護</h2>
+            <p class="eyebrow">工具</p>
+            <h2>資料管理</h2>
           </div>
           <button class="icon-button" id="closeDrawerButton" type="button" aria-label="關閉">×</button>
         </div>
         <div class="drawer-body">
-          <button class="primary-action" id="newItemButton" type="button">新增記事</button>
+          <button class="primary-action" id="newItemButton" type="button">新增資料</button>
 
           <div class="settings-card">
             <p class="eyebrow">Google Sheets</p>
             <label>Apps Script Web App URL
               <input id="googleScriptUrl" type="url" readonly>
             </label>
-            <label>寫入密碼
+            <label>通行碼
               <input id="googlePasscode" type="password" readonly>
             </label>
             <div class="settings-actions">
@@ -60,21 +59,13 @@
             <p class="sync-status" id="syncStatus">正在準備同步設定。</p>
           </div>
 
-          <button class="secondary-action" id="downloadCurrentButton" type="button">下載目前資料 Excel</button>
-          <a class="secondary-action" href="google-apps-script.js" download>下載 Apps Script 程式</a>
-          <a class="secondary-action" href="data.xlsx" download>下載原始 Excel</a>
+          <button class="secondary-action" id="downloadCurrentButton" type="button">匯出目前 Excel</button>
+          <a class="secondary-action" href="google-apps-script.js" download>下載 Apps Script</a>
+          <a class="secondary-action" href="data.xlsx" download>下載範例 Excel</a>
           <label class="file-loader">
-            <span>載入本機 Excel 編輯</span>
+            <span>匯入既有 Excel</span>
             <input id="excelInput" type="file" accept=".xlsx,.xls">
           </label>
-          <div class="note">
-            <strong>手機編輯方式</strong>
-            <p>設定已固定成你提供的 Google Apps Script，新增、編輯、封存會直接送往 Google Sheets。Excel 下載保留為備份。</p>
-          </div>
-          <div class="note">
-            <strong>避免誤刪</strong>
-            <p>不提供永久刪除。若要隱藏資料，把狀態改成 <code>archived</code>，資料仍會留在 Google Sheets 與 Excel 裡。</p>
-          </div>
         </div>
       </div>
     </aside>
@@ -84,42 +75,35 @@
         <div class="editor-header">
           <div>
             <p class="eyebrow" id="editorModeLabel">新增</p>
-            <h2 id="editorTitle">記事</h2>
+            <h2 id="editorTitle">資料編輯</h2>
           </div>
           <button class="icon-button" id="closeEditorButton" type="button" aria-label="關閉">×</button>
         </div>
         <div class="editor-body">
           <input id="editId" name="id" type="hidden">
-          <div class="form-grid">
-            <label>狀態
-              <select name="status">
-                <option value="active">active 顯示</option>
-                <option value="archived">archived 隱藏</option>
-              </select>
+          <div class="form-grid form-grid-main">
+            <label>名稱
+              <input name="title" required placeholder="例如：三杯雞">
             </label>
+            <label>內容
+              <textarea name="content" rows="9" placeholder="請輸入內容"></textarea>
+            </label>
+          </div>
+
+          <button class="secondary-action collapsed-toggle" id="advancedToggleButton" type="button">展開進階欄位</button>
+
+          <div class="form-grid is-collapsed" id="advancedFields">
             <label>大主題
-              <input name="theme" required placeholder="例如：食譜">
+              <select name="theme_select" id="themeSelect"></select>
             </label>
-            <label>主題圖示
-              <input name="theme_icon" placeholder="例如：🍳">
-            </label>
-            <label>主題色碼
-              <input name="theme_color" placeholder="#b14f35">
+            <label class="custom-input-row is-hidden" id="themeCustomRow">自訂大主題
+              <input name="theme_custom" id="themeCustomInput" placeholder="輸入新大主題">
             </label>
             <label>分類
-              <input name="category" required placeholder="例如：中式">
+              <select name="category_select" id="categorySelect"></select>
             </label>
-            <label>名稱
-              <input name="title" required placeholder="例如：番茄炒蛋">
-            </label>
-            <label class="wide">摘要
-              <input name="summary" placeholder="列表顯示的短說明">
-            </label>
-            <label class="wide">內容
-              <textarea name="content" rows="9" placeholder="做法、步驟或備忘內容"></textarea>
-            </label>
-            <label>標籤
-              <input name="tags" placeholder="快速,家常">
+            <label class="custom-input-row is-hidden" id="categoryCustomRow">自訂分類
+              <input name="category_custom" id="categoryCustomInput" placeholder="輸入新分類">
             </label>
             <label>更新日期
               <input name="updated_at" type="date">

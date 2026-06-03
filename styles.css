@@ -466,6 +466,10 @@ textarea {
   gap: 14px;
 }
 
+.form-grid-main {
+  grid-template-columns: 1fr;
+}
+
 .form-grid label {
   display: grid;
   gap: 7px;
@@ -494,6 +498,18 @@ textarea {
 .form-grid textarea {
   resize: vertical;
   line-height: 1.65;
+}
+
+.collapsed-toggle {
+  margin-top: 10px;
+}
+
+.form-grid.is-collapsed {
+  display: none;
+}
+
+.custom-input-row.is-hidden {
+  display: none;
 }
 
 .editor-actions {
