@@ -1,0 +1,14 @@
+firebase.json
+.firebaserc
+.firebaseignore
+**/.*
+**/node_modules/**
+cook/**
+interview/**
+leecode/**
+outputs/**
+scripts/**
+*.c
+*.cpp
+*.rar
+*.log
