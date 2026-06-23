@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#faf7ef">
-    <title>菜單生活記事本</title>
+    <title>LiveNote</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -14,8 +14,8 @@
           <span aria-hidden="true">←</span>
         </button>
         <div>
-          <p class="eyebrow" id="crumbLabel">本機資料</p>
-          <h1 id="pageTitle">菜單生活記事本</h1>
+          <p class="eyebrow" id="crumbLabel">尚未登入</p>
+          <h1 id="pageTitle">LiveNote</h1>
         </div>
         <button class="icon-button" id="toolsButton" type="button" aria-label="工具">
           <span aria-hidden="true">☰</span>
@@ -26,7 +26,7 @@
         <section class="search-band" aria-label="搜尋">
           <label class="search-field">
             <span aria-hidden="true">⌕</span>
-            <input id="searchInput" type="search" placeholder="搜尋主題、分類、名稱或內容">
+            <input id="searchInput" type="search" placeholder="搜尋筆記、主題或分類">
           </label>
         </section>
         <section id="content" class="content" aria-live="polite"></section>
@@ -38,34 +38,43 @@
         <div class="drawer-header">
           <div>
             <p class="eyebrow">工具</p>
-            <h2>資料管理</h2>
+            <h2>LiveNote 設定</h2>
           </div>
-          <button class="icon-button" id="closeDrawerButton" type="button" aria-label="關閉">×</button>
+          <button class="icon-button" id="closeDrawerButton" type="button" aria-label="關閉">
+            <span aria-hidden="true">×</span>
+          </button>
         </div>
         <div class="drawer-body">
-          <button class="primary-action" id="newItemButton" type="button">新增資料</button>
+          <button class="primary-action" id="newItemButton" type="button">新增筆記</button>
 
-          <div class="settings-card">
-            <p class="eyebrow">Google Sheets</p>
-            <label>Apps Script Web App URL
-              <input id="googleScriptUrl" type="url" readonly>
-            </label>
-            <label>通行碼
-              <input id="googlePasscode" type="password" readonly>
-            </label>
-            <div class="settings-actions">
-              <button class="secondary-action" id="syncGoogleButton" type="button">同步資料</button>
+          <div class="settings-card auth-card">
+            <p class="eyebrow">Firebase Authentication</p>
+            <div class="auth-profile is-hidden" id="authProfile">
+              <img id="authAvatar" class="auth-avatar" alt="" referrerpolicy="no-referrer">
+              <div class="auth-meta">
+                <strong id="authName"></strong>
+                <span id="authEmail"></span>
+                <span id="authUid"></span>
+              </div>
             </div>
-            <p class="sync-status" id="syncStatus">正在準備同步設定。</p>
+            <p class="sync-status" id="authStatus">請先用 Google 登入。</p>
+            <div class="settings-actions">
+              <button class="secondary-action" id="signInButton" type="button">Google 登入</button>
+              <button class="secondary-action" id="signOutButton" type="button">登出</button>
+            </div>
           </div>
 
-          <button class="secondary-action" id="downloadCurrentButton" type="button">匯出目前 Excel</button>
-          <a class="secondary-action" href="google-apps-script.js" download>下載 Apps Script</a>
-          <a class="secondary-action" href="data.xlsx" download>下載範例 Excel</a>
-          <label class="file-loader">
-            <span>匯入既有 Excel</span>
-            <input id="excelInput" type="file" accept=".xlsx,.xls">
-          </label>
+          <div class="settings-card">
+            <p class="eyebrow">匯入 / 匯出</p>
+            <button class="secondary-action" id="exportCsvButton" type="button">匯出 CSV</button>
+            <button class="secondary-action" id="exportGoogleSheetButton" type="button">匯出 Google Sheet</button>
+            <label class="file-loader">
+              <span>匯入 Excel / CSV</span>
+              <input id="importInput" type="file" accept=".xlsx,.xls,.csv">
+            </label>
+          </div>
+
+          <p class="sync-status" id="syncStatus">載入中...</p>
         </div>
       </div>
     </aside>
@@ -75,35 +84,37 @@
         <div class="editor-header">
           <div>
             <p class="eyebrow" id="editorModeLabel">新增</p>
-            <h2 id="editorTitle">資料編輯</h2>
+            <h2 id="editorTitle">新增筆記</h2>
           </div>
-          <button class="icon-button" id="closeEditorButton" type="button" aria-label="關閉">×</button>
+          <button class="icon-button" id="closeEditorButton" type="button" aria-label="關閉">
+            <span aria-hidden="true">×</span>
+          </button>
         </div>
         <div class="editor-body">
           <input id="editId" name="id" type="hidden">
           <div class="form-grid form-grid-main">
             <label>名稱
-              <input name="title" required placeholder="例如：三杯雞">
+              <input name="title" required placeholder="輸入標題">
             </label>
             <label>內容
-              <textarea name="content" rows="9" placeholder="請輸入內容"></textarea>
+              <textarea name="content" rows="10" placeholder="輸入內容"></textarea>
             </label>
           </div>
 
-          <button class="secondary-action collapsed-toggle" id="advancedToggleButton" type="button">展開進階欄位</button>
+          <button class="secondary-action collapsed-toggle" id="advancedToggleButton" type="button">顯示進階欄位</button>
 
           <div class="form-grid is-collapsed" id="advancedFields">
-            <label>大主題
+            <label>主題
               <select name="theme_select" id="themeSelect"></select>
             </label>
-            <label class="custom-input-row is-hidden" id="themeCustomRow">自訂大主題
-              <input name="theme_custom" id="themeCustomInput" placeholder="輸入新大主題">
+            <label class="custom-input-row is-hidden" id="themeCustomRow">自訂主題
+              <input name="theme_custom" id="themeCustomInput" placeholder="自行輸入主題">
             </label>
             <label>分類
               <select name="category_select" id="categorySelect"></select>
             </label>
             <label class="custom-input-row is-hidden" id="categoryCustomRow">自訂分類
-              <input name="category_custom" id="categoryCustomInput" placeholder="輸入新分類">
+              <input name="category_custom" id="categoryCustomInput" placeholder="自行輸入分類">
             </label>
             <label>更新日期
               <input name="updated_at" type="date">
@@ -111,13 +122,13 @@
           </div>
         </div>
         <div class="editor-actions">
-          <button class="secondary-action" id="archiveButton" type="button">封存</button>
+          <button class="secondary-action is-danger" id="deleteButton" type="button">刪除</button>
           <button class="primary-action" type="submit">儲存</button>
         </div>
       </form>
     </div>
 
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>

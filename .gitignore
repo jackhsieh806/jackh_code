@@ -1,2 +1,6 @@
 server.*.log
 ~$*.xlsx
+.firebase/
+node_modules/
+cook/
+outputs/

@@ -1,104 +1,66 @@
-﻿const DATA_FILE = "data.xlsx";
-const CONFIG_KEY = "notebookGoogleSheetsConfig";
-const CACHE_DB_NAME = "notebookLocalCache";
-const CACHE_STORE_NAME = "state";
-const CACHE_KEY = "snapshot";
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwif1Vtd9mc1PfJyX33EMaenRNj2sg2j4-3dlP5Qw0wAh7XLJECFY9SgcdtLXZhay0DXg/exec";
-const GOOGLE_PASSCODE = "3141";
-const HEADERS = [
-  "id",
-  "status",
-  "theme",
-  "theme_icon",
-  "theme_color",
-  "category",
-  "title",
-  "summary",
-  "content",
-  "tags",
-  "updated_at",
-];
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-app.js";
+import {
+  GoogleAuthProvider,
+  browserLocalPersistence,
+  getAuth,
+  onAuthStateChanged,
+  setPersistence,
+  signInWithPopup,
+  signOut,
+} from "https://www.gstatic.com/firebasejs/11.8.1/firebase-auth.js";
+import {
+  Timestamp,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getFirestore,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  writeBatch,
+} from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
 
-const fallbackRows = [
-  {
-    id: "recipe-zh-braised-pork",
-    status: "active",
-    theme: "食譜",
-    theme_icon: "🍳",
-    theme_color: "#b14f35",
-    category: "中式",
-    title: "家常滷肉",
-    summary: "適合便當與拌飯的基礎滷肉。",
-    content:
-      "1. 五花肉切小塊，乾鍋煸出油香。\n2. 加入蒜、醬油、米酒、冰糖炒上色。\n3. 加水蓋過食材，小火燉 45 分鐘。\n4. 起鍋前試鹹度，可加水煮蛋一起滷。",
-    tags: "便當,下飯",
-    updated_at: "2026-05-29",
-  },
-  {
-    id: "recipe-zh-tomato-egg",
-    status: "active",
-    theme: "食譜",
-    theme_icon: "🍳",
-    theme_color: "#b14f35",
-    category: "中式",
-    title: "番茄炒蛋",
-    summary: "十分鐘完成的日常菜。",
-    content:
-      "1. 蛋加少許鹽打散，先炒至半熟盛起。\n2. 番茄切塊下鍋炒出汁。\n3. 加回蛋，補少許糖與鹽。\n4. 撒蔥花後起鍋。",
-    tags: "快速,家常",
-    updated_at: "2026-05-29",
-  },
-  {
-    id: "recipe-west-pasta",
-    status: "active",
-    theme: "食譜",
-    theme_icon: "🍳",
-    theme_color: "#b14f35",
-    category: "西式",
-    title: "蒜香橄欖油義大利麵",
-    summary: "材料少、很適合平日晚餐。",
-    content:
-      "1. 義大利麵煮到比包裝時間少 1 分鐘。\n2. 橄欖油小火煸香蒜片與辣椒。\n3. 加入麵與少量煮麵水乳化。\n4. 以鹽、黑胡椒與巴西里調味。",
-    tags: "麵食,快速",
-    updated_at: "2026-05-29",
-  },
-  {
-    id: "recipe-jp-curry",
-    status: "active",
-    theme: "食譜",
-    theme_icon: "🍳",
-    theme_color: "#b14f35",
-    category: "日式",
-    title: "日式咖哩飯",
-    summary: "可一次煮多份冷藏。",
-    content:
-      "1. 洋蔥炒到透明後加入肉塊煎香。\n2. 加紅蘿蔔、馬鈴薯與水燉煮。\n3. 關火放入咖哩塊，融化後再小火煮濃。\n4. 配白飯與福神漬。",
-    tags: "備餐,飯食",
-    updated_at: "2026-05-29",
-  },
-  {
-    id: "life-cleaning",
-    status: "active",
-    theme: "生活備忘",
-    theme_icon: "🗂",
-    theme_color: "#2e6f6b",
-    category: "家務",
-    title: "週末整理清單",
-    summary: "固定整理項目，避免漏掉。",
-    content:
-      "1. 更換床單與枕套。\n2. 清洗浴室排水孔。\n3. 檢查冰箱即期食材。\n4. 補充垃圾袋、洗碗精與衛生紙。",
-    tags: "週末,清潔",
-    updated_at: "2026-05-29",
-  },
-];
+const firebaseConfig = {
+  apiKey: "AIzaSyBhcTOJQGsa4uAY2Y3IuI1rFpz_39wDTuY",
+  authDomain: "livenote-app.firebaseapp.com",
+  projectId: "livenote-app",
+  storageBucket: "livenote-app.firebasestorage.app",
+  messagingSenderId: "325304749270",
+  appId: "1:325304749270:web:efd78aa9a0cb8dbd1dcd77",
+  measurementId: "G-LQ35M4TPGQ",
+};
 
-let rows = [];
-let route = { view: "home" };
-let dirty = false;
-let pendingSyncIds = new Set();
-let syncMessage = "";
-let config = loadConfig();
-let cacheLoadPromise = null;
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const googleProvider = new GoogleAuthProvider();
+
+googleProvider.addScope("https://www.googleapis.com/auth/spreadsheets");
+googleProvider.addScope("https://www.googleapis.com/auth/drive.file");
+googleProvider.setCustomParameters({ prompt: "select_account" });
+
+setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+const THEME_META = {
+  食譜: { icon: "🍳", color: "#b14f35" },
+  生活備忘: { icon: "🗂", color: "#2e6f6b" },
+  工作: { icon: "💼", color: "#5671a6" },
+  讀書: { icon: "📚", color: "#8b5e3c" },
+  旅行: { icon: "✈️", color: "#5b7c8a" },
+  學習: { icon: "🧠", color: "#7b5ea7" },
+};
+
+const FALLBACK_PALETTE = [
+  { icon: "🗂", color: "#2e6f6b" },
+  { icon: "🍳", color: "#b14f35" },
+  { icon: "💼", color: "#5671a6" },
+  { icon: "📚", color: "#8b5e3c" },
+  { icon: "✈️", color: "#5b7c8a" },
+  { icon: "🧠", color: "#7b5ea7" },
+];
 
 const content = document.querySelector("#content");
 const pageTitle = document.querySelector("#pageTitle");
@@ -116,122 +78,37 @@ const themeCustomRow = document.querySelector("#themeCustomRow");
 const categoryCustomRow = document.querySelector("#categoryCustomRow");
 const themeCustomInput = document.querySelector("#themeCustomInput");
 const categoryCustomInput = document.querySelector("#categoryCustomInput");
-const googleUrlInput = document.querySelector("#googleScriptUrl");
-const googlePasscodeInput = document.querySelector("#googlePasscode");
+const editIdInput = document.querySelector("#editId");
 const syncStatus = document.querySelector("#syncStatus");
-const syncGoogleButton = document.querySelector("#syncGoogleButton");
-const refreshGoogleButton = document.querySelector("#refreshGoogleButton");
+const authStatus = document.querySelector("#authStatus");
+const authProfile = document.querySelector("#authProfile");
+const authAvatar = document.querySelector("#authAvatar");
+const authName = document.querySelector("#authName");
+const authEmail = document.querySelector("#authEmail");
+const authUid = document.querySelector("#authUid");
+const signInButton = document.querySelector("#signInButton");
+const signOutButton = document.querySelector("#signOutButton");
+const exportCsvButton = document.querySelector("#exportCsvButton");
+const exportGoogleSheetButton = document.querySelector("#exportGoogleSheetButton");
+const importInput = document.querySelector("#importInput");
+const newItemButton = document.querySelector("#newItemButton");
+const toolsButton = document.querySelector("#toolsButton");
+const closeDrawerButton = document.querySelector("#closeDrawerButton");
+const closeEditorButton = document.querySelector("#closeEditorButton");
+const deleteButton = document.querySelector("#deleteButton");
 
-if (syncGoogleButton) syncGoogleButton.textContent = "Sync to cloud";
-if (!refreshGoogleButton && syncGoogleButton?.parentElement) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.id = "refreshGoogleButton";
-  button.className = "secondary-action";
-  button.textContent = "Refresh from cloud";
-  syncGoogleButton.parentElement.insertBefore(button, syncGoogleButton);
-}
+let currentUser = null;
+let googleAccessToken = "";
+let notes = [];
+let notesLoaded = false;
+let notesUnsubscribe = null;
+let authReady = false;
+let route = { view: "home", theme: "", category: "", id: "" };
+let syncMessage = "請先登入 Google 帳號。";
+let currentEditId = "";
 
-const normalize = (value) => String(value ?? "").trim();
-const slug = (value) => encodeURIComponent(normalize(value));
-const today = () => new Date().toISOString().slice(0, 10);
-const activeRows = () => rows.filter((row) => normalize(row.status).toLowerCase() !== "archived");
-
-function openCacheDb() {
-  return new Promise((resolve, reject) => {
-    if (!window.indexedDB) {
-      reject(new Error("IndexedDB is unavailable."));
-      return;
-    }
-
-    const request = indexedDB.open(CACHE_DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(CACHE_STORE_NAME)) {
-        db.createObjectStore(CACHE_STORE_NAME, { keyPath: "key" });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error("Unable to open local cache."));
-  });
-}
-
-async function readCacheState() {
-  const db = await openCacheDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(CACHE_STORE_NAME, "readonly");
-    const store = tx.objectStore(CACHE_STORE_NAME);
-    const request = store.get(CACHE_KEY);
-    request.onsuccess = () => {
-      const result = request.result || null;
-      resolve(result);
-    };
-    request.onerror = () => reject(request.error || new Error("Unable to read local cache."));
-    tx.oncomplete = () => db.close();
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error || new Error("Unable to read local cache."));
-    };
-  });
-}
-
-async function writeCacheState(state) {
-  const db = await openCacheDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(CACHE_STORE_NAME, "readwrite");
-    const store = tx.objectStore(CACHE_STORE_NAME);
-    store.put({ key: CACHE_KEY, ...state });
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error || new Error("Unable to write local cache."));
-    };
-  });
-}
-
-async function saveLocalState() {
-  await writeCacheState({
-    rows: rows.map(normalizeRow),
-    pendingSyncIds: [...pendingSyncIds],
-    dirty,
-    savedAt: new Date().toISOString(),
-  });
-}
-
-function applyRows(nextRows, meta = {}) {
-  rows = nextRows.map(normalizeRow);
-  pendingSyncIds = new Set(meta.pendingSyncIds || []);
-  dirty = Boolean(meta.dirty ?? pendingSyncIds.size > 0);
-  readRoute();
-  render();
-}
-
-function setPending(rowId) {
-  pendingSyncIds.add(normalize(rowId));
-  dirty = true;
-}
-
-function loadConfig() {
-  const fixed = { scriptUrl: GOOGLE_SCRIPT_URL, passcode: GOOGLE_PASSCODE };
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(fixed));
-  return fixed;
-}
-
-function saveConfig() {
-  config = { scriptUrl: GOOGLE_SCRIPT_URL, passcode: GOOGLE_PASSCODE };
-  googleUrlInput.value = config.scriptUrl;
-  googlePasscodeInput.value = config.passcode;
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-  setSyncStatus("Google Sheets 連線已固定。");
-}
-
-function setSyncStatus(message) {
-  syncMessage = message;
-  if (syncStatus) syncStatus.textContent = message;
-  if (route.view === "home") render();
+function normalize(value) {
+  return String(value ?? "").trim();
 }
 
 function escapeHtml(value) {
@@ -243,23 +120,140 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function slug(value) {
+  return encodeURIComponent(normalize(value));
+}
+
+function randomId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `note-${Date.now().toString(36)}`;
+}
+
+function asDate(value) {
+  if (!value) return null;
+  if (typeof value.toDate === "function") return value.toDate();
+  if (value instanceof Date) return value;
+  if (typeof value === "number") return new Date(value);
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDate(value) {
+  const date = asDate(value);
+  return date ? date.toISOString().slice(0, 10) : today();
+}
+
+function toTimestamp(value) {
+  const date = asDate(value) || new Date(`${today()}T12:00:00`);
+  return Timestamp.fromDate(date);
+}
+
+function summaryFromContent(content) {
+  const text = normalize(content).replace(/\s+/g, " ");
+  return text.length > 72 ? `${text.slice(0, 72)}…` : text || "沒有內容";
+}
+
+function themeMeta(theme) {
+  const key = normalize(theme);
+  if (THEME_META[key]) return THEME_META[key];
+  const seed = [...key].reduce((sum, char) => sum + char.codePointAt(0), 0);
+  return FALLBACK_PALETTE[seed % FALLBACK_PALETTE.length];
+}
+
+function userDocRef(uid) {
+  return doc(db, "users", uid);
+}
+
+function notesCollection(uid) {
+  return collection(db, "users", uid, "notes");
+}
+
+function noteDocRef(uid, noteId) {
+  return doc(db, "users", uid, "notes", noteId);
+}
+
+function noteFromSnapshot(snapshot) {
+  const data = snapshot.data() || {};
+  return {
+    id: snapshot.id,
+    title: normalize(data.title),
+    content: normalize(data.content),
+    theme: normalize(data.theme) || "未分類",
+    category: normalize(data.category) || "未分類",
+    createdAt: data.createdAt || null,
+    updatedAt: data.updatedAt || null,
+  };
+}
+
+function buildVisibleNotes() {
+  const queryText = normalize(searchInput.value).toLowerCase();
+  const base = notes.slice();
+  if (!queryText) return base;
+  return base.filter((note) =>
+    [note.theme, note.category, note.title, note.content].some((field) =>
+      normalize(field).toLowerCase().includes(queryText),
+    ),
+  );
+}
+
 function groupBy(items, key) {
-  return items.reduce((groups, item) => {
+  return items.reduce((acc, item) => {
     const name = normalize(item[key]) || "未分類";
-    groups[name] = groups[name] || [];
-    groups[name].push(item);
-    return groups;
+    if (!acc[name]) acc[name] = [];
+    acc[name].push(item);
+    return acc;
   }, {});
 }
 
-function getFilteredRows() {
-  const query = normalize(searchInput.value).toLowerCase();
-  if (!query) return activeRows();
-  return activeRows().filter((row) =>
-    ["theme", "category", "title", "summary", "content", "tags"].some((key) =>
-      normalize(row[key]).toLowerCase().includes(query),
-    ),
+function uniqueSortedValues(key) {
+  return [...new Set(notes.map((note) => normalize(note[key])).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "zh-Hant"),
   );
+}
+
+function setSelectOptions(selectEl, values, currentValue) {
+  if (!selectEl) return;
+  const options = values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+  selectEl.innerHTML = `${options}<option value="__custom__">+ 自訂</option>`;
+  if (currentValue && values.includes(currentValue)) selectEl.value = currentValue;
+  else if (currentValue) selectEl.value = "__custom__";
+  else if (values.length > 0) selectEl.selectedIndex = 0;
+  else selectEl.value = "__custom__";
+}
+
+function toggleCustomRow(selectEl, rowEl, inputEl, fallback = "") {
+  if (!selectEl || !rowEl || !inputEl) return;
+  const isCustom = selectEl.value === "__custom__";
+  rowEl.classList.toggle("is-hidden", !isCustom);
+  if (isCustom) {
+    inputEl.value = fallback || inputEl.value || "";
+  } else {
+    inputEl.value = "";
+  }
+}
+
+function collectChosenValue(selectEl, customInputEl, fallback = "") {
+  if (!selectEl) return fallback;
+  if (selectEl.value === "__custom__") return normalize(customInputEl?.value) || fallback;
+  return normalize(selectEl.value) || fallback;
+}
+
+function setStatus(message) {
+  syncMessage = message;
+  if (syncStatus) syncStatus.textContent = message;
+  if (currentUser) render();
+}
+
+function setAuthStatus(message) {
+  if (authStatus) authStatus.textContent = message;
+}
+
+function readRoute() {
+  const [view = "home", theme = "", category = "", id = ""] = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  route = { view, theme, category, id };
 }
 
 function setRoute(nextRoute) {
@@ -269,111 +263,209 @@ function setRoute(nextRoute) {
   render();
 }
 
-function readRoute() {
-  const [view = "home", theme, category, id] = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
-  route = { view, theme, category, id };
+function openDrawer() {
+  drawer.classList.add("is-open");
+  drawer.setAttribute("aria-hidden", "false");
 }
 
-function summaryForTheme(items) {
-  const categories = groupBy(items, "category");
-  return Object.entries(categories)
-    .map(([name, list]) => `${escapeHtml(name)} (${list.length})`)
-    .join(" | ");
+function closeDrawer() {
+  drawer.classList.remove("is-open");
+  drawer.setAttribute("aria-hidden", "true");
 }
 
-function barsForTheme(items, color) {
-  const categories = groupBy(items, "category");
-  const max = Math.max(...Object.values(categories).map((list) => list.length), 1);
-  return Object.entries(categories)
-    .slice(0, 4)
-    .map(([name, list]) => {
-      const width = Math.round((list.length / max) * 100);
-      return `<div class="bar" style="--tile-color:${escapeHtml(color)};">
-        <span>${escapeHtml(name)}</span>
-        <span class="bar-track"><span class="bar-fill" style="--bar-width:${width}%"></span></span>
-        <span>${list.length}</span>
-      </div>`;
-    })
-    .join("");
+function closeEditor() {
+  editorModal.classList.remove("is-open");
+  editorModal.setAttribute("aria-hidden", "true");
+}
+
+function openEditor(note = null) {
+  if (!currentUser) {
+    setStatus("請先登入 Google 帳號後再新增或編輯筆記。");
+    return;
+  }
+
+  const isEdit = Boolean(note);
+  const existingTheme = route.theme || note?.theme || "";
+  const existingCategory = route.category || note?.category || "";
+
+  currentEditId = note?.id || randomId();
+  editorForm.reset();
+  editIdInput.value = currentEditId;
+
+  document.querySelector("#editorModeLabel").textContent = isEdit ? "編輯" : "新增";
+  document.querySelector("#editorTitle").textContent = isEdit ? normalize(note.title) || "編輯筆記" : "新增筆記";
+
+  editorForm.elements.title.value = normalize(note?.title);
+  editorForm.elements.content.value = normalize(note?.content);
+  editorForm.elements.updated_at.value = formatDate(note?.updatedAt || new Date());
+
+  setSelectOptions(themeSelect, uniqueSortedValues("theme"), normalize(existingTheme || note?.theme));
+  setSelectOptions(categorySelect, uniqueSortedValues("category"), normalize(existingCategory || note?.category));
+  toggleCustomRow(themeSelect, themeCustomRow, themeCustomInput, normalize(existingTheme || note?.theme));
+  toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput, normalize(existingCategory || note?.category));
+  advancedFields?.classList.add("is-collapsed");
+  if (advancedToggleButton) advancedToggleButton.textContent = "顯示進階欄位";
+  deleteButton.style.visibility = isEdit ? "visible" : "hidden";
+  editorModal.classList.add("is-open");
+  editorModal.setAttribute("aria-hidden", "false");
+}
+
+function buildNotePayload(existing = null) {
+  const data = Object.fromEntries(new FormData(editorForm).entries());
+  const theme = collectChosenValue(themeSelect, themeCustomInput, route.theme || existing?.theme || "未分類");
+  const category = collectChosenValue(categorySelect, categoryCustomInput, route.category || existing?.category || "未分類");
+  const updatedAt = toTimestamp(data.updated_at || today());
+  const createdAt = existing?.createdAt ? existing.createdAt : updatedAt;
+  return {
+    title: normalize(data.title),
+    content: normalize(data.content),
+    theme,
+    category,
+    createdAt,
+    updatedAt,
+  };
+}
+
+function noteMatchesRoute(note) {
+  if (route.view === "theme") return normalize(note.theme) === normalize(route.theme);
+  if (route.view === "category") {
+    return normalize(note.theme) === normalize(route.theme) && normalize(note.category) === normalize(route.category);
+  }
+  if (route.view === "detail") return normalize(note.id) === normalize(route.id);
+  return true;
+}
+
+function visibleNotes() {
+  return buildVisibleNotes().filter(noteMatchesRoute);
+}
+
+function renderEmpty(message) {
+  return `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
 function renderHome() {
-  const themes = groupBy(getFilteredRows(), "theme");
-  pageTitle.textContent = "生活記事本";
-  crumbLabel.textContent = dirty ? "有尚未同步的修改" : config.scriptUrl ? "Google Sheets 已連線" : "個人資料庫";
+  pageTitle.textContent = "LiveNote";
   backButton.style.visibility = "hidden";
+  crumbLabel.textContent = currentUser ? "我的筆記" : "請先登入";
 
-  const notice = syncMessage ? `<div class="sync-banner">${escapeHtml(syncMessage)}</div>` : "";
-  const html = Object.entries(themes)
+  if (!currentUser) {
+    content.innerHTML = renderEmpty("請先在右側登入 Google 帳號，才能讀取你的 Firestore 筆記。");
+    return;
+  }
+
+  if (!notesLoaded) {
+    content.innerHTML = renderEmpty("正在載入你的筆記...");
+    return;
+  }
+
+  const rows = visibleNotes();
+  if (rows.length === 0) {
+    content.innerHTML = renderEmpty("目前沒有可顯示的筆記。");
+    return;
+  }
+
+  const groups = groupBy(rows, "theme");
+  const status = syncMessage ? `<div class="sync-banner">${escapeHtml(syncMessage)}</div>` : "";
+  const cards = Object.entries(groups)
     .map(([theme, items]) => {
-      const first = items[0] || {};
-      const color = normalize(first.theme_color) || "#2e6f6b";
-      return `<button class="tile" type="button" style="--tile-color:${escapeHtml(color)};" data-theme="${escapeHtml(theme)}">
+      const meta = themeMeta(theme);
+      const categories = groupBy(items, "category");
+      const summary = Object.entries(categories)
+        .map(([name, list]) => `${escapeHtml(name)} (${list.length})`)
+        .join(" | ");
+      return `<button class="tile" type="button" style="--tile-color:${escapeHtml(meta.color)};" data-theme="${escapeHtml(theme)}">
         <div>
-          <span class="tile-icon">${escapeHtml(first.theme_icon) || "□"}</span>
+          <span class="tile-icon">${escapeHtml(meta.icon)}</span>
           <h2>${escapeHtml(theme)}</h2>
-          <p>${summaryForTheme(items)}</p>
+          <p>${summary}</p>
         </div>
-        <div class="count-strip">${barsForTheme(items, color)}</div>
+        <div class="count-strip">
+          ${Object.entries(categories)
+            .slice(0, 4)
+            .map(([name, list]) => {
+              const width = Math.max(18, Math.round((list.length / items.length) * 100));
+              return `<div class="bar" style="--tile-color:${escapeHtml(meta.color)};">
+                <span>${escapeHtml(name)}</span>
+                <span class="bar-track"><span class="bar-fill" style="--bar-width:${width}%"></span></span>
+                <span>${list.length}</span>
+              </div>`;
+            })
+            .join("")}
+        </div>
       </button>`;
     })
     .join("");
 
-  content.innerHTML = notice + (html ? `<div class="tile-grid">${html}</div>` : empty("找不到符合的記事。"));
+  content.innerHTML = `${status}${cards ? `<div class="tile-grid">${cards}</div>` : renderEmpty("沒有找到可顯示的主題。")}`;
   content.querySelectorAll("[data-theme]").forEach((button) => {
-    button.addEventListener("click", () => setRoute({ view: "theme", theme: button.dataset.theme }));
+    button.addEventListener("click", () => setRoute({ view: "theme", theme: button.dataset.theme, category: "", id: "" }));
   });
 }
 
 function renderTheme() {
-  const themeRows = getFilteredRows().filter((row) => normalize(row.theme) === route.theme);
-  const categories = groupBy(themeRows, "category");
-  const first = themeRows[0] || {};
-  const color = normalize(first.theme_color) || "#2e6f6b";
+  const rows = visibleNotes().filter((note) => normalize(note.theme) === normalize(route.theme));
+  const meta = themeMeta(route.theme);
   pageTitle.textContent = route.theme || "主題";
-  crumbLabel.textContent = "分類";
+  crumbLabel.textContent = "主題分類";
   backButton.style.visibility = "visible";
 
-  const html = Object.entries(categories)
+  if (rows.length === 0) {
+    content.innerHTML = renderEmpty("這個主題目前沒有資料。");
+    return;
+  }
+
+  const groups = groupBy(rows, "category");
+  const cards = Object.entries(groups)
     .map(
-      ([category, items]) => `<button class="tile" type="button" style="--tile-color:${escapeHtml(color)};" data-category="${escapeHtml(category)}">
-      <div>
-        <span class="tile-icon">${escapeHtml(first.theme_icon) || "□"}</span>
-        <h2>${escapeHtml(category)}</h2>
-        <p>${items.length} 筆記事</p>
-      </div>
-      <div class="count-strip">${barsForTheme(items, color)}</div>
-    </button>`,
+      ([category, items]) => `<button class="tile" type="button" style="--tile-color:${escapeHtml(meta.color)};" data-category="${escapeHtml(category)}">
+        <div>
+          <span class="tile-icon">${escapeHtml(meta.icon)}</span>
+          <h2>${escapeHtml(category)}</h2>
+          <p>${items.length} 筆筆記</p>
+        </div>
+        <div class="count-strip">
+          <div class="bar" style="--tile-color:${escapeHtml(meta.color)};">
+            <span>筆記</span>
+            <span class="bar-track"><span class="bar-fill" style="--bar-width:${Math.min(100, Math.round((items.length / rows.length) * 100))}%"></span></span>
+            <span>${items.length}</span>
+          </div>
+        </div>
+      </button>`,
     )
     .join("");
 
-  content.innerHTML = html ? `<div class="tile-grid">${html}</div>` : empty("這個主題目前沒有資料。");
+  content.innerHTML = cards ? `<div class="tile-grid">${cards}</div>` : renderEmpty("這個主題目前沒有分類。");
   content.querySelectorAll("[data-category]").forEach((button) => {
     button.addEventListener("click", () =>
-      setRoute({ view: "category", theme: route.theme, category: button.dataset.category }),
+      setRoute({ view: "category", theme: route.theme, category: button.dataset.category, id: "" }),
     );
   });
 }
 
 function renderCategory() {
-  const list = getFilteredRows().filter(
-    (row) => normalize(row.theme) === route.theme && normalize(row.category) === route.category,
+  const rows = visibleNotes().filter(
+    (note) => normalize(note.theme) === normalize(route.theme) && normalize(note.category) === normalize(route.category),
   );
   pageTitle.textContent = route.category || "分類";
   crumbLabel.textContent = route.theme || "主題";
   backButton.style.visibility = "visible";
 
-  const html = list
+  if (rows.length === 0) {
+    content.innerHTML = renderEmpty("這個分類目前沒有資料。");
+    return;
+  }
+
+  const cards = rows
     .map(
-      (row) => `<button class="list-item" type="button" data-id="${escapeHtml(row.id)}">
-      <h2>${escapeHtml(row.title)}</h2>
-      <div class="meta-line">${escapeHtml(row.updated_at)} · ${escapeHtml(row.tags)}</div>
-      <p class="summary">${escapeHtml(row.summary)}</p>
-    </button>`,
+      (note) => `<button class="list-item" type="button" data-id="${escapeHtml(note.id)}">
+        <h2>${escapeHtml(note.title)}</h2>
+        <div class="meta-line">${escapeHtml(formatDate(note.updatedAt))} · ${escapeHtml(note.theme)} · ${escapeHtml(note.category)}</div>
+        <p class="summary">${escapeHtml(summaryFromContent(note.content))}</p>
+      </button>`,
     )
     .join("");
 
-  content.innerHTML = html ? `<div class="list-stack">${html}</div>` : empty("這個分類目前沒有資料。");
+  content.innerHTML = `<div class="list-stack">${cards}</div>`;
   content.querySelectorAll("[data-id]").forEach((button) => {
     button.addEventListener("click", () =>
       setRoute({ view: "detail", theme: route.theme, category: route.category, id: button.dataset.id }),
@@ -382,564 +474,452 @@ function renderCategory() {
 }
 
 function renderDetail() {
-  const item = activeRows().find((row) => normalize(row.id) === route.id);
-  pageTitle.textContent = item ? normalize(item.title) : "找不到記事";
-  crumbLabel.textContent = item ? `${normalize(item.theme)} / ${normalize(item.category)}` : "內容";
+  const note = notes.find((item) => normalize(item.id) === normalize(route.id));
+  pageTitle.textContent = note ? note.title : "找不到筆記";
+  crumbLabel.textContent = note ? `${note.theme} / ${note.category}` : "內容";
   backButton.style.visibility = "visible";
 
-  if (!item) {
-    content.innerHTML = empty("這筆資料不存在，或已經被封存。");
+  if (!note) {
+    content.innerHTML = renderEmpty("這筆筆記不存在，或已經被刪除。");
     return;
   }
-
-  const tags = normalize(item.tags)
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean)
-    .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
-    .join("");
 
   content.innerHTML = `<article class="detail-card">
     <div class="detail-actions">
       <button class="secondary-action" id="editCurrentButton" type="button">編輯</button>
     </div>
-    <h2>${escapeHtml(item.title)}</h2>
-    <div class="meta-line">${escapeHtml(item.updated_at)} · ${escapeHtml(item.theme)} · ${escapeHtml(item.category)}</div>
-    <p class="summary">${escapeHtml(item.summary)}</p>
-    <div class="content-block">${escapeHtml(item.content)}</div>
-    <div class="tag-row">${tags}</div>
+    <h2>${escapeHtml(note.title)}</h2>
+    <div class="meta-line">${escapeHtml(formatDate(note.updatedAt))} · ${escapeHtml(note.theme)} · ${escapeHtml(note.category)}</div>
+    <p class="summary">${escapeHtml(summaryFromContent(note.content))}</p>
+    <div class="content-block">${escapeHtml(note.content)}</div>
   </article>`;
 
-  document.querySelector("#editCurrentButton").addEventListener("click", () => openEditor(item));
+  document.querySelector("#editCurrentButton").addEventListener("click", () => openEditor(note));
 }
 
-function empty(message) {
-  return `<div class="empty-state">${escapeHtml(message)}</div>`;
+function renderLoggedOut() {
+  pageTitle.textContent = "LiveNote";
+  crumbLabel.textContent = "請先登入";
+  backButton.style.visibility = "hidden";
+  content.innerHTML = renderEmpty("請先用右側的 Google 登入，系統會把你的筆記存到 Firestore。");
+}
+
+function renderLoading() {
+  pageTitle.textContent = "LiveNote";
+  crumbLabel.textContent = "載入中";
+  backButton.style.visibility = "hidden";
+  content.innerHTML = renderEmpty("正在連線 Firebase...");
 }
 
 function render() {
+  renderAuthPanel();
+  if (!authReady) {
+    renderLoading();
+    return;
+  }
+  if (!currentUser) {
+    renderLoggedOut();
+    return;
+  }
+  if (!notesLoaded) {
+    renderLoading();
+    return;
+  }
+
   if (route.view === "theme") renderTheme();
   else if (route.view === "category") renderCategory();
   else if (route.view === "detail") renderDetail();
   else renderHome();
 }
 
-function uniqueSortedValues(key) {
-  return [...new Set(rows.map((row) => normalize(row[key])).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, "zh-Hant"),
-  );
+function renderAuthPanel() {
+  const loggedIn = Boolean(currentUser);
+  authProfile.classList.toggle("is-hidden", !loggedIn);
+  signInButton.textContent = loggedIn ? "重新登入" : "Google 登入";
+  signOutButton.disabled = !loggedIn;
+
+  if (!loggedIn) {
+    authAvatar.removeAttribute("src");
+    authName.textContent = "尚未登入";
+    authEmail.textContent = "";
+    authUid.textContent = "";
+    setAuthStatus("請先用 Google 登入。");
+    return;
+  }
+
+  authName.textContent = currentUser.displayName || "Google 使用者";
+  authEmail.textContent = currentUser.email || "沒有 email";
+  authUid.textContent = `UID: ${currentUser.uid}`;
+  authAvatar.src = currentUser.photoURL || "";
+  authAvatar.alt = currentUser.displayName || "Google 使用者";
+  setAuthStatus(`已登入 ${currentUser.email || currentUser.uid}`);
 }
 
-function setSelectOptions(selectEl, options, currentValue) {
-  if (!selectEl) return;
-  selectEl.innerHTML = `${options
-    .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
-    .join("")}<option value="__custom__">+ Custom value</option>`;
-  if (currentValue && options.includes(currentValue)) selectEl.value = currentValue;
-  else if (currentValue) selectEl.value = "__custom__";
-  else if (options.length) selectEl.selectedIndex = 0;
-}
-
-function toggleCustomRow(selectEl, rowEl, inputEl, currentValue = "") {
-  if (!selectEl || !rowEl || !inputEl) return;
-  const isCustom = selectEl.value === "__custom__";
-  rowEl.classList.toggle("is-hidden", !isCustom);
-  if (isCustom) inputEl.value = currentValue || inputEl.value || "";
-  else inputEl.value = "";
-}
-
-function collectChosenValue(selectEl, customInputEl, fallback = "") {
-  if (!selectEl) return fallback;
-  if (selectEl.value === "__custom__") return normalize(customInputEl?.value) || fallback;
-  return normalize(selectEl.value) || fallback;
-}
-
-function openEditor(item = null) {
-  const isEdit = Boolean(item);
-  document.querySelector("#editorModeLabel").textContent = isEdit ? "Edit" : "New";
-  document.querySelector("#editorTitle").textContent = isEdit ? normalize(item.title) || "Edit note" : "New note";
-  editorForm.reset();
-
-  const defaults = {
-    id: "",
-    status: "active",
-    theme: route.theme || "",
-    theme_icon: "",
-    theme_color: "#b14f35",
-    category: route.category || "",
-    title: "",
-    summary: "",
-    content: "",
-    tags: "",
-    updated_at: today(),
-    ...item,
+async function ensureUserDocument(user) {
+  const ref = userDocRef(user.uid);
+  const snap = await getDoc(ref);
+  const payload = {
+    displayName: user.displayName || "",
+    email: user.email || "",
+    photoURL: user.photoURL || "",
+    lastLoginAt: serverTimestamp(),
   };
-
-  HEADERS.forEach((key) => {
-    if (editorForm.elements[key]) editorForm.elements[key].value = normalize(defaults[key]);
-  });
-
-  setSelectOptions(themeSelect, uniqueSortedValues("theme"), normalize(defaults.theme));
-  setSelectOptions(categorySelect, uniqueSortedValues("category"), normalize(defaults.category));
-  toggleCustomRow(themeSelect, themeCustomRow, themeCustomInput, normalize(defaults.theme));
-  toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput, normalize(defaults.category));
-  advancedFields?.classList.add("is-collapsed");
-  if (advancedToggleButton) advancedToggleButton.textContent = "Show advanced fields";
-
-  const archiveButton = document.querySelector("#archiveButton");
-  if (archiveButton) archiveButton.style.visibility = isEdit ? "visible" : "hidden";
-  editorModal.classList.add("is-open");
-  editorModal.setAttribute("aria-hidden", "false");
+  if (!snap.exists()) payload.createdAt = serverTimestamp();
+  await setDoc(ref, payload, { merge: true });
 }
 
-function closeEditor() {
-  editorModal.classList.remove("is-open");
-  editorModal.setAttribute("aria-hidden", "true");
-}
-
-function makeId(values) {
-  const base = `${values.theme}-${values.category}-${values.title}`
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, "-")
-    .replace(/^-+|-+$/g, "");
-  const stamp = Date.now().toString(36);
-  return `${base || "note"}-${stamp}`;
-}
-
-function formValues() {
-  const data = Object.fromEntries(new FormData(editorForm).entries());
-  const values = {};
-  HEADERS.forEach((key) => {
-    values[key] = normalize(data[key]);
-  });
-  values.theme = collectChosenValue(themeSelect, themeCustomInput, route.theme || "");
-  values.category = collectChosenValue(categorySelect, categoryCustomInput, route.category || "");
-  values.status = values.status || "active";
-  values.theme_icon = values.theme_icon || "";
-  values.theme_color = values.theme_color || "#2e6f6b";
-  values.summary = values.summary || values.content.slice(0, 40);
-  values.tags = "";
-  values.updated_at = values.updated_at || today();
-  values.id = values.id || makeId(values);
-  return values;
-}
-
-function upsertLocal(values) {
-  const index = rows.findIndex((row) => normalize(row.id) === values.id);
-  if (index >= 0) rows[index] = { ...rows[index], ...values };
-  else rows.push(values);
-  dirty = true;
-}
-
-function normalizeRow(row) {
-  const clean = {};
-  HEADERS.forEach((key) => {
-    clean[key] = normalize(row[key]);
-  });
-  return clean;
-}
-
-function googleParams(extra = {}) {
-  const params = new URLSearchParams(extra);
-  if (config.passcode) params.set("passcode", config.passcode);
-  return params;
-}
-
-function jsonpRequest(action, timeoutMs = 15000) {
-  return new Promise((resolve, reject) => {
-    if (!config.scriptUrl) {
-      reject(new Error("Google Apps Script URL is missing."));
-      return;
-    }
-
-    const callback = `notebookCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const params = googleParams({ action, callback });
-    const script = document.createElement("script");
-    const timer = window.setTimeout(() => {
-      cleanup();
-      reject(
-        new Error(
-          "Google Sheets 同步逾時。請確認 Web App 已部署成「任何人可存取」，URL 是 /exec，而且腳本可以直接讀到試算表。",
-        ),
-      );
-    }, timeoutMs);
-
-    function cleanup() {
-      window.clearTimeout(timer);
-      delete window[callback];
-      script.remove();
-    }
-
-    window[callback] = (payload) => {
-      cleanup();
-      if (!payload || payload.ok === false) {
-        reject(new Error(payload?.error || "Google Sheets 回傳錯誤。"));
-        return;
-      }
-      resolve(payload);
-    };
-
-    script.onerror = () => {
-      cleanup();
-      reject(
-        new Error(
-          "無法讀取 Google Sheets。請確認 Apps Script Web App 設定為「執行身分：我」與「誰可以存取：任何人」，並且腳本已綁定試算表或已填入 SPREADSHEET_ID。",
-        ),
-      );
-    };
-
-    script.src = `${config.scriptUrl}?${params.toString()}`;
-    document.body.appendChild(script);
-  });
-}
-
-async function pingGoogle() {
-  if (!config.scriptUrl) return;
-  await jsonpRequest("ping", 10000);
-}
-
-async function loadGoogleRows() {
-  const payload = await jsonpRequest("list");
-  return (payload.rows || []).map(normalizeRow);
-}
-
-async function syncRow(row) {
-  if (!config.scriptUrl) {
-    setSyncStatus("已儲存在目前頁面，尚未設定 Google Sheets。");
-    return;
-  }
-
-  try {
-    setSyncStatus("正在寫入 Google Sheets...");
-    await fetch(config.scriptUrl, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "upsert",
-        passcode: config.passcode || "",
-        row: normalizeRow(row),
-      }),
-    });
-    dirty = false;
-    setSyncStatus("已送出到 Google Sheets。請按同步確認最新資料。");
-  } catch (error) {
-    setSyncStatus(`Google Sheets 寫入失敗：${error.message}`);
-  }
-}
-
-async function syncFromGoogle() {
-  saveConfig();
-  if (!config.scriptUrl) {
-    setSyncStatus("請先貼上 Apps Script Web App URL。");
-    return;
-  }
-
-  try {
-    setSyncStatus("正在連線到 Google Sheets...");
-    await pingGoogle();
-    rows = await loadGoogleRows();
-    dirty = false;
-    readRoute();
-    setSyncStatus(`已從 Google Sheets 載入 ${rows.length} 筆資料。`);
-    render();
-  } catch (error) {
-    setSyncStatus(`Google Sheets 同步失敗：${error.message}`);
-    throw error;
-  }
-}
-
-function downloadWorkbook() {
-  if (!window.XLSX) {
-    alert("Excel 套件尚未載入，請稍後再試。");
-    return;
-  }
-
-  const cleanRows = rows.map(normalizeRow);
-  const workbook = XLSX.utils.book_new();
-  const notes = XLSX.utils.json_to_sheet(cleanRows, { header: HEADERS });
-  XLSX.utils.book_append_sheet(workbook, notes, "notes");
-  const guide = XLSX.utils.aoa_to_sheet([
-    ["欄位", "說明"],
-    ["id", "唯一代號，不要重複。"],
-    ["status", "active 顯示；archived 隱藏，建議不要刪資料。"],
-    ["theme", "大主題，例如食譜、生活備忘。"],
-    ["theme_icon", "主題圖示。"],
-    ["theme_color", "主題色碼。"],
-    ["category", "分類，例如中式、西式、日式。"],
-    ["title", "記事或食譜名稱。"],
-    ["summary", "列表摘要。"],
-    ["content", "內頁內容，可換行。"],
-    ["tags", "半形逗號分隔。"],
-    ["updated_at", "更新日期。"],
-  ]);
-  XLSX.utils.book_append_sheet(workbook, guide, "guide");
-  XLSX.writeFile(workbook, `data-updated-${today()}.xlsx`);
-  dirty = false;
-  render();
-}
-
-async function loadWorkbookFromArrayBuffer(buffer) {
-  if (!window.XLSX) throw new Error("SheetJS library is unavailable.");
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const sheet = workbook.Sheets.notes || workbook.Sheets[workbook.SheetNames[0]];
-  rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }).map(normalizeRow);
-  dirty = false;
-  readRoute();
-  render();
-}
-
-async function loadDefaultData() {
-  googleUrlInput.value = config.scriptUrl || "";
-  googlePasscodeInput.value = config.passcode || "";
-  googleUrlInput.readOnly = true;
-  googlePasscodeInput.readOnly = true;
-  googleUrlInput.title = "這個設定已固定在程式中";
-  googlePasscodeInput.title = "這個設定已固定在程式中";
-
-  if (config.scriptUrl) {
-    try {
-      await syncFromGoogle();
-      return;
-    } catch {
-      // Fall back to local Excel if Sheets is not reachable yet.
-    }
-  }
-
-  try {
-    const response = await fetch(DATA_FILE, { cache: "no-store" });
-    if (!response.ok) throw new Error("data.xlsx not found");
-    await loadWorkbookFromArrayBuffer(await response.arrayBuffer());
-  } catch {
-    rows = fallbackRows.map(normalizeRow);
-    readRoute();
-    render();
-  }
-}
-
-async function persistRow(values) {
-  const next = normalizeRow(values);
-  const index = rows.findIndex((row) => normalize(row.id) === next.id);
-  if (index >= 0) rows[index] = { ...rows[index], ...next };
-  else rows.push(next);
-  setPending(next.id);
-  await saveLocalState();
-}
-
-async function loadFromLocalCache() {
-  const state = await readCacheState().catch(() => null);
-  if (!state || !Array.isArray(state.rows) || state.rows.length === 0) return false;
-  rows = state.rows.map(normalizeRow);
-  pendingSyncIds = new Set((state.pendingSyncIds || []).map(normalize));
-  dirty = Boolean(state.dirty ?? pendingSyncIds.size > 0);
-  readRoute();
-  render();
-  setSyncStatus(
-    `已從本機快取載入 ${rows.length} 筆${state.savedAt ? `，快取時間 ${state.savedAt}` : ""}${
-      pendingSyncIds.size ? `，待同步 ${pendingSyncIds.size} 筆` : ""
-    }。`,
+function subscribeToNotes(uid) {
+  if (notesUnsubscribe) notesUnsubscribe();
+  notesLoaded = false;
+  const noteQuery = query(notesCollection(uid), orderBy("updatedAt", "desc"));
+  notesUnsubscribe = onSnapshot(
+    noteQuery,
+    (snapshot) => {
+      notes = snapshot.docs.map(noteFromSnapshot);
+      notesLoaded = true;
+      render();
+    },
+    (error) => {
+      notesLoaded = true;
+      setStatus(`讀取 Firestore 失敗：${error.message}`);
+    },
   );
-  return true;
 }
 
-async function loadFromCloud() {
-  saveConfig();
-  if (!config.scriptUrl) {
-    setSyncStatus("需要先設定 Apps Script Web App URL。");
+async function signInWithGoogle() {
+  const result = await signInWithPopup(auth, googleProvider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  googleAccessToken = credential?.accessToken || "";
+}
+
+async function signOutUser() {
+  googleAccessToken = "";
+  if (notesUnsubscribe) {
+    notesUnsubscribe();
+    notesUnsubscribe = null;
+  }
+  notes = [];
+  notesLoaded = false;
+  await signOut(auth);
+  setStatus("已登出。");
+}
+
+function currentEditNote() {
+  return notes.find((note) => normalize(note.id) === normalize(editIdInput.value));
+}
+
+async function saveNote(event) {
+  event.preventDefault();
+  if (!currentUser) return;
+
+  const existing = currentEditNote();
+  const payload = buildNotePayload(existing);
+  const noteId = normalize(editIdInput.value) || currentEditId || randomId();
+  const ref = noteDocRef(currentUser.uid, noteId);
+
+  if (existing) {
+    await setDoc(ref, payload, { merge: false });
+    setStatus(`已更新「${payload.title}」。`);
+  } else {
+    await setDoc(ref, payload, { merge: false });
+    setStatus(`已新增「${payload.title}」。`);
+  }
+
+  closeEditor();
+  setRoute({ view: "detail", theme: payload.theme, category: payload.category, id: noteId });
+}
+
+async function deleteCurrentNote() {
+  if (!currentUser) return;
+  const existing = currentEditNote() || notes.find((note) => normalize(note.id) === normalize(route.id));
+  if (!existing) return;
+  const confirmed = window.confirm(`確定要刪除「${existing.title}」嗎？`);
+  if (!confirmed) return;
+  await deleteDoc(noteDocRef(currentUser.uid, existing.id));
+  closeEditor();
+  setStatus(`已刪除「${existing.title}」。`);
+  setRoute({ view: "home", theme: "", category: "", id: "" });
+}
+
+async function importNotesFromFile(file) {
+  if (!currentUser) {
+    setStatus("請先登入後再匯入資料。");
     return;
   }
+  if (!window.XLSX) throw new Error("SheetJS 尚未載入。");
 
-  setSyncStatus("正在從 Google Sheets 下載...");
-  await pingGoogle();
-  const cloudRows = await loadGoogleRows();
-  rows = cloudRows.map(normalizeRow);
-  pendingSyncIds = new Set();
-  dirty = false;
-  readRoute();
-  render();
-  await saveLocalState();
-  setSyncStatus(`已從 Google Sheets 下載 ${rows.length} 筆，並更新本機快取。`);
+  const ext = file.name.split(".").pop().toLowerCase();
+  const workbook =
+    ext === "csv"
+      ? XLSX.read(await file.text(), { type: "string" })
+      : XLSX.read(await file.arrayBuffer(), { type: "array" });
+
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const mapped = rows.map(normalizeImportedRow).filter((row) => row.title || row.content || row.theme || row.category);
+  await writeRowsToFirestore(mapped);
+  setStatus(`已匯入 ${mapped.length} 筆筆記。`);
 }
 
-async function syncPendingRows() {
-  if (!config.scriptUrl) {
-    setSyncStatus("需要先設定 Apps Script Web App URL。");
-    return;
-  }
-
-  const pendingRows = rows.filter((row) => pendingSyncIds.has(normalize(row.id)));
-  if (pendingRows.length === 0) {
-    setSyncStatus("目前沒有待同步的變更。");
-    return;
-  }
-
-  setSyncStatus(`正在同步 ${pendingRows.length} 筆變更到 Google Sheets...`);
-  for (const row of pendingRows) {
-    await fetch(config.scriptUrl, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "upsert",
-        passcode: config.passcode || "",
-        row: normalizeRow(row),
-      }),
-    });
-  }
-
-  pendingRows.forEach((row) => pendingSyncIds.delete(normalize(row.id)));
-  dirty = pendingSyncIds.size > 0;
-  await saveLocalState();
-  setSyncStatus(`已同步 ${pendingRows.length} 筆到 Google Sheets，並更新本機快取。`);
+function normalizeImportedRow(row) {
+  const title = normalize(row.title || row["名稱"] || row["title"]);
+  const content = normalize(row.content || row["內容"] || row["content"]);
+  const theme = normalize(row.theme || row["主題"] || row["theme"]) || "未分類";
+  const category = normalize(row.category || row["分類"] || row["category"]) || "未分類";
+  const id = normalize(row.id || row["id"]) || randomId();
+  const createdAt = toTimestamp(row.createdAt || row.created_at || row["created_at"] || row.updatedAt || row.updated_at);
+  const updatedAt = toTimestamp(row.updatedAt || row.updated_at || row["updated_at"] || row.createdAt || row.created_at);
+  return { id, title, content, theme, category, createdAt, updatedAt };
 }
 
-async function refreshFromCloud() {
-  if (pendingSyncIds.size > 0) {
-    setSyncStatus("先同步本機待上傳變更，再重新從雲端下載。");
-    return;
-  }
-  await loadFromCloud();
-}
-
-async function syncFromGoogle() {
-  await syncPendingRows();
-}
-
-async function loadWorkbookFromArrayBuffer(buffer) {
-  if (!window.XLSX) throw new Error("SheetJS library is unavailable.");
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const sheet = workbook.Sheets.notes || workbook.Sheets[workbook.SheetNames[0]];
-  rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }).map(normalizeRow);
-  pendingSyncIds = new Set();
-  dirty = false;
-  readRoute();
-  render();
-  await saveLocalState();
-}
-
-async function loadDefaultData() {
-  googleUrlInput.value = config.scriptUrl || "";
-  googlePasscodeInput.value = config.passcode || "";
-  googleUrlInput.readOnly = true;
-  googlePasscodeInput.readOnly = true;
-  googleUrlInput.title = "這個設定已固定在程式中";
-  googlePasscodeInput.title = "這個設定已固定在程式中";
-
-  if (await loadFromLocalCache()) {
-    return;
-  }
-
-  if (config.scriptUrl) {
-    try {
-      await loadFromCloud();
-      return;
-    } catch {
-      // Fall back to local Excel if Sheets is not reachable yet.
+async function writeRowsToFirestore(rowsToWrite) {
+  const chunkSize = 400;
+  for (let index = 0; index < rowsToWrite.length; index += chunkSize) {
+    const batch = writeBatch(db);
+    const slice = rowsToWrite.slice(index, index + chunkSize);
+    for (const row of slice) {
+      const ref = noteDocRef(currentUser.uid, row.id);
+      batch.set(ref, {
+        title: row.title,
+        content: row.content,
+        theme: row.theme,
+        category: row.category,
+        createdAt: row.createdAt || toTimestamp(today()),
+        updatedAt: row.updatedAt || toTimestamp(today()),
+      });
     }
+    await batch.commit();
+  }
+}
+
+function buildExportRows() {
+  return notes.map((note) => [
+    note.id,
+    note.title,
+    note.content,
+    note.theme,
+    note.category,
+    formatDate(note.createdAt),
+    formatDate(note.updatedAt),
+  ]);
+}
+
+function rowsToCsv(rowsInput) {
+  return rowsInput
+    .map((row) =>
+      row
+        .map((cell) => {
+          const text = normalize(cell);
+          return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+        })
+        .join(","),
+    )
+    .join("\r\n");
+}
+
+function downloadText(filename, text, mimeType) {
+  const blob = new Blob([text], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportCsv() {
+  if (!currentUser) {
+    setStatus("請先登入後再匯出 CSV。");
+    return;
+  }
+  const header = ["id", "title", "content", "theme", "category", "createdAt", "updatedAt"];
+  const csv = rowsToCsv([header, ...buildExportRows()]);
+  downloadText("livenote.csv", csv, "text/csv;charset=utf-8");
+  setStatus("已下載 livenote.csv。");
+}
+
+async function ensureGoogleSheetsToken() {
+  if (googleAccessToken) return googleAccessToken;
+  const result = await signInWithPopup(auth, googleProvider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  googleAccessToken = credential?.accessToken || "";
+  if (!googleAccessToken) {
+    throw new Error("無法取得 Google Sheets 存取權限，請重新登入一次。");
+  }
+  return googleAccessToken;
+}
+
+async function exportToGoogleSheet() {
+  if (!currentUser) {
+    setStatus("請先登入後再匯出 Google Sheet。");
+    return;
+  }
+  const token = await ensureGoogleSheetsToken();
+  const title = `LiveNote export ${today()}`;
+  const createResponse = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      properties: { title },
+    }),
+  });
+
+  if (!createResponse.ok) {
+    throw new Error(await createResponse.text());
+  }
+
+  const created = await createResponse.json();
+  const values = [
+    ["id", "title", "content", "theme", "category", "createdAt", "updatedAt"],
+    ...buildExportRows(),
+  ];
+  const updateResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${created.spreadsheetId}/values/Sheet1!A1?valueInputOption=RAW`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ values }),
+  });
+
+  if (!updateResponse.ok) {
+    throw new Error(await updateResponse.text());
+  }
+
+  setStatus(`已建立新的 Google Sheet：${created.spreadsheetUrl}`);
+}
+
+async function initUserSession(user) {
+  currentUser = user;
+  googleAccessToken = "";
+  if (!user) {
+    if (notesUnsubscribe) {
+      notesUnsubscribe();
+      notesUnsubscribe = null;
+    }
+    notes = [];
+    notesLoaded = false;
+    render();
+    return;
+  }
+
+  await ensureUserDocument(user);
+  subscribeToNotes(user.uid);
+  render();
+}
+
+async function handleLoginState(user) {
+  authReady = true;
+  if (!user) {
+    currentUser = null;
+    notes = [];
+    notesLoaded = false;
+    render();
+    return;
   }
 
   try {
-    const response = await fetch(DATA_FILE, { cache: "no-store" });
-    if (!response.ok) throw new Error("data.xlsx not found");
-    await loadWorkbookFromArrayBuffer(await response.arrayBuffer());
-    setSyncStatus("已從本機 Excel 載入，並同步到快取。");
-  } catch {
-    rows = fallbackRows.map(normalizeRow);
-    pendingSyncIds = new Set();
-    dirty = false;
-    readRoute();
-    render();
-    await saveLocalState().catch(() => {});
-    setSyncStatus("已使用內建資料作為首次快取。");
+    await initUserSession(user);
+    setStatus(`已登入 ${user.email || user.uid}`);
+  } catch (error) {
+    setStatus(`登入後處理失敗：${error.message}`);
   }
 }
 
-async function saveForm(event) {
-  event.preventDefault();
-  const values = formValues();
-  await persistRow(values);
-  closeEditor();
-  setRoute({ view: "detail", theme: values.theme, category: values.category, id: values.id });
-  setSyncStatus(`Saved ${values.title}. Pending sync: ${pendingSyncIds.size}.`);
+function wireEvents() {
+  backButton.addEventListener("click", () => {
+    if (route.view === "detail") setRoute({ view: "category", theme: route.theme, category: route.category, id: "" });
+    else if (route.view === "category") setRoute({ view: "theme", theme: route.theme, category: "", id: "" });
+    else setRoute({ view: "home", theme: "", category: "", id: "" });
+  });
+
+  searchInput.addEventListener("input", render);
+  toolsButton.addEventListener("click", openDrawer);
+  closeDrawerButton.addEventListener("click", closeDrawer);
+  closeEditorButton.addEventListener("click", closeEditor);
+  newItemButton.addEventListener("click", () => {
+    closeDrawer();
+    if (!currentUser) {
+      setStatus("請先登入 Google 帳號。");
+      return;
+    }
+    openEditor();
+  });
+  deleteButton.addEventListener("click", deleteCurrentNote);
+
+  drawer.addEventListener("click", (event) => {
+    if (event.target === drawer) closeDrawer();
+  });
+
+  editorModal.addEventListener("click", (event) => {
+    if (event.target === editorModal) closeEditor();
+  });
+
+  advancedToggleButton.addEventListener("click", () => {
+    const collapsed = advancedFields.classList.toggle("is-collapsed");
+    advancedToggleButton.textContent = collapsed ? "顯示進階欄位" : "隱藏進階欄位";
+  });
+
+  themeSelect.addEventListener("change", () => toggleCustomRow(themeSelect, themeCustomRow, themeCustomInput));
+  categorySelect.addEventListener("change", () => toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput));
+
+  signInButton.addEventListener("click", async () => {
+    try {
+      setStatus("正在登入 Google...");
+      await signInWithGoogle();
+      setStatus("Google 登入完成。");
+    } catch (error) {
+      setStatus(`登入失敗：${error.message}`);
+    }
+  });
+
+  signOutButton.addEventListener("click", async () => {
+    try {
+      await signOutUser();
+    } catch (error) {
+      setStatus(`登出失敗：${error.message}`);
+    }
+  });
+
+  exportCsvButton.addEventListener("click", exportCsv);
+  exportGoogleSheetButton.addEventListener("click", async () => {
+    try {
+      setStatus("正在建立新的 Google Sheet...");
+      await exportToGoogleSheet();
+    } catch (error) {
+      setStatus(`匯出 Google Sheet 失敗：${error.message}`);
+    }
+  });
+
+  importInput.addEventListener("change", async (event) => {
+    const [file] = event.target.files || [];
+    if (!file) return;
+    try {
+      setStatus(`正在匯入 ${file.name}...`);
+      await importNotesFromFile(file);
+      importInput.value = "";
+    } catch (error) {
+      setStatus(`匯入失敗：${error.message}`);
+    }
+  });
+
+  editorForm.addEventListener("submit", saveNote);
+  window.addEventListener("hashchange", () => {
+    readRoute();
+    render();
+  });
 }
 
-async function archiveCurrent() {
-  const current = rows.find((row) => normalize(row.id) === normalize(editorForm.elements.id.value));
-  if (!current) return;
-  await persistRow({ ...current, status: "archived", updated_at: today() });
-  closeEditor();
-  setRoute({ view: "home" });
-  setSyncStatus(`Archived ${current.title}. Pending sync: ${pendingSyncIds.size}.`);
-}
-
-function openTools() {
-  drawer.classList.add("is-open");
-  drawer.setAttribute("aria-hidden", "false");
-}
-
-function closeTools() {
-  drawer.classList.remove("is-open");
-  drawer.setAttribute("aria-hidden", "true");
-}
-
-backButton.addEventListener("click", () => {
-  if (route.view === "detail") setRoute({ view: "category", theme: route.theme, category: route.category });
-  else if (route.view === "category") setRoute({ view: "theme", theme: route.theme });
-  else setRoute({ view: "home" });
-});
-
-searchInput.addEventListener("input", render);
-window.addEventListener("hashchange", () => {
+document.addEventListener("DOMContentLoaded", () => {
   readRoute();
+  wireEvents();
+
+  onAuthStateChanged(auth, handleLoginState);
   render();
 });
-
-document.querySelector("#toolsButton").addEventListener("click", openTools);
-document.querySelector("#closeDrawerButton").addEventListener("click", closeTools);
-drawer.addEventListener("click", (event) => {
-  if (event.target === drawer) closeTools();
-});
-
-document.querySelector("#excelInput").addEventListener("change", async (event) => {
-  const [file] = event.target.files;
-  if (!file) return;
-  await loadWorkbookFromArrayBuffer(await file.arrayBuffer());
-});
-
-document.querySelector("#newItemButton").addEventListener("click", () => {
-  closeTools();
-  openEditor();
-});
-
-document.querySelector("#downloadCurrentButton").addEventListener("click", downloadWorkbook);
-document.querySelector("#syncGoogleButton").addEventListener("click", async () => {
-  saveConfig();
-  await syncFromGoogle();
-});
-document.querySelector("#refreshGoogleButton")?.addEventListener("click", async () => {
-  saveConfig();
-  await refreshFromCloud();
-});
-
-advancedToggleButton?.addEventListener("click", () => {
-  if (!advancedFields) return;
-  const collapsed = advancedFields.classList.toggle("is-collapsed");
-  if (advancedToggleButton) advancedToggleButton.textContent = collapsed ? "Show advanced fields" : "Hide advanced fields";
-});
-
-themeSelect?.addEventListener("change", () => {
-  toggleCustomRow(themeSelect, themeCustomRow, themeCustomInput);
-});
-
-categorySelect?.addEventListener("change", () => {
-  toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput);
-});
-
-document.querySelector("#closeEditorButton").addEventListener("click", closeEditor);
-document.querySelector("#archiveButton").addEventListener("click", archiveCurrent);
-editorForm.addEventListener("submit", saveForm);
-editorModal.addEventListener("click", (event) => {
-  if (event.target === editorModal) closeEditor();
-});
-
-loadDefaultData();

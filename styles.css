@@ -340,6 +340,43 @@ textarea {
   display: none;
 }
 
+.auth-card {
+  gap: 14px;
+}
+
+.auth-profile {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.auth-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: #f1ece3;
+}
+
+.auth-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.auth-meta strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.auth-meta span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .note {
   border-left: 4px solid var(--accent-2);
   padding: 12px;
@@ -400,6 +437,10 @@ textarea {
   border-radius: 8px;
   background: rgba(255, 253, 247, 0.92);
   box-shadow: 0 8px 24px rgba(57, 48, 34, 0.08);
+}
+
+.is-hidden {
+  display: none !important;
 }
 
 .schema {
@@ -518,6 +559,11 @@ textarea {
   gap: 12px;
   padding: 14px 18px 18px;
   border-top: 1px solid var(--line);
+}
+
+.secondary-action.is-danger {
+  border-color: rgba(177, 79, 53, 0.25);
+  color: var(--accent-2);
 }
 
 .detail-actions {

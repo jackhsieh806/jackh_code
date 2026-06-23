@@ -3,11 +3,15 @@ firebase.json
 .firebaseignore
 **/.*
 **/node_modules/**
+package.json
+package-lock.json
+README.md
+firestore.rules
+scripts/**
 cook/**
 interview/**
 leecode/**
 outputs/**
-scripts/**
 *.c
 *.cpp
 *.rar

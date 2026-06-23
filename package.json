@@ -1,0 +1,13 @@
+{
+  "name": "livenote",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate:legacy": "node scripts/migrate-legacy-sheet.mjs",
+    "deploy:hosting": "npx firebase-tools deploy --only hosting --project livenote-app",
+    "deploy:rules": "npx firebase-tools deploy --only firestore:rules --project livenote-app"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}
