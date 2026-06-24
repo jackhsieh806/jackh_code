@@ -1218,6 +1218,15 @@ function bindContentActions() {
 }
 
 function wireEvents() {
+  drawer.addEventListener("click", (event) => {
+    const routeButton = event.target.closest("[data-route]");
+    if (!routeButton) return;
+    event.preventDefault();
+    navigateToPath(routeButton.dataset.route);
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      closeDrawer();
+    }
+  });
   backButton.addEventListener("click", () => history.back());
   toolsButton.addEventListener("click", () => {
     if (drawer.classList.contains("is-open")) closeDrawer();
