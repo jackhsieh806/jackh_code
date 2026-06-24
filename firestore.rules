@@ -1,8 +1,61 @@
 rules_version = "2";
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
     function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function recipeRef(recipeId) {
+      return /databases/$(database)/documents/public_recipes/$(recipeId);
+    }
+
+    function ratingRef(recipeId, userId) {
+      return /databases/$(database)/documents/public_recipes/$(recipeId)/ratings/$(userId);
+    }
+
+    function favoriteRef(recipeId, userId) {
+      return /databases/$(database)/documents/public_recipes/$(recipeId)/favorites/$(userId);
+    }
+
+    function baseRecipeFieldsUnchanged(recipeId) {
+      return request.resource.data.title == resource.data.title
+        && request.resource.data.content == resource.data.content
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.ownerName == resource.data.ownerName
+        && request.resource.data.category == resource.data.category
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.visibility == resource.data.visibility;
+    }
+
+    function ratingUpdateIsValid(recipeId) {
+      let beforeRating = get(ratingRef(recipeId, request.auth.uid));
+      let afterRating = getAfter(ratingRef(recipeId, request.auth.uid));
+      let currentCount = resource.data.ratingCount;
+      let currentAvg = resource.data.avgRating;
+      let previous = beforeRating.exists() ? beforeRating.data.rating : 0;
+      let nextCount = beforeRating.exists() ? currentCount : currentCount + 1;
+      let nextAverage = ((currentAvg * currentCount) - previous + afterRating.data.rating) / nextCount;
+
+      return signedIn()
+        && afterRating.exists()
+        && afterRating.data.uid == request.auth.uid
+        && afterRating.data.rating is int
+        && afterRating.data.rating >= 1
+        && afterRating.data.rating <= 5
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.content == resource.data.content
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.ownerName == resource.data.ownerName
+        && request.resource.data.category == resource.data.category
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.visibility == resource.data.visibility
+        && request.resource.data.ratingCount == nextCount
+        && request.resource.data.avgRating >= nextAverage - 0.01
+        && request.resource.data.avgRating <= nextAverage + 0.01;
     }
 
     match /users/{userId} {
@@ -10,6 +63,30 @@ service cloud.firestore {
 
       match /notes/{noteId} {
         allow read, write: if isOwner(userId);
+      }
+    }
+
+    match /public_recipes/{recipeId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.visibility == "public";
+      allow update: if (signedIn() && request.auth.uid == resource.data.ownerUid)
+        || ratingUpdateIsValid(recipeId);
+      allow delete: if signedIn() && request.auth.uid == resource.data.ownerUid;
+
+      match /ratings/{userId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow create, update: if signedIn() && request.auth.uid == userId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.rating is int
+          && request.resource.data.rating >= 1
+          && request.resource.data.rating <= 5;
+        allow delete: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /favorites/{userId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
       }
     }
   }
