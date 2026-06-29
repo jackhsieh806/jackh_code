@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -14,89 +14,101 @@
           <div class="drawer-header">
             <div>
               <p class="eyebrow">LiveNote</p>
-              <h2>功能選單</h2>
+              <h2 id="sidebarTitle">工作區</h2>
             </div>
-            <button class="icon-button mobile-only" id="closeDrawerButton" type="button" aria-label="關閉選單">
+            <button class="icon-button mobile-only" id="closeDrawerButton" type="button" aria-label="關閉側欄">
               <span aria-hidden="true">×</span>
             </button>
           </div>
 
           <div class="drawer-body">
-            <button class="primary-action" id="newItemButton" type="button">＋ 新增筆記</button>
+            <button class="primary-action" id="newItemButton" type="button">新增筆記</button>
 
-            <nav class="menu-list" aria-label="主要導覽">
+            <nav class="menu-list" aria-label="側欄選單">
               <button class="menu-item" type="button" data-route="/">
-                <span aria-hidden="true">📝</span>
-                <span>我的筆記</span>
+                <span aria-hidden="true">⌂</span>
+                <span id="menuNotes">我的筆記</span>
               </button>
               <button class="menu-item" type="button" data-route="/groups">
-                <span aria-hidden="true">👥</span>
-                <span>我的群組</span>
+                <span aria-hidden="true">◫</span>
+                <span id="menuGroups">群組</span>
               </button>
               <button class="menu-item" type="button" data-route="/public">
-                <span aria-hidden="true">🌍</span>
-                <span>公開食譜</span>
+                <span aria-hidden="true">☰</span>
+                <span id="menuPublic">公開筆記</span>
               </button>
               <button class="menu-item" type="button" data-route="/popular">
-                <span aria-hidden="true">⭐</span>
-                <span>熱門排行</span>
+                <span aria-hidden="true">★</span>
+                <span id="menuPopular">熱門</span>
               </button>
               <button class="menu-item" type="button" data-route="/favorites">
-                <span aria-hidden="true">❤️</span>
-                <span>我的收藏</span>
+                <span aria-hidden="true">♡</span>
+                <span id="menuFavorites">收藏</span>
               </button>
             </nav>
 
-            <div class="settings-card auth-card">
-              <p class="eyebrow">Firebase Authentication</p>
-              <div class="auth-profile is-hidden" id="authProfile">
-                <img id="authAvatar" class="auth-avatar" alt="" referrerpolicy="no-referrer">
-                <div class="auth-meta">
-                  <strong id="authName"></strong>
-                  <span id="authEmail"></span>
-                  <span id="authUid"></span>
-                </div>
-              </div>
-              <p class="sync-status" id="authStatus">請先登入 Google 帳號。</p>
-              <div class="settings-actions">
-                <button class="secondary-action" id="signInButton" type="button">Google 登入</button>
-                <button class="secondary-action" id="signOutButton" type="button">登出</button>
-              </div>
+            <div class="settings-card">
+              <p class="eyebrow" id="settingsHint">設定與語言</p>
+              <label class="language-row">
+                <span id="languageLabel">語言</span>
+                <select id="languageSelect" aria-label="語言">
+                  <option value="zh-TW">繁體中文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                </select>
+              </label>
+              <p class="sync-status" id="syncStatus">正在同步至 Firebase...</p>
             </div>
 
             <div class="settings-card">
-              <p class="eyebrow">匯入 / 匯出</p>
+              <p class="eyebrow" id="exportImport">匯出 / 匯入</p>
               <button class="secondary-action" id="exportCsvButton" type="button">匯出 CSV</button>
               <label class="file-loader">
-                <span>匯入 Excel / CSV</span>
+                <span id="importExcelCsv">匯入 Excel / CSV</span>
                 <input id="importInput" type="file" accept=".xlsx,.xls,.csv">
               </label>
             </div>
-
-            <p class="sync-status" id="syncStatus">正在連線 Firebase...</p>
           </div>
         </div>
       </aside>
 
+      <button class="drawer-backdrop" id="drawerBackdrop" type="button" aria-label="關閉側欄" hidden></button>
+
       <div class="app-main">
         <header class="topbar">
-          <button class="icon-button" id="backButton" type="button" aria-label="返回上一頁">
-            <span aria-hidden="true">←</span>
-          </button>
-          <div>
+          <div class="topbar-left">
+            <button class="icon-button" id="backButton" type="button" aria-label="返回">
+              <span aria-hidden="true">←</span>
+            </button>
+            <button class="icon-button" id="toolsButton" type="button" aria-label="開啟側欄">
+              <span aria-hidden="true">☰</span>
+            </button>
+          </div>
+
+          <div class="topbar-copy">
             <p class="eyebrow" id="crumbLabel">LiveNote</p>
             <h1 id="pageTitle">我的筆記</h1>
           </div>
-          <button class="icon-button" id="toolsButton" type="button" aria-label="開啟選單">
-            <span aria-hidden="true">☰</span>
-          </button>
+
+          <div class="topbar-right">
+            <button class="avatar-button" id="authMenuButton" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="帳號選單">
+              <img id="authAvatar" class="auth-avatar" alt="" referrerpolicy="no-referrer">
+              <span id="authAvatarFallback" class="auth-avatar-fallback" aria-hidden="true">👤</span>
+            </button>
+            <div class="auth-menu is-hidden" id="authMenu" role="menu" aria-hidden="true">
+              <button class="menu-item menu-item-compact" id="authSettingsButton" type="button" role="menuitem">設定</button>
+              <button class="menu-item menu-item-compact" id="signInButton" type="button" role="menuitem">登入 Google</button>
+              <button class="menu-item menu-item-compact" id="signOutButton" type="button" role="menuitem">登出</button>
+            </div>
+          </div>
         </header>
 
         <main>
           <section class="search-band" aria-label="搜尋">
             <label class="search-field">
               <span aria-hidden="true">⌕</span>
-              <input id="searchInput" type="search" placeholder="搜尋標題、內容、主題、分類">
+              <input id="searchInput" type="search" placeholder="搜尋筆記、主題、分類或狀態">
             </label>
           </section>
           <section id="content" class="content" aria-live="polite"></section>
@@ -108,40 +120,47 @@
       <form class="editor-panel" id="editorForm">
         <div class="editor-header">
           <div>
-            <p class="eyebrow" id="editorModeLabel">筆記編輯</p>
+            <p class="eyebrow" id="editorModeLabel">草稿</p>
             <h2 id="editorTitle">新增筆記</h2>
           </div>
-          <button class="icon-button" id="closeEditorButton" type="button" aria-label="關閉編輯視窗">
+          <button class="icon-button" id="closeEditorButton" type="button" aria-label="關閉編輯器">
             <span aria-hidden="true">×</span>
           </button>
         </div>
         <div class="editor-body">
           <input id="editId" name="id" type="hidden">
           <div class="form-grid form-grid-main">
-            <label>名稱
-              <input name="title" required placeholder="輸入名稱">
+            <label>
+              <span id="titleLabel">標題</span>
+              <input name="title" required placeholder="輸入標題">
             </label>
-            <label>內容
+            <label>
+              <span id="contentLabel">內容</span>
               <textarea name="content" rows="10" placeholder="輸入內容"></textarea>
             </label>
           </div>
 
-          <button class="secondary-action collapsed-toggle" id="advancedToggleButton" type="button">顯示更多設定</button>
+          <button class="secondary-action collapsed-toggle" id="advancedToggleButton" type="button">顯示進階欄位</button>
 
           <div class="form-grid is-collapsed" id="advancedFields">
-            <label>主題
+            <label>
+              <span id="themeLabel">主題</span>
               <select name="theme_select" id="themeSelect"></select>
             </label>
-            <label class="custom-input-row is-hidden" id="themeCustomRow">自訂主題
+            <label class="custom-input-row is-hidden" id="themeCustomRow">
+              <span id="customThemeLabel">自訂主題</span>
               <input name="theme_custom" id="themeCustomInput" placeholder="輸入主題">
             </label>
-            <label>分類
+            <label>
+              <span id="categoryLabel">分類</span>
               <select name="category_select" id="categorySelect"></select>
             </label>
-            <label class="custom-input-row is-hidden" id="categoryCustomRow">自訂分類
+            <label class="custom-input-row is-hidden" id="categoryCustomRow">
+              <span id="customCategoryLabel">自訂分類</span>
               <input name="category_custom" id="categoryCustomInput" placeholder="輸入分類">
             </label>
-            <label>可見度
+            <label>
+              <span id="visibilityLabel">可見性</span>
               <select name="visibility" id="visibilitySelect">
                 <option value="private">私密</option>
                 <option value="group">群組</option>

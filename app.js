@@ -25,6 +25,19 @@ import {
   where,
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/11.8.1/firebase-firestore.js";
+import {
+  DEFAULT_LANGUAGE,
+  detectLanguageFromIp,
+  getLanguage,
+  getLanguageName,
+  getStoredLanguage,
+  languageFromNavigator,
+  normalizeLanguage,
+  resolveLanguagePreference,
+  setLanguage,
+  setStoredLanguage,
+  t,
+} from "./i18n.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBhcTOJQGsa4uAY2Y3IuI1rFpz_39wDTuY",
@@ -53,6 +66,24 @@ const crumbLabel = document.querySelector("#crumbLabel");
 const backButton = document.querySelector("#backButton");
 const searchInput = document.querySelector("#searchInput");
 const drawer = document.querySelector("#drawer");
+const drawerBackdrop = document.querySelector("#drawerBackdrop");
+const sidebarTitle = document.querySelector("#sidebarTitle");
+const menuNotes = document.querySelector("#menuNotes");
+const menuGroups = document.querySelector("#menuGroups");
+const menuPublic = document.querySelector("#menuPublic");
+const menuPopular = document.querySelector("#menuPopular");
+const menuFavorites = document.querySelector("#menuFavorites");
+const settingsHint = document.querySelector("#settingsHint");
+const languageLabel = document.querySelector("#languageLabel");
+const exportImport = document.querySelector("#exportImport");
+const importExcelCsv = document.querySelector("#importExcelCsv");
+const titleLabel = document.querySelector("#titleLabel");
+const contentLabel = document.querySelector("#contentLabel");
+const themeLabel = document.querySelector("#themeLabel");
+const customThemeLabel = document.querySelector("#customThemeLabel");
+const categoryLabel = document.querySelector("#categoryLabel");
+const customCategoryLabel = document.querySelector("#customCategoryLabel");
+const visibilityLabel = document.querySelector("#visibilityLabel");
 const editorModal = document.querySelector("#editorModal");
 const editorForm = document.querySelector("#editorForm");
 const editorModeLabel = document.querySelector("#editorModeLabel");
@@ -69,13 +100,14 @@ const categoryCustomInput = document.querySelector("#categoryCustomInput");
 const editIdInput = document.querySelector("#editId");
 const syncStatus = document.querySelector("#syncStatus");
 const authStatus = document.querySelector("#authStatus");
-const authProfile = document.querySelector("#authProfile");
 const authAvatar = document.querySelector("#authAvatar");
-const authName = document.querySelector("#authName");
-const authEmail = document.querySelector("#authEmail");
-const authUid = document.querySelector("#authUid");
+const authAvatarFallback = document.querySelector("#authAvatarFallback");
+const authMenuButton = document.querySelector("#authMenuButton");
+const authMenu = document.querySelector("#authMenu");
+const authSettingsButton = document.querySelector("#authSettingsButton");
 const signInButton = document.querySelector("#signInButton");
 const signOutButton = document.querySelector("#signOutButton");
+const languageSelect = document.querySelector("#languageSelect");
 const exportCsvButton = document.querySelector("#exportCsvButton");
 const importInput = document.querySelector("#importInput");
 const newItemButton = document.querySelector("#newItemButton");
@@ -97,8 +129,9 @@ let notesUnsubscribe = null;
 let publicUnsubscribe = null;
 let favoritesUnsubscribe = null;
 let currentEditId = "";
-let syncMessage = "正在連線 Firebase...";
+let syncMessage = t("syncStatusLoading");
 let route = parseRoute(location.pathname);
+let languageBootstrapPromise = null;
 
 function normalize(value) {
   return String(value ?? "").trim();
@@ -304,12 +337,188 @@ function uniqueSortedValues(key) {
   );
 }
 
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 900px)").matches;
+}
+
+function setDrawerBackdropVisibility(visible) {
+  if (!drawerBackdrop) return;
+  drawerBackdrop.hidden = !visible;
+}
+
+function setDrawerState(open) {
+  if (!drawer) return;
+  drawer.classList.toggle("is-open", open);
+  drawer.setAttribute("aria-hidden", open ? "false" : "true");
+  setDrawerBackdropVisibility(open);
+}
+
+function openDrawerLegacy() {
+  setDrawerState(true);
+}
+
+function closeDrawerLegacy() {
+  setDrawerState(false);
+}
+
+function syncAuthMenuVisibility(open) {
+  if (!authMenuButton || !authMenu) return;
+  authMenu.classList.toggle("is-hidden", !open);
+  authMenu.setAttribute("aria-hidden", open ? "false" : "true");
+  authMenuButton.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function openAuthMenu() {
+  syncAuthMenuVisibility(true);
+}
+
+function closeAuthMenu() {
+  syncAuthMenuVisibility(false);
+}
+
+function toggleAuthMenu() {
+  if (!authMenu) return;
+  syncAuthMenuVisibility(authMenu.classList.contains("is-hidden"));
+}
+
+function routeLabel(view) {
+  switch (view) {
+    case "notes":
+      return t("routeNotes");
+    case "groups":
+      return t("routeGroups");
+    case "public":
+      return t("routePublic");
+    case "popular":
+      return t("routePopular");
+    case "favorites":
+      return t("routeFavorites");
+    case "theme":
+      return t("routeTheme");
+    case "category":
+      return t("routeCategory");
+    case "note":
+      return t("routeNote");
+    case "recipe":
+      return t("routeRecipe");
+    default:
+      return t("appName");
+  }
+}
+
+function applyLocalizedShell() {
+  if (document.title !== `${t("appName")} · ${routeLabel(route.view)}`) {
+    document.title = `${t("appName")} · ${routeLabel(route.view)}`;
+  }
+  if (crumbLabel) crumbLabel.textContent = t("appSubtitle");
+  if (pageTitle) pageTitle.textContent = routeLabel(route.view);
+  if (sidebarTitle) sidebarTitle.textContent = t("sidebarTitle");
+  if (menuNotes) menuNotes.textContent = t("menuNotes");
+  if (menuGroups) menuGroups.textContent = t("menuGroups");
+  if (menuPublic) menuPublic.textContent = t("menuPublic");
+  if (menuPopular) menuPopular.textContent = t("menuPopular");
+  if (menuFavorites) menuFavorites.textContent = t("menuFavorites");
+  if (settingsHint) settingsHint.textContent = t("settingsHint");
+  if (languageLabel) languageLabel.textContent = t("language");
+  if (exportImport) exportImport.textContent = t("exportImport");
+  if (importExcelCsv) importExcelCsv.textContent = t("importExcelCsv");
+  if (titleLabel) titleLabel.textContent = t("titleLabel");
+  if (contentLabel) contentLabel.textContent = t("contentLabel");
+  if (themeLabel) themeLabel.textContent = t("themeLabel");
+  if (customThemeLabel) customThemeLabel.textContent = t("customThemeLabel");
+  if (categoryLabel) categoryLabel.textContent = t("categoryLabel");
+  if (customCategoryLabel) customCategoryLabel.textContent = t("customCategoryLabel");
+  if (visibilityLabel) visibilityLabel.textContent = t("visibilityLabel");
+  if (backButton) backButton.setAttribute("aria-label", t("back"));
+  if (toolsButton) toolsButton.setAttribute("aria-label", t("openSidebar"));
+  if (closeDrawerButton) closeDrawerButton.setAttribute("aria-label", t("closeSidebar"));
+  if (drawerBackdrop) drawerBackdrop.setAttribute("aria-label", t("closeSidebar"));
+  if (searchInput) {
+    searchInput.placeholder =
+      route.view === "public" || route.view === "recipe" || route.view === "popular" || route.view === "favorites"
+        ? t("searchPublic")
+        : t("searchPrivate");
+  }
+  if (newItemButton) newItemButton.textContent = t("newNote");
+  if (editorModeLabel) editorModeLabel.textContent = t("editorDraft");
+  if (editorTitle && editorForm?.dataset?.mode === "edit") editorTitle.textContent = t("editorEditTitle");
+  if (editorTitle && editorForm?.dataset?.mode !== "edit") editorTitle.textContent = t("editorNewTitle");
+  if (advancedToggleButton) {
+    advancedToggleButton.textContent = advancedFields?.classList.contains("is-collapsed") ? t("advancedOpen") : t("advancedClose");
+  }
+  if (deleteButton) deleteButton.textContent = t("delete");
+  if (languageSelect && getLanguage()) languageSelect.value = getLanguage();
+  if (syncStatus) syncStatus.textContent = syncMessage;
+  if (authSettingsButton) authSettingsButton.textContent = t("settings");
+  if (signInButton) signInButton.textContent = t("signInGoogle");
+  if (signOutButton) signOutButton.textContent = t("signOut");
+  if (newItemButton) newItemButton.textContent = t("newNote");
+  if (closeEditorButton) closeEditorButton.setAttribute("aria-label", t("closeEditor"));
+  if (editorForm?.elements?.title) editorForm.elements.title.placeholder = t("titlePlaceholder");
+  if (editorForm?.elements?.content) editorForm.elements.content.placeholder = t("contentPlaceholder");
+  if (themeCustomInput) themeCustomInput.placeholder = t("customThemePlaceholder");
+  if (categoryCustomInput) categoryCustomInput.placeholder = t("customCategoryPlaceholder");
+}
+
+function setAvatarState(user) {
+  if (!authMenuButton || !authAvatar || !authAvatarFallback) return;
+  const hasPhoto = Boolean(user?.photoURL);
+  authAvatar.src = hasPhoto ? user.photoURL : "";
+  authAvatar.alt = user?.displayName || user?.email || t("account");
+  authAvatarFallback.textContent = hasPhoto ? "" : "👤";
+  authMenuButton.classList.toggle("has-photo", hasPhoto);
+  authMenuButton.classList.toggle("no-photo", !hasPhoto);
+}
+
+function setAuthMenuMode(user) {
+  const signedIn = Boolean(user);
+  if (authSettingsButton) authSettingsButton.classList.toggle("is-hidden", !signedIn);
+  if (signOutButton) signOutButton.classList.toggle("is-hidden", !signedIn);
+  if (signInButton) signInButton.classList.toggle("is-hidden", signedIn);
+}
+
+async function persistLanguageForUser(language) {
+  if (!currentUser) return;
+  await setDoc(userDocRef(currentUser.uid), { settings: { language } }, { merge: true });
+}
+
+async function loadLanguagePreference(user) {
+  if (user) {
+    try {
+      const snapshot = await getDoc(userDocRef(user.uid));
+      const firestoreLanguage = normalizeLanguage(snapshot.data()?.settings?.language);
+      if (firestoreLanguage) {
+        setLanguage(firestoreLanguage);
+        setStoredLanguage(firestoreLanguage);
+        return firestoreLanguage;
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  const preference = resolveLanguagePreference();
+  if (preference.language) {
+    setLanguage(preference.language);
+    setStoredLanguage(preference.language);
+    if (user) await persistLanguageForUser(preference.language);
+    return preference.language;
+  }
+
+  const detected = await detectLanguageFromIp();
+  const next = detected || DEFAULT_LANGUAGE;
+  setLanguage(next);
+  setStoredLanguage(next);
+  if (user) await persistLanguageForUser(next);
+  return next;
+}
+
 function setSelectOptions(selectEl, values, currentValue) {
   if (!selectEl) return;
   const options = values
     .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
     .join("");
-  selectEl.innerHTML = `${options}<option value="__custom__">+ 自訂</option>`;
+  selectEl.innerHTML = `${options}<option value="__custom__">${t("customOption")}</option>`;
   if (currentValue && values.includes(currentValue)) selectEl.value = currentValue;
   else if (currentValue) selectEl.value = "__custom__";
   else if (values.length > 0) selectEl.selectedIndex = 0;
@@ -402,7 +611,7 @@ function getCurrentRecipe(recipeId) {
   return publicRecipes.find((recipe) => recipe.id === recipeId) || null;
 }
 
-function updateChrome() {
+function updateChromeLegacy() {
   const labels = {
     notes: ["我的筆記", "LiveNote"],
     theme: [route.theme || "主題", "我的筆記"],
@@ -422,6 +631,10 @@ function updateChrome() {
     route.view === "public" || route.view === "recipe" || route.view === "popular" || route.view === "favorites"
       ? "搜尋公開食譜、作者、分類"
       : "搜尋標題、內容、主題、分類";
+}
+
+function updateChrome() {
+  applyLocalizedShell();
 }
 
 function renderMenuState() {
@@ -449,7 +662,7 @@ function renderThemeTiles() {
     return acc;
   }, {});
   const themes = Object.keys(grouped).sort((a, b) => a.localeCompare(b, "zh-Hant"));
-  if (!themes.length) return renderEmpty("目前沒有可顯示的筆記。", "按下左側「新增筆記」開始建立內容。");
+  if (!themes.length) return renderEmpty(t("emptyHome"), t("newNote"));
   const cards = themes
     .map((theme) => {
       const meta = themeMeta(theme);
@@ -473,7 +686,7 @@ function renderThemeTiles() {
 function renderThemeView() {
   const rows = visiblePrivateNotes().filter((note) => normalize(note.theme) === normalize(route.theme));
   const meta = themeMeta(route.theme);
-  if (!route.theme) return renderEmpty("找不到這個主題。");
+  if (!route.theme) return renderEmpty(t("emptyTheme"));
   if (!rows.length) {
     return `
       <div class="detail-card">
@@ -519,7 +732,7 @@ function renderCategoryView() {
   const rows = visiblePrivateNotes().filter(
     (note) => normalize(note.theme) === normalize(route.theme) && normalize(note.category) === normalize(route.category),
   );
-  if (!route.theme || !route.category) return renderEmpty("找不到這個分類。");
+  if (!route.theme || !route.category) return renderEmpty(t("emptyCategory"));
   if (!rows.length) {
     return `
       <div class="detail-card">
@@ -556,7 +769,7 @@ function renderCategoryView() {
 
 function renderNoteDetailView() {
   const note = ensureCurrentUserNote(route.id);
-  if (!note) return renderEmpty("這篇筆記不存在，或已被刪除。");
+  if (!note) return renderEmpty(t("emptyNote"));
   const visibilityLabel = note.visibility === "public" ? "公開" : note.visibility === "group" ? "群組" : "私密";
   return `
     <div class="detail-card">
@@ -576,10 +789,10 @@ function renderNoteDetailView() {
 
 function renderNotesHome() {
   if (!isLoggedIn()) {
-    return renderEmpty("請先登入 Google 帳號，再讀取你的私有筆記。");
+    return renderEmpty(t("signInGoogle"), t("notesHome"));
   }
   if (!notesLoaded) {
-    return renderEmpty("正在載入你的筆記...");
+    return renderEmpty(t("syncStatusLoading"));
   }
   return renderThemeTiles();
 }
@@ -606,7 +819,13 @@ function renderPublicList(mode = "public") {
   if (!publicLoaded) {
     return `
       ${controls}
-      ${renderEmpty("正在載入公開食譜...")}
+      ${renderEmpty(t("syncStatusLoading"))}
+    `;
+  }
+  if (!items.length) {
+    return `
+      ${controls}
+      ${renderEmpty(mode === "favorites" ? t("emptyFavorites") : t("emptyPublic"), mode === "public" ? t("emptySearch") : "")}
     `;
   }
   if (!items.length) {
@@ -640,7 +859,7 @@ function renderPublicList(mode = "public") {
 
 function renderRecipeDetailView() {
   const recipe = getCurrentRecipe(route.id);
-  if (!recipe) return renderEmpty("找不到這份公開食譜。");
+  if (!recipe) return renderEmpty(t("emptyRecipe"));
   const isOwner = currentUser && recipe.ownerUid === currentUser.uid;
   const isFavorited = favoriteRecipeIds.has(recipe.id);
   return `
@@ -671,11 +890,11 @@ function renderRecipeDetailView() {
 
 function renderGroupsView() {
   if (!isLoggedIn()) {
-    return renderEmpty("請先登入後使用群組功能。");
+    return renderEmpty(t("signInGoogle"), t("groups"));
   }
   const groupNotes = visiblePrivateNotes().filter((note) => note.visibility === "group");
   if (!groupNotes.length) {
-    return renderEmpty("目前還沒有群組筆記。", "你可以先把筆記存成「群組」可見，之後再接上成員權限。");
+    return renderEmpty(t("emptyGroups"), t("groups"));
   }
   const items = groupNotes
     .slice()
@@ -701,7 +920,7 @@ function render() {
   setStatus(syncMessage);
 
   if (!authReady) {
-    content.innerHTML = renderEmpty("正在連線 Firebase...");
+    content.innerHTML = renderEmpty(t("syncStatusLoading"));
     return;
   }
 
@@ -714,22 +933,22 @@ function render() {
       route.view === "favorites") &&
     !currentUser
   ) {
-    content.innerHTML = renderEmpty("請先登入後才能查看你的筆記。");
+    content.innerHTML = renderEmpty(t("signInGoogle"), t("notesHome"));
     return;
   }
 
   if ((route.view === "notes" || route.view === "theme" || route.view === "category" || route.view === "note" || route.view === "groups") && !notesLoaded) {
-    content.innerHTML = renderEmpty("正在載入你的筆記...");
+    content.innerHTML = renderEmpty(t("syncStatusLoading"));
     return;
   }
 
   if ((route.view === "public" || route.view === "recipe" || route.view === "popular" || route.view === "favorites") && !publicLoaded) {
-    content.innerHTML = renderEmpty("正在載入公開食譜...");
+    content.innerHTML = renderEmpty(t("syncStatusLoading"));
     return;
   }
 
   if (route.view === "favorites" && currentUser && !favoritesLoaded) {
-    content.innerHTML = renderEmpty("正在載入你的收藏...");
+    content.innerHTML = renderEmpty(t("statusNoFavorites"));
     return;
   }
 
@@ -745,7 +964,7 @@ function render() {
   else content.innerHTML = renderNotesHome();
 }
 
-function renderAuthPanel() {
+function renderAuthPanelLegacy() {
   if (!authProfile || !authAvatar || !authName || !authEmail || !authUid) return;
   const user = currentUser;
   const signedIn = Boolean(user);
@@ -758,14 +977,14 @@ function renderAuthPanel() {
     authName.textContent = user.displayName || "未命名使用者";
     authEmail.textContent = user.email || "";
     authUid.textContent = user.uid;
-    setAuthStatus("已登入 Google 帳號。");
+    setAuthStatus(t("statusSignedIn"));
   } else {
     authAvatar.removeAttribute("src");
     authAvatar.alt = "";
     authName.textContent = "";
     authEmail.textContent = "";
     authUid.textContent = "";
-    setAuthStatus("請先登入 Google 帳號。");
+    setAuthStatus(t("signInGoogle"));
   }
 }
 
@@ -794,7 +1013,7 @@ function subscribeToPrivateNotes(uid) {
     },
     (error) => {
       console.error(error);
-      setStatus("讀取筆記失敗。");
+      setStatus(t("syncStatusLoading"));
     },
   );
 }
@@ -811,7 +1030,7 @@ function subscribeToPublicRecipes() {
     },
     (error) => {
       console.error(error);
-      setStatus("讀取公開食譜失敗。");
+      setStatus(t("syncStatusLoading"));
     },
   );
 }
@@ -832,7 +1051,7 @@ function subscribeToFavorites(uid) {
     },
     (error) => {
       console.error(error);
-      setStatus("讀取收藏失敗。");
+      setStatus(t("statusNoFavorites"));
     },
   );
 }
@@ -842,7 +1061,7 @@ async function signInWithGoogle() {
     await signInWithPopup(auth, googleProvider);
   } catch (error) {
     console.error(error);
-    setStatus("Google 登入失敗。");
+    setStatus(t("statusSignInFailed"));
   }
 }
 
@@ -851,7 +1070,7 @@ async function signOutUser() {
     await signOut(auth);
   } catch (error) {
     console.error(error);
-    setStatus("登出失敗。");
+    setStatus(t("statusSignOutFailed"));
   }
 }
 
@@ -860,25 +1079,25 @@ function currentEditorNote() {
 }
 
 function openDrawer() {
-  drawer.classList.add("is-open");
-  drawer.setAttribute("aria-hidden", "false");
+  setDrawerState(true);
 }
 
 function closeDrawer() {
-  drawer.classList.remove("is-open");
-  drawer.setAttribute("aria-hidden", "true");
+  setDrawerState(false);
+  closeAuthMenu();
 }
 
 function openEditor(note = null) {
   if (!currentUser) {
-    setStatus("請先登入後再新增或編輯筆記。");
+    setStatus(t("signInGoogle"));
     return;
   }
   const existing = note || currentEditorNote() || null;
   currentEditId = existing?.id || "";
+  editorForm.dataset.mode = existing ? "edit" : "new";
   editIdInput.value = currentEditId;
-  if (editorModeLabel) editorModeLabel.textContent = existing ? "編輯筆記" : "新增筆記";
-  if (editorTitle) editorTitle.textContent = existing ? "修改內容" : "新增筆記";
+  if (editorModeLabel) editorModeLabel.textContent = existing ? t("editorEdit") : t("editorDraft");
+  if (editorTitle) editorTitle.textContent = existing ? t("editorEditTitle") : t("editorNewTitle");
   editorForm.elements.title.value = existing?.title || "";
   editorForm.elements.content.value = existing?.content || "";
 
@@ -888,16 +1107,16 @@ function openEditor(note = null) {
   setSelectOptions(categorySelect, categoryValues, existing?.category || "");
   if (visibilitySelect) {
     visibilitySelect.innerHTML = `
-      <option value="private">私密</option>
-      <option value="group">群組</option>
-      <option value="public">公開</option>
+      <option value="private">${t("visibilityPrivate")}</option>
+      <option value="group">${t("visibilityGroup")}</option>
+      <option value="public">${t("visibilityPublic")}</option>
     `;
     visibilitySelect.value = existing?.visibility || "private";
   }
   toggleCustomRow(themeSelect, themeCustomRow, themeCustomInput, existing?.theme || "");
   toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput, existing?.category || "");
   advancedFields.classList.add("is-collapsed");
-  advancedToggleButton.textContent = "顯示更多設定";
+  advancedToggleButton.textContent = t("advancedOpen");
   deleteButton.classList.toggle("is-hidden", !existing);
   editorModal.classList.add("is-open");
   editorModal.setAttribute("aria-hidden", "false");
@@ -909,7 +1128,8 @@ function closeEditor() {
   editorForm.reset();
   editIdInput.value = "";
   advancedFields.classList.add("is-collapsed");
-  advancedToggleButton.textContent = "顯示更多設定";
+  editorForm.dataset.mode = "new";
+  advancedToggleButton.textContent = t("advancedOpen");
   editorModal.classList.remove("is-open");
   editorModal.setAttribute("aria-hidden", "true");
 }
@@ -968,7 +1188,7 @@ async function saveNote(event) {
   await syncPublicRecipe({ id: noteId, ...payload }, currentUser);
   await ensureUserDocument(currentUser);
   closeEditor();
-  setStatus("已儲存。");
+  setStatus(t("statusSaved"));
 }
 
 async function deleteCurrentNote() {
@@ -979,7 +1199,7 @@ async function deleteCurrentNote() {
   await deleteDoc(publicRecipeRef(existing.id)).catch(() => {});
   closeEditor();
   if (route.view === "note" && route.id === existing.id) navigate({ view: "notes" });
-  setStatus("已刪除。");
+  setStatus(t("statusDeleted"));
 }
 
 async function toggleNotePublic(noteId) {
@@ -996,12 +1216,12 @@ async function toggleNotePublic(noteId) {
     { merge: true },
   );
   await syncPublicRecipe({ ...note, visibility: nextVisibility }, currentUser);
-  setStatus(nextVisibility === "public" ? "已公開分享。" : "已取消公開。");
+  setStatus(nextVisibility === "public" ? t("visibilityPublic") : t("visibilityPrivate"));
 }
 
 async function rateRecipe(recipeId, rating) {
   if (!currentUser) {
-    setStatus("請先登入後再評分。");
+    setStatus(t("signInGoogle"));
     return;
   }
   const recipeRef = publicRecipeRef(recipeId);
@@ -1039,19 +1259,19 @@ async function rateRecipe(recipeId, rating) {
     });
   });
 
-  setStatus(`已評分 ${rating} 星。`);
+  setStatus(`${rating} ★`);
 }
 
 async function toggleFavorite(recipeId) {
   if (!currentUser) {
-    setStatus("請先登入後再收藏。");
+    setStatus(t("signInGoogle"));
     return;
   }
   const ref = publicFavoriteRef(recipeId, currentUser.uid);
   const snap = await getDoc(ref);
   if (snap.exists()) {
     await deleteDoc(ref);
-    setStatus("已移除收藏。");
+    setStatus(t("statusDeleted"));
   } else {
     await setDoc(
       ref,
@@ -1061,7 +1281,7 @@ async function toggleFavorite(recipeId) {
       },
       { merge: true },
     );
-    setStatus("已加入收藏。");
+    setStatus(t("statusSaved"));
   }
 }
 
@@ -1101,11 +1321,11 @@ function buildExportRows() {
 
 function exportCsv() {
   if (!notes.length) {
-    setStatus("目前沒有可匯出的筆記。");
+    setStatus(t("statusNoNotes"));
     return;
   }
   downloadText("livenote.csv", rowsToCsv(buildExportRows()), "text/csv;charset=utf-8");
-  setStatus("已匯出 livenote.csv。");
+  setStatus(t("statusExported"));
 }
 
 async function writeRowsToFirestore(rows) {
@@ -1148,7 +1368,7 @@ async function importNotesFromFile(event) {
   event.target.value = "";
   if (!file || !currentUser) return;
   if (typeof XLSX === "undefined") {
-    setStatus("找不到 XLSX 套件，無法匯入。");
+    setStatus(t("statusImportFailed"));
     return;
   }
 
@@ -1166,12 +1386,12 @@ async function importNotesFromFile(event) {
 
   const normalizedRows = rows.map(normalizeImportedRow).filter((row) => row.title || row.content);
   if (!normalizedRows.length) {
-    setStatus("匯入檔案沒有可用資料。");
+    setStatus(t("statusImportFailed"));
     return;
   }
 
   await writeRowsToFirestore(normalizedRows);
-  setStatus(`已匯入 ${normalizedRows.length} 筆資料。`);
+  setStatus(`${normalizedRows.length} items imported`);
 }
 
 function bindContentActions() {
@@ -1204,7 +1424,7 @@ function bindContentActions() {
       }
     } catch (error) {
       console.error(error);
-      setStatus("操作失敗，請稍後再試。");
+      setStatus(t("statusImportFailed"));
     }
   });
 
@@ -1217,7 +1437,14 @@ function bindContentActions() {
   });
 }
 
-function wireEvents() {
+function renderAuthPanel() {
+  setAvatarState(currentUser);
+  setAuthMenuMode(currentUser);
+  if (authMenuButton) authMenuButton.setAttribute("aria-label", currentUser ? t("account") : t("signInGoogle"));
+  setAuthStatus(currentUser ? t("statusSignedIn") : t("statusSignedOut"));
+}
+
+function wireEventsLegacy() {
   drawer.addEventListener("click", (event) => {
     const routeButton = event.target.closest("[data-route]");
     if (!routeButton) return;
@@ -1233,6 +1460,16 @@ function wireEvents() {
     else openDrawer();
   });
   closeDrawerButton.addEventListener("click", closeDrawer);
+  drawerBackdrop?.addEventListener("click", closeDrawer);
+  authMenuButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleAuthMenu();
+  });
+  authSettingsButton?.addEventListener("click", () => {
+    openDrawer();
+    languageSelect?.focus();
+    closeAuthMenu();
+  });
   signInButton.addEventListener("click", signInWithGoogle);
   signOutButton.addEventListener("click", signOutUser);
   newItemButton.addEventListener("click", () => openEditor());
@@ -1250,6 +1487,70 @@ function wireEvents() {
   categorySelect.addEventListener("change", () =>
     toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput),
   );
+  window.addEventListener("popstate", render);
+  bindContentActions();
+}
+
+function wireEvents() {
+  drawer.addEventListener("click", (event) => {
+    const routeButton = event.target.closest("[data-route]");
+    if (!routeButton) return;
+    event.preventDefault();
+    navigateToPath(routeButton.dataset.route);
+    if (isMobileViewport()) closeDrawer();
+  });
+  drawerBackdrop?.addEventListener("click", closeDrawer);
+  backButton.addEventListener("click", () => history.back());
+  toolsButton.addEventListener("click", () => {
+    if (drawer.classList.contains("is-open")) closeDrawer();
+    else openDrawer();
+  });
+  closeDrawerButton.addEventListener("click", closeDrawer);
+  authMenuButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleAuthMenu();
+  });
+  authSettingsButton?.addEventListener("click", () => {
+    openDrawer();
+    languageSelect?.focus();
+    closeAuthMenu();
+  });
+  signInButton.addEventListener("click", signInWithGoogle);
+  signOutButton.addEventListener("click", signOutUser);
+  newItemButton.addEventListener("click", () => openEditor());
+  closeEditorButton.addEventListener("click", closeEditor);
+  deleteButton.addEventListener("click", deleteCurrentNote);
+  exportCsvButton.addEventListener("click", exportCsv);
+  importInput.addEventListener("change", importNotesFromFile);
+  searchInput.addEventListener("input", render);
+  advancedToggleButton.addEventListener("click", () => {
+    const collapsed = advancedFields.classList.toggle("is-collapsed");
+    advancedToggleButton.textContent = collapsed ? t("advancedOpen") : t("advancedClose");
+  });
+  languageSelect?.addEventListener("change", async () => {
+    const next = normalizeLanguage(languageSelect.value) || DEFAULT_LANGUAGE;
+    setLanguage(next);
+    setStoredLanguage(next);
+    if (currentUser) {
+      try {
+        await persistLanguageForUser(next);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    applyLocalizedShell();
+    render();
+  });
+  editorForm.addEventListener("submit", saveNote);
+  themeSelect.addEventListener("change", () => toggleCustomRow(themeSelect, themeCustomRow, themeCustomInput));
+  categorySelect.addEventListener("change", () =>
+    toggleCustomRow(categorySelect, categoryCustomRow, categoryCustomInput),
+  );
+  document.addEventListener("click", (event) => {
+    if (!authMenu || authMenu.classList.contains("is-hidden")) return;
+    if (event.target.closest("#authMenu") || event.target.closest("#authMenuButton")) return;
+    closeAuthMenu();
+  });
   window.addEventListener("popstate", render);
   bindContentActions();
 }
@@ -1273,16 +1574,17 @@ async function handleAuthState(user) {
   if (currentUser) {
     try {
       await ensureUserDocument(currentUser);
+      await loadLanguagePreference(currentUser);
     } catch (error) {
       console.error(error);
     }
     subscribeToPrivateNotes(currentUser.uid);
     subscribeToFavorites(currentUser.uid);
-    setStatus("已登入並同步個人資料。");
+    setStatus(t("statusSignedIn"));
   } else {
     notesLoaded = false;
     favoritesLoaded = true;
-    setStatus("請登入 Google 帳號以開始使用。");
+    setStatus(t("signInGoogle"));
   }
   render();
 }
@@ -1290,6 +1592,14 @@ async function handleAuthState(user) {
 function init() {
   wireEvents();
   subscribeToPublicRecipes();
+  languageBootstrapPromise = loadLanguagePreference(null)
+    .then(() => {
+      applyLocalizedShell();
+      render();
+    })
+    .catch((error) => {
+      console.error(error);
+    });
   onAuthStateChanged(auth, (user) => {
     authReady = true;
     handleAuthState(user);
