@@ -1,0 +1,1162 @@
+<title>狼人殺練習場</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700;900&display=swap">
+<style>
+/* 版面：單欄、手機優先。上方座位盤 → 中間對局紀錄（可捲動）→ 下方固定行動面板 */
+:root {
+  --bg: #eceef4;
+  --surface: #ffffff;
+  --sunken: #e2e5ee;
+  --ink: #1b1e31;
+  --muted: #5b6181;
+  --line: #d0d4e2;
+  --accent: #9b2a24;
+  --accent-ink: #ffffff;
+  --night: #2f3a78;
+  --night-soft: #dfe3f6;
+  --good: #23704c;
+  --good-soft: #dcefe5;
+  --wolf: #a92d27;
+  --wolf-soft: #f6dedc;
+  --gold: #8f6614;
+  --display: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+  --body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10121d; --surface: #191c2c; --sunken: #0b0d16; --ink: #e6e8f2; --muted: #979dbb;
+    --line: #2b2f47; --accent: #e06a58; --accent-ink: #1a0d0b; --night: #a8b6f4; --night-soft: #22284a;
+    --good: #6cc79a; --good-soft: #17322a; --wolf: #f07d70; --wolf-soft: #3a1c1c; --gold: #e0b858;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10121d; --surface: #191c2c; --sunken: #0b0d16; --ink: #e6e8f2; --muted: #979dbb;
+  --line: #2b2f47; --accent: #e06a58; --accent-ink: #1a0d0b; --night: #a8b6f4; --night-soft: #22284a;
+  --good: #6cc79a; --good-soft: #17322a; --wolf: #f07d70; --wolf-soft: #3a1c1c; --gold: #e0b858;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 760px; margin: 0 auto; padding-inline: 16px; padding-block: 18px 40px; display: flex; flex-direction: column; gap: 16px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.3; }
+h1 { font-size: 1.75rem; font-weight: 900; letter-spacing: .04em; }
+h2 { font-size: 1.2rem; }
+h3 { font-size: 1rem; }
+p { margin: 0; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brand small { color: var(--muted); font-size: .85rem; }
+.tabs { display: flex; gap: 4px; background: var(--sunken); padding: 4px; border-radius: 12px; }
+.tabs button { flex: 1; border: 0; background: transparent; color: var(--muted); padding: 8px 6px; border-radius: 9px; font: 500 .95rem var(--body); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+button { font-family: var(--body); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--night); outline-offset: 2px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.label { font-size: .75rem; letter-spacing: .12em; color: var(--muted); font-weight: 700; }
+.field { display: flex; flex-direction: column; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 7px 12px; border-radius: 999px; font-size: .92rem; cursor: pointer; min-height: 38px; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip.good[aria-pressed="true"] { background: var(--good); border-color: var(--good); color: var(--surface); }
+.chip.wolf[aria-pressed="true"] { background: var(--wolf); border-color: var(--wolf); color: var(--surface); }
+.boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.board { text-align: left; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.board b { font-family: var(--display); font-size: 1rem; }
+.board span { color: var(--muted); font-size: .85rem; }
+.board[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.row > * { flex: 1 1 200px; min-width: 0; }
+select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.primary { border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 1rem; padding: 12px 18px; border-radius: 10px; cursor: pointer; }
+.secondary { border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 10px 14px; border-radius: 10px; cursor: pointer; font-size: .95rem; }
+.hint { color: var(--muted); font-size: .88rem; }
+
+/* 對局 */
+.me { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--radius); background: var(--night-soft); border: 1px solid var(--line); }
+.me .role { font-family: var(--display); font-size: 1.15rem; font-weight: 900; }
+.me .role.wolfside { color: var(--wolf); }
+.me .role.goodside { color: var(--good); }
+.me .info { font-size: .88rem; color: var(--muted); }
+.seats { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 6px; }
+.seat { border: 1px solid var(--line); background: var(--surface); border-radius: 9px; padding: 6px 4px 5px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1px; min-height: 66px; }
+.seat .no { font-family: var(--display); font-weight: 900; font-size: 1.3rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.seat .tag { font-size: .7rem; line-height: 1.3; color: var(--muted); }
+.seat .tag.wolf { color: var(--wolf); font-weight: 700; }
+.seat .tag.good { color: var(--good); font-weight: 700; }
+.seat .tag.claim { color: var(--gold); }
+.seat.you { border-color: var(--night); box-shadow: inset 0 0 0 1px var(--night); }
+.seat.dead { background: var(--sunken); opacity: .6; }
+.seat.dead .no { text-decoration: line-through; }
+.log { list-style: none; margin: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); height: min(48vh, 460px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.log li { font-size: .92rem; overflow-wrap: anywhere; }
+.log .phase { margin-top: 8px; padding: 6px 10px; border-radius: 8px; font-family: var(--display); font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
+.log .phase:first-child { margin-top: 0; }
+.log .phase.night { background: var(--night-soft); color: var(--night); }
+.log .phase.day { background: var(--sunken); color: var(--ink); }
+.log .phase small { font-family: var(--body); font-weight: 400; color: var(--muted); }
+.log .speech { display: grid; grid-template-columns: 38px 1fr; gap: 8px; align-items: start; }
+.log .speech .who { font-family: var(--display); font-weight: 900; text-align: right; font-variant-numeric: tabular-nums; }
+.log .speech.last .who { color: var(--muted); }
+.log .speech.last .what::before { content: "遺言　"; color: var(--muted); font-size: .8rem; }
+.log .speech.mine .what { color: var(--night); font-weight: 500; }
+.log .sub { font-size: .78rem; letter-spacing: .1em; color: var(--muted); font-weight: 700; margin-top: 4px; }
+.log .vote { font-variant-numeric: tabular-nums; padding-left: 10px; border-left: 2px solid var(--line); }
+.log .event { font-weight: 700; }
+.log .secret { color: var(--muted); font-size: .84rem; padding-left: 10px; border-left: 2px dashed var(--night); }
+.log .private { color: var(--night); background: var(--night-soft); padding: 6px 10px; border-radius: 8px; font-size: .9rem; }
+.action { position: sticky; bottom: env(safe-area-inset-bottom, 0px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 -6px 18px rgb(0 0 0 / .08); }
+.action .title { font-family: var(--display); font-weight: 700; font-size: 1.05rem; }
+.action .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.seatpick { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; }
+.seatpick button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 9px; min-height: 46px; font: 900 1.1rem var(--display); cursor: pointer; font-variant-numeric: tabular-nums; }
+.seatpick button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.seatpick button.good { background: var(--good-soft); border-color: var(--good); color: var(--good); }
+.seatpick button.wolf { background: var(--wolf-soft); border-color: var(--wolf); color: var(--wolf); }
+.seatpick button small { display: block; font: 500 .65rem var(--body); }
+input[type="text"] { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.toggle { display: flex; align-items: center; gap: 6px; font-size: .9rem; color: var(--muted); }
+
+/* 結果與復盤 */
+.banner { padding: 16px; border-radius: var(--radius); text-align: center; display: flex; flex-direction: column; gap: 4px; }
+.banner.GOOD { background: var(--good-soft); color: var(--good); }
+.banner.WOLF { background: var(--wolf-soft); color: var(--wolf); }
+.banner.DRAW { background: var(--sunken); }
+.banner h2 { font-size: 1.5rem; font-weight: 900; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
+.w { color: var(--wolf); font-weight: 700; }
+.g { color: var(--good); font-weight: 700; }
+.godlog { margin: 0; padding-left: 1.2em; font-size: .88rem; display: flex; flex-direction: column; gap: 2px; }
+.votes { display: flex; flex-direction: column; gap: 6px; font-size: .88rem; }
+.votes .pair { display: inline-block; margin-right: 10px; white-space: nowrap; }
+
+/* 測驗 */
+.q { font-family: var(--display); font-size: 1.1rem; font-weight: 700; }
+.opts { display: flex; flex-direction: column; gap: 8px; }
+.opt { text-align: left; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 12px 14px; border-radius: 10px; font-size: .95rem; cursor: pointer; }
+.opt.right { border-color: var(--good); background: var(--good-soft); color: var(--good); font-weight: 700; }
+.opt.wrong { border-color: var(--wolf); background: var(--wolf-soft); color: var(--wolf); }
+.explain { background: var(--sunken); border-radius: 10px; padding: 10px 12px; font-size: .92rem; }
+.progress { height: 4px; background: var(--sunken); border-radius: 4px; overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); }
+
+/* 速查 */
+.sheet { display: flex; flex-direction: column; gap: 14px; }
+.sheet ol, .sheet ul { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; max-width: 65ch; }
+.terms { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+.terms dt { font-family: var(--display); font-weight: 700; color: var(--accent); }
+.terms dd { margin: 0; min-width: 0; }
+.flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .9rem; }
+.flow span { padding: 4px 10px; border-radius: 999px; background: var(--night-soft); color: var(--night); }
+.flow i { color: var(--muted); font-style: normal; }
+@media (prefers-reduced-motion: no-preference) {
+  .log li { animation: rise .25s ease-out; }
+  @keyframes rise { from { transform: translateY(4px); opacity: .4; } to { transform: none; opacity: 1; } }
+}
+</style>
+
+<div class="wrap">
+  <header class="brand">
+    <h1>狼人殺練習場</h1>
+    <small>和電腦對局、觀戰、做規則測驗</small>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-btn-play" aria-selected="true" data-tab="play">對局</button>
+    <button role="tab" id="tab-btn-quiz" aria-selected="false" data-tab="quiz">測驗</button>
+    <button role="tab" id="tab-btn-sheet" aria-selected="false" data-tab="sheet">速查</button>
+  </nav>
+
+  <section id="tab-play" class="tabpane">
+    <div id="setup" class="panel">
+      <div class="field">
+        <span class="label">模式</span>
+        <div class="chips" id="mode-chips">
+          <button class="chip" id="mode-play" aria-pressed="true" data-mode="play">親自下場</button>
+          <button class="chip" id="mode-watch" aria-pressed="false" data-mode="watch">觀戰（全電腦）</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label">板子</span>
+        <div class="boards" id="boards"></div>
+      </div>
+      <div class="field" id="role-field">
+        <span class="label">你的身份</span>
+        <div class="chips" id="role-chips"></div>
+      </div>
+      <label class="toggle" id="god-field" hidden><input type="checkbox" id="god-view" checked> 開啟上帝視角（看得到每晚的行動）</label>
+      <div class="field">
+        <span class="label">規則（開局前記得問主持人）</span>
+        <div class="row">
+          <label class="field"><span class="hint">女巫自救</span>
+            <select id="rule-self-save">
+              <option value="first_night">僅首夜可自救</option>
+              <option value="never">全程不可自救</option>
+              <option value="always">隨時可自救</option>
+            </select></label>
+          <label class="field"><span class="hint">同守同救</span>
+            <select id="rule-sgs">
+              <option value="1">會死亡</option>
+              <option value="0">不會死亡</option>
+            </select></label>
+          <label class="field"><span class="hint">勝利條件</span>
+            <select id="rule-win">
+              <option value="side">屠邊（殺光平民或神職）</option>
+              <option value="all">屠城（殺光所有好人）</option>
+            </select></label>
+        </div>
+      </div>
+      <button class="primary" id="start">開始對局</button>
+      <p class="hint">電腦狼人會悍跳預言家、發假查殺、統一投票；好人電腦會找矛盾、看票型。沒有實作警長競選與自爆。</p>
+    </div>
+
+    <div id="arena" hidden>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="me" id="me"></div>
+        <div class="seats" id="seats"></div>
+        <ol class="log" id="log" aria-live="polite"></ol>
+        <div class="action" id="action"></div>
+      </div>
+    </div>
+
+    <div id="result" hidden></div>
+  </section>
+
+  <section id="tab-quiz" class="tabpane" hidden>
+    <div class="panel" id="quiz"></div>
+  </section>
+
+  <section id="tab-sheet" class="tabpane" hidden>
+    <div class="panel sheet" id="sheet"></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+// ================================================================ 角色與板子
+const R = { WEREWOLF: "狼人", SEER: "預言家", WITCH: "女巫", HUNTER: "獵人", GUARD: "守衛", IDIOT: "白痴", VILLAGER: "平民" };
+const ROLE_ORDER = Object.keys(R);
+const GODS = new Set(["SEER", "WITCH", "HUNTER", "GUARD", "IDIOT"]);
+const TEAM_NAME = { GOOD: "好人陣營", WOLF: "狼人陣營" };
+const DESC = {
+  WEREWOLF: "每晚和狼隊友殺一個人。白天要隱藏身份，可以假冒神職（悍跳）。",
+  SEER: "每晚查驗一名玩家是好人還是狼人，是好人陣營的資訊核心。",
+  WITCH: "一瓶解藥、一瓶毒藥各用一次；同一晚只能用一瓶。解藥用掉後看不到刀口。",
+  HUNTER: "被狼殺或被放逐時可以開槍帶走一人；被毒死不能開槍。",
+  GUARD: "每晚守護一人不被狼殺，不能連續兩晚守同一人。同守同救仍會死。",
+  IDIOT: "白天被放逐時翻牌免死，但之後不能投票；晚上被殺正常死亡。",
+  VILLAGER: "沒有技能，靠聽發言、找矛盾、投票找出狼人。",
+};
+const CAUSE = { wolf: "被狼殺", poison: "被毒死", vote: "被放逐", shot: "被獵人帶走" };
+const board = (w, gods, v) => [...Array(w).fill("WEREWOLF"), ...gods, ...Array(v).fill("VILLAGER")];
+const PRESETS = [
+  { name: "9 人局", desc: "3 狼｜預言家、女巫、獵人｜3 平民", roles: board(3, ["SEER", "WITCH", "HUNTER"], 3) },
+  { name: "12 人 預女獵白", desc: "4 狼｜預、女、獵、白痴｜4 平民", roles: board(4, ["SEER", "WITCH", "HUNTER", "IDIOT"], 4) },
+  { name: "12 人 預女獵守", desc: "4 狼｜預、女、獵、守衛｜4 平民", roles: board(4, ["SEER", "WITCH", "HUNTER", "GUARD"], 4) },
+];
+const isWolf = p => p.role === "WEREWOLF";
+const teamOf = role => role === "WEREWOLF" ? "WOLF" : "GOOD";
+const choice = a => a[Math.floor(Math.random() * a.length)];
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const bySeat = (a, b) => a - b;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+class Abort extends Error {}
+
+function mkSpeech(seat, o = {}) {
+  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false };
+}
+function renderSpeech(sp) {
+  const parts = [];
+  if (sp.claim) parts.push(`我是${R[sp.claim]}`);
+  if (sp.checks.size) parts.push("查驗：" + [...sp.checks].map(([t, w]) => `${t}號${w ? "是狼人（查殺）" : "是好人（金水）"}`).join("、"));
+  if (sp.text) parts.push(sp.text);
+  if (sp.accuse != null) parts.push(`歸票 ${sp.accuse}號`);
+  return parts.length ? parts.join("；") : "過。";
+}
+
+// ================================================================ 規則引擎
+class Game {
+  constructor(roles, controllers, rules, io) {
+    this.rules = rules; this.io = io;
+    this.players = roles.map((role, i) => ({ seat: i + 1, role, alive: true, canVote: true, revealed: false, deathCause: null }));
+    this.ctrl = {};
+    for (const p of this.players) this.ctrl[p.seat] = controllers[p.seat] || new Bot();
+    this.nightNo = 0; this.antidote = true; this.poison = true; this.lastGuard = null;
+    this.claims = new Map(); this.nights = []; this.days = []; this.godLog = []; this.wolfPlan = {};
+  }
+  p(s) { return this.players[s - 1]; }
+  alive() { return this.players.filter(p => p.alive); }
+  aliveSeats() { return this.alive().map(p => p.seat); }
+  aliveWithRole(r) { return this.alive().find(p => p.role === r) || null; }
+  get today() { return this.days.length ? this.days[this.days.length - 1] : null; }
+  claimedRole(s) { return this.claims.get(s)?.role ?? null; }
+  seerClaims() {
+    const m = new Map();
+    for (const [s, c] of this.claims) if (c.role === "SEER") m.set(s, new Map(c.checks));
+    return m;
+  }
+  canWitchSave(witch, victim) {
+    if (victim == null || !this.antidote) return false;
+    if (victim !== witch.seat) return true;
+    const m = this.rules.witchSelfSave;
+    return m === "always" || (m === "first_night" && this.nightNo === 1);
+  }
+  checkWinner() {
+    const alive = this.alive();
+    if (!alive.some(isWolf)) return "GOOD";
+    const good = alive.filter(p => !isWolf(p));
+    if (this.rules.winMode === "all") return good.length ? null : "WOLF";
+    const hasGods = this.players.some(p => GODS.has(p.role));
+    const hasVill = this.players.some(p => p.role === "VILLAGER");
+    const godsDead = hasGods && !good.some(p => GODS.has(p.role));
+    const villDead = hasVill && !good.some(p => p.role === "VILLAGER");
+    return (godsDead || villDead || !good.length) ? "WOLF" : null;
+  }
+  static resolveNight(kill, guard, saved, poison, sameGuardSaveDies) {
+    const d = new Map();
+    if (kill != null) {
+      const guarded = guard === kill;
+      if (guarded && saved) { if (sameGuardSaveDies) d.set(kill, "wolf"); }
+      else if (!(guarded || saved)) d.set(kill, "wolf");
+    }
+    if (poison != null) d.set(poison, "poison");
+    return d;
+  }
+  say(msg, kind = "sys", seat = null) { this.io.say(msg, kind, seat); }
+  secret(msg) { this.godLog.push({ round: this.nightNo, msg }); this.io.secret(msg); }
+
+  async play() {
+    for (const p of this.players) await this.ctrl[p.seat].setup(this, p);
+    this.io.update(this);
+    let w = null;
+    while (true) {
+      const rec = await this.runNight();
+      w = await this.runDawn(rec);
+      if (w == null) w = await this.runDay();
+      if (w != null || this.nightNo >= this.rules.maxRounds) break;
+    }
+    this.winner = w;
+    return w;
+  }
+
+  async runNight() {
+    const n = ++this.nightNo;
+    const rec = { night: n, guard: null, kill: null, saved: false, poison: null, check: null, deaths: new Map() };
+    this.io.phase("night", `第 ${n} 夜`, "天黑請閉眼");
+    const alive = new Set(this.aliveSeats());
+
+    const guard = this.aliveWithRole("GUARD");
+    if (guard) {
+      let t = await this.ctrl[guard.seat].chooseGuard(this, guard);
+      if (t != null && (!alive.has(t) || t === this.lastGuard)) t = null;
+      rec.guard = t; this.lastGuard = t;
+      this.secret(t != null ? `守衛 ${guard.seat}號 守護 ${t}號` : `守衛 ${guard.seat}號 空守`);
+    }
+    const wolves = this.alive().filter(isWolf);
+    if (wolves.length) {
+      const leader = wolves.find(w => this.ctrl[w.seat].isHuman) || wolves[0];
+      const t = await this.ctrl[leader.seat].chooseKill(this, leader);
+      rec.kill = alive.has(t) ? t : null;
+      this.secret(rec.kill != null ? `狼人（${wolves.map(w => w.seat).join("、")}號）殺 ${rec.kill}號` : "狼人空刀");
+    }
+    const witch = this.aliveWithRole("WITCH");
+    if (witch) {
+      const victim = this.antidote ? rec.kill : null;
+      const [action, target] = await this.ctrl[witch.seat].witchAction(this, witch, victim);
+      if (action === "save" && this.canWitchSave(witch, rec.kill)) {
+        rec.saved = true; this.antidote = false;
+        this.secret(`女巫 ${witch.seat}號 用解藥救了 ${rec.kill}號`);
+      } else if (action === "poison" && this.poison && alive.has(target)) {
+        rec.poison = target; this.poison = false;
+        this.secret(`女巫 ${witch.seat}號 毒了 ${target}號`);
+      }
+    }
+    const seer = this.aliveWithRole("SEER");
+    if (seer) {
+      const t = await this.ctrl[seer.seat].chooseCheck(this, seer);
+      if (alive.has(t) && t !== seer.seat) {
+        const res = isWolf(this.p(t));
+        rec.check = [t, res];
+        await this.ctrl[seer.seat].onCheckResult(this, seer, t, res);
+        this.secret(`預言家 ${seer.seat}號 查驗 ${t}號 → ${res ? "狼人" : "好人"}`);
+      }
+    }
+    rec.deaths = Game.resolveNight(rec.kill, rec.guard, rec.saved, rec.poison, this.rules.sameGuardSaveDies);
+    for (const [s, c] of rec.deaths) this.markDead(s, c);
+    this.nights.push(rec);
+    return rec;
+  }
+
+  async runDawn(rec) {
+    const n = this.nightNo;
+    this.days.push({ day: n, speeches: [], votes: new Map(), pkVotes: new Map(), exiled: null, events: [] });
+    this.io.phase("day", `第 ${n} 天`, "天亮了");
+    const dead = [...rec.deaths.keys()].sort(bySeat);
+    this.say(dead.length ? `昨晚死亡的是：${dead.map(s => s + "號").join("、")}` : "昨晚是平安夜，沒有人死亡。", "event");
+    this.io.update(this);
+    let w = this.checkWinner();
+    if (w) return w;
+    for (const s of dead) {
+      if (n === 1) await this.lastWords(s);
+      await this.deathTrigger(s, rec.deaths.get(s));
+      if ((w = this.checkWinner())) return w;
+    }
+    await this.io.pause("開始發言");
+    return null;
+  }
+
+  speechOrder() {
+    const seats = this.aliveSeats();
+    const start = (this.nightNo - 1) % seats.length;
+    return [...seats.slice(start), ...seats.slice(0, start)];
+  }
+
+  async runDay() {
+    const day = this.today;
+    const order = this.speechOrder();
+    this.say(`發言（從 ${order[0]}號 開始）`, "sub");
+    for (const s of order) {
+      const p = this.p(s);
+      if (!p.alive) continue;
+      const sp = await this.ctrl[s].speak(this, p);
+      sp.seat = s;
+      this.registerSpeech(sp);
+      this.say(renderSpeech(sp), "speech", s);
+      this.io.update(this);
+    }
+    await this.io.pause("進入投票");
+    this.say("投票", "sub");
+    const exiled = await this.votePhase();
+    if (exiled == null) { await this.io.pause("天黑"); return null; }
+    const p = this.p(exiled);
+    if (p.role === "IDIOT" && !p.revealed) {
+      p.revealed = true; p.canVote = false;
+      day.events.push(`${exiled}號 翻牌白痴`);
+      this.say(`${exiled}號 翻牌【白痴】，免於出局，但從此不能投票。`, "event");
+      this.io.update(this);
+      await this.io.pause("天黑");
+      return null;
+    }
+    day.exiled = exiled;
+    this.say(`${exiled}號 被放逐出局。`, "event");
+    this.markDead(exiled, "vote");
+    this.io.update(this);
+    let w = this.checkWinner();
+    if (w) return w;
+    await this.lastWords(exiled);
+    await this.deathTrigger(exiled, "vote");
+    w = this.checkWinner();
+    if (!w) await this.io.pause("天黑");
+    return w;
+  }
+
+  async collectVotes(candidates, voters) {
+    const votes = new Map();
+    for (const v of voters) {
+      const t = await this.ctrl[v].vote(this, this.p(v), [...candidates]);
+      votes.set(v, (candidates.includes(t) && t !== v) ? t : null);
+    }
+    return votes;
+  }
+  showVotes(votes) {
+    const by = new Map();
+    for (const [v, t] of votes) if (t != null) { if (!by.has(t)) by.set(t, []); by.get(t).push(v); }
+    const rows = [...by].sort((a, b) => b[1].length - a[1].length);
+    for (const [t, vs] of rows) this.say(`${t}號 ← ${vs.join("、")}（${vs.length} 票）`, "vote");
+    const abstain = [...votes].filter(([, t]) => t == null).map(([v]) => v);
+    if (abstain.length) this.say(`棄票：${abstain.join("、")}`, "vote");
+    if (!rows.length) return [];
+    const top = rows[0][1].length;
+    return rows.filter(([, vs]) => vs.length === top).map(([t]) => t).sort(bySeat);
+  }
+  async votePhase() {
+    const day = this.today;
+    const cands = this.aliveSeats();
+    const voters = cands.filter(s => this.p(s).canVote);
+    day.votes = await this.collectVotes(cands, voters);
+    let leaders = this.showVotes(day.votes);
+    if (!leaders.length) { this.say("無人得票，今天沒有人出局。", "event"); return null; }
+    if (leaders.length > 1) {
+      this.say(`平票！${leaders.join("、")}號 上 PK 台，其他人重新投票。`, "event");
+      const pkVoters = voters.filter(v => !leaders.includes(v));
+      day.pkVotes = await this.collectVotes(leaders, pkVoters);
+      leaders = this.showVotes(day.pkVotes);
+      if (leaders.length !== 1) { this.say("再次平票，今天沒有人出局。", "event"); return null; }
+    }
+    return leaders[0];
+  }
+
+  markDead(s, cause) { const p = this.p(s); p.alive = false; p.deathCause = cause; }
+  async deathTrigger(s, cause) {
+    const p = this.p(s);
+    if (p.role !== "HUNTER") return;
+    const c = this.ctrl[s];
+    if (cause === "poison") { await c.hunterPoisoned(this, p); this.secret(`獵人 ${s}號 被毒死，不能開槍`); return; }
+    const t = await c.hunterShoot(this, p);
+    if (t == null || t === s || !this.p(t).alive) { this.secret(`獵人 ${s}號 選擇不開槍`); return; }
+    p.revealed = true;
+    if (this.today) this.today.events.push(`${s}號 獵人開槍帶走 ${t}號`);
+    this.say(`${s}號 翻牌【獵人】，開槍帶走了 ${t}號！`, "event");
+    this.markDead(t, "shot");
+    this.io.update(this);
+    if (this.checkWinner() == null) await this.lastWords(t);
+  }
+  async lastWords(s) {
+    const sp = await this.ctrl[s].lastWords(this, this.p(s));
+    sp.seat = s; sp.lastWords = true;
+    this.registerSpeech(sp);
+    this.say(renderSpeech(sp), "last", s);
+    this.io.update(this);
+  }
+  registerSpeech(sp) {
+    const s = sp.seat, n = this.players.length;
+    const valid = t => Number.isInteger(t) && t >= 1 && t <= n;
+    sp.checks = new Map([...sp.checks].filter(([t]) => valid(t) && t !== s));
+    if (!valid(sp.accuse)) sp.accuse = null;
+    if (sp.claim) {
+      const prev = this.claims.get(s);
+      const checks = prev && prev.role === sp.claim ? new Map(prev.checks) : new Map();
+      this.claims.set(s, { role: sp.claim, checks });
+    }
+    if (sp.checks.size && this.claimedRole(s) === "SEER") for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
+    if (this.today) this.today.speeches.push(sp);
+  }
+}
+
+// ================================================================ 電腦玩家
+class Bot {
+  constructor() { this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; }
+  setup(g, me) {
+    for (const p of g.players) this.pref[p.seat] = Math.random();
+    if (isWolf(me) && !("fakeSeer" in g.wolfPlan)) {
+      const bots = g.players.filter(p => isWolf(p) && !g.ctrl[p.seat].isHuman).map(p => p.seat);
+      g.wolfPlan.fakeSeer = bots.length && Math.random() < 0.6 ? choice(bots) : null;
+    }
+  }
+  analyze(g, me) {
+    const claims = g.seerClaims();
+    if (isWolf(me)) {
+      const wolf = new Set(g.players.filter(isWolf).map(p => p.seat));
+      return { good: new Set(g.players.map(p => p.seat).filter(s => !wolf.has(s))), wolf, trusted: null, claims };
+    }
+    const good = new Set([me.seat, ...g.players.filter(p => p.revealed).map(p => p.seat)]);
+    const wolf = new Set();
+    if (me.role === "SEER") {
+      for (const [t, w] of this.checks) (w ? wolf : good).add(t);
+      for (const c of claims.keys()) if (c !== me.seat) wolf.add(c);
+    }
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [c, checks] of claims) {
+        if (wolf.has(c) || good.has(c)) continue;
+        for (const [t, w] of checks) {
+          if ((w && good.has(t)) || (!w && wolf.has(t))) { wolf.add(c); changed = true; break; }
+        }
+      }
+    }
+    const cands = [...claims.keys()].filter(c => !wolf.has(c) && c !== me.seat);
+    let trusted = null;
+    if (me.role !== "SEER" && cands.length) trusted = cands.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a);
+    return { good, wolf, trusted, claims };
+  }
+  suspicion(g, me, k) {
+    const today = g.today, base = new Map();
+    for (const p of g.players) {
+      const s = p.seat;
+      if (s === me.seat) continue;
+      let v = this.pref[s] * 2;
+      if (k.wolf.has(s)) v += 100;
+      if (k.good.has(s)) v -= 100;
+      if (k.trusted != null) {
+        const checks = k.claims.get(k.trusted) || new Map();
+        if (checks.has(s)) v += checks.get(s) ? 20 : -8;
+        if (s === k.trusted) v -= 15; else if (k.claims.has(s)) v += 10;
+      }
+      if (["HUNTER", "WITCH", "IDIOT"].includes(g.claimedRole(s))) v -= 3;
+      for (const d of g.days) {
+        for (const sp of d.speeches) if (sp.seat === s && sp.accuse != null) {
+          if (k.good.has(sp.accuse) || sp.accuse === k.trusted) v += 5; else if (k.wolf.has(sp.accuse)) v -= 2;
+        }
+        if (d === today) continue;
+        for (const votes of [d.votes, d.pkVotes]) {
+          const t = votes.get(s);
+          if (t == null) continue;
+          if (k.good.has(t) || t === k.trusted) v += 5; else if (k.wolf.has(t)) v -= 3;
+        }
+      }
+      base.set(s, v);
+    }
+    const score = new Map([...base].filter(([s]) => g.p(s).alive));
+    if (today) for (const sp of today.speeches) {
+      if (score.has(sp.accuse) && sp.seat !== me.seat && (base.has(sp.seat) ? base.get(sp.seat) : -99) < 8)
+        score.set(sp.accuse, score.get(sp.accuse) + (sp.seat === k.trusted ? 3 : 1.5));
+    }
+    return score;
+  }
+  top(score, pool) {
+    const p = (pool ?? [...score.keys()]).filter(s => score.has(s));
+    return p.length ? p.reduce((a, b) => score.get(b) > score.get(a) ? b : a) : null;
+  }
+  chooseGuard(g, me) {
+    const opts = g.aliveSeats().filter(s => s !== g.lastGuard);
+    if (g.nightNo === 1) return Math.random() < 0.6 ? null : choice(opts);
+    const k = this.analyze(g, me);
+    if (k.trusted != null && opts.includes(k.trusted)) return k.trusted;
+    const witch = opts.filter(s => g.claimedRole(s) === "WITCH");
+    if (witch.length) return witch[0];
+    return opts.length ? choice(opts) : null;
+  }
+  chooseKill(g, me) {
+    const good = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
+    if (!good.length) return null;
+    const hunters = new Set(good.filter(s => g.claimedRole(s) === "HUNTER"));
+    const claims = g.seerClaims();
+    const real = [...claims.keys()].filter(c => good.includes(c));
+    const witches = good.filter(s => g.claimedRole(s) === "WITCH");
+    const golds = real.flatMap(c => [...claims.get(c)].filter(([t, w]) => !w && good.includes(t)).map(([t]) => t));
+    for (let grp of [real, witches, golds]) {
+      grp = grp.filter(s => !hunters.has(s));
+      if (grp.length && Math.random() < 0.85) return choice(grp);
+    }
+    const pool = good.filter(s => !hunters.has(s));
+    return choice(pool.length ? pool : good);
+  }
+  witchAction(g, me, victim) {
+    if (victim != null && g.canWitchSave(me, victim)) {
+      const k = this.analyze(g, me);
+      if ((g.nightNo === 1 && Math.random() < 0.9) || victim === k.trusted || k.good.has(victim)) { this.saved = victim; return ["save", null]; }
+    }
+    if (g.poison && g.nightNo >= 2) {
+      const k = this.analyze(g, me);
+      const certain = [...k.wolf].filter(s => g.p(s).alive);
+      if (certain.length) return ["poison", choice(certain)];
+      const score = this.suspicion(g, me, k), t = this.top(score);
+      if (t != null && score.get(t) >= 20 && Math.random() < 0.5) return ["poison", t];
+    }
+    return [null, null];
+  }
+  chooseCheck(g, me) {
+    const pool = g.aliveSeats().filter(s => s !== me.seat && !this.checks.has(s));
+    if (!pool.length) return null;
+    if (g.nightNo > 1 && Math.random() < 0.6) return this.top(this.suspicion(g, me, this.analyze(g, me)), pool);
+    return choice(pool);
+  }
+  onCheckResult(g, me, t, w) { this.checks.set(t, w); }
+  speak(g, me) { return this.speech(g, me, false); }
+  lastWords(g, me) { return this.speech(g, me, true); }
+  accusedToday(g, me) { return !!g.today && g.today.speeches.some(sp => sp.accuse === me.seat); }
+  speech(g, me, last) {
+    const k = this.analyze(g, me);
+    if (isWolf(me)) return this.wolfSpeech(g, me, k, last);
+    const score = this.suspicion(g, me, k), top = this.top(score);
+    if (me.role === "SEER") {
+      const already = g.claimedRole(me.seat) === "SEER";
+      if (this.checks.size && (last || already || [...this.checks.values()].some(Boolean) || k.claims.size || Math.random() < 0.8)) {
+        const aliveWolves = [...this.checks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
+        const rivals = [...k.claims.keys()].filter(c => c !== me.seat && g.p(c).alive);
+        const accuse = [...aliveWolves, ...rivals, top][0];
+        return mkSpeech(me.seat, { claim: "SEER", checks: new Map(this.checks), accuse, text: rivals.length ? "對跳的那位是悍跳狼！" : "" });
+      }
+    }
+    if (last) {
+      let text = k.trusted != null ? `請相信 ${k.trusted}號 預言家` : "大家加油";
+      if (me.role === "WITCH" && this.saved) text += `；我救過 ${this.saved}號`;
+      return mkSpeech(me.seat, { claim: me.role, accuse: top, text });
+    }
+    if ((me.role === "HUNTER" || me.role === "WITCH") && this.accusedToday(g, me)) {
+      let text = me.role === "HUNTER" ? "出我的話我會開槍" : "";
+      if (me.role === "WITCH" && this.saved) text = `我救過 ${this.saved}號（銀水）`;
+      return mkSpeech(me.seat, { claim: me.role, accuse: top, text });
+    }
+    const text = k.trusted != null ? `我站 ${k.trusted}號 預言家的邊` : (k.claims.size >= 2 ? "預言家對跳，我還在聽" : "目前資訊不多");
+    return mkSpeech(me.seat, { accuse: top, text });
+  }
+  wolfSpeech(g, me, k, last) {
+    const goodAlive = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
+    if (g.wolfPlan.fakeSeer === me.seat) {
+      if (!this.fakeDays.has(g.nightNo) && !(last && this.fakeChecks.size)) { this.fakeDays.add(g.nightNo); this.inventCheck(g, me, k, goodAlive); }
+      const rivals = [...g.seerClaims().keys()].filter(c => c !== me.seat && g.p(c).alive);
+      const fw = [...this.fakeChecks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
+      const accuse = [...fw, ...rivals, ...goodAlive, null][0];
+      return mkSpeech(me.seat, { claim: "SEER", checks: new Map(this.fakeChecks), accuse, text: rivals.length ? "我才是真預言家，對跳的是狼" : "" });
+    }
+    const target = this.wolfTarget(g);
+    if (last) return mkSpeech(me.seat, { claim: "VILLAGER", accuse: target, text: "你們出錯人了" });
+    if (this.accusedToday(g, me) && Math.random() < 0.25) return mkSpeech(me.seat, { claim: "HUNTER", accuse: target, text: "出我的話我會開槍" });
+    const fake = g.wolfPlan.fakeSeer;
+    return mkSpeech(me.seat, { accuse: target, text: fake != null && g.p(fake).alive ? `我站 ${fake}號 預言家` : "我是平民" });
+  }
+  inventCheck(g, me, k, goodAlive) {
+    const unused = goodAlive.filter(s => !this.fakeChecks.has(s) && !g.p(s).revealed);
+    const rivals = [...g.seerClaims().keys()].filter(c => unused.includes(c));
+    const mates = g.aliveSeats().filter(s => k.wolf.has(s) && s !== me.seat && !this.fakeChecks.has(s));
+    const roll = Math.random();
+    if (rivals.length && roll < 0.8) this.fakeChecks.set(rivals[0], true);
+    else if (mates.length && roll < 0.35) this.fakeChecks.set(choice(mates), false);
+    else if (unused.length) this.fakeChecks.set(choice(unused), Math.random() < 0.6);
+  }
+  wolfTarget(g) {
+    const good = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
+    if (!good.length) return null;
+    const claims = g.seerClaims();
+    const real = [...claims.keys()].filter(c => good.includes(c));
+    if (real.length) return real[0];
+    const fake = g.wolfPlan.fakeSeer;
+    const fw = [...(claims.get(fake) || new Map())].filter(([t, w]) => w && good.includes(t)).map(([t]) => t);
+    if (fw.length) return fw[0];
+    if (g.today) {
+      const acc = g.today.speeches.map(sp => sp.accuse).filter(a => good.includes(a));
+      if (acc.length) return acc.reduce((a, b) => acc.filter(x => x === b).length > acc.filter(x => x === a).length ? b : a);
+    }
+    return good.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a);
+  }
+  vote(g, me, cands) {
+    const k = this.analyze(g, me);
+    if (isWolf(me)) {
+      const key = "vote" + g.nightNo;
+      if (!cands.includes(g.wolfPlan[key])) g.wolfPlan[key] = this.wolfTarget(g);
+      const t = g.wolfPlan[key];
+      if (cands.includes(t)) return t;
+      const good = cands.filter(c => !k.wolf.has(c));
+      return good.length ? choice(good) : null;
+    }
+    return this.top(this.suspicion(g, me, k), cands.filter(c => c !== me.seat));
+  }
+  hunterShoot(g, me) {
+    const k = this.analyze(g, me);
+    const certain = [...k.wolf].filter(s => g.p(s).alive);
+    if (certain.length) return certain[0];
+    const score = this.suspicion(g, me, k), t = this.top(score);
+    if (t != null && score.get(t) >= 10) return t;
+    return Math.random() < 0.4 ? t : null;
+  }
+  hunterPoisoned() {}
+}
+
+// ================================================================ 真人玩家（按鈕）
+class Human {
+  constructor(ui) { this.isHuman = true; this.ui = ui; this.checks = new Map(); }
+  setup(g, me) {
+    let msg = `你是 ${me.seat}號【${R[me.role]}】。${DESC[me.role]}`;
+    if (isWolf(me)) msg += ` 狼隊友：${g.players.filter(p => isWolf(p) && p.seat !== me.seat).map(p => p.seat).join("、")}號。`;
+    this.ui.say(msg, "private");
+  }
+  chooseGuard(g, me) {
+    return this.ui.pickSeat({ title: "守衛：今晚要守護誰？", note: `上一晚守護：${g.lastGuard ?? "無"}（不能連守）`, seats: g.aliveSeats().filter(s => s !== g.lastGuard), none: "空守" });
+  }
+  chooseKill(g, me) {
+    const mates = g.alive().filter(p => isWolf(p) && p.seat !== me.seat).map(p => p.seat);
+    return this.ui.pickSeat({ title: "狼人：今晚要殺誰？", note: `存活的狼隊友：${mates.length ? mates.join("、") + "號" : "只剩你"}`, seats: g.aliveSeats(), none: "空刀", mark: mates });
+  }
+  async witchAction(g, me, victim) {
+    const potions = `解藥：${g.antidote ? "有" : "已用"}　毒藥：${g.poison ? "有" : "已用"}`;
+    if (g.antidote) {
+      if (victim == null) this.ui.say("今晚狼人空刀，沒有人被殺。", "private");
+      else if (g.canWitchSave(me, victim)) {
+        const a = await this.ui.choose({ title: `女巫：今晚被殺的是 ${victim}號`, note: potions, options: [["save", "使用解藥救他"], ["no", "不救"]] });
+        if (a === "save") return ["save", null];
+      } else this.ui.say(`今晚被殺的是 ${victim}號（你自己），依規則不能自救。`, "private");
+    } else this.ui.say("解藥已用，看不到今晚的刀口。", "private");
+    if (g.poison) {
+      const t = await this.ui.pickSeat({ title: "女巫：要使用毒藥嗎？", note: potions, seats: g.aliveSeats(), none: "不使用" });
+      if (t != null) return ["poison", t];
+    }
+    return [null, null];
+  }
+  chooseCheck(g, me) {
+    const note = this.checks.size ? "已查驗：" + [...this.checks].map(([t, w]) => `${t}號${w ? "狼" : "好"}`).join("、") : "第一次查驗";
+    return this.ui.pickSeat({ title: "預言家：今晚要查驗誰？", note, seats: g.aliveSeats().filter(s => s !== me.seat && !this.checks.has(s)) });
+  }
+  onCheckResult(g, me, t, w) { this.checks.set(t, w); this.ui.say(`查驗結果：${t}號 是${w ? "狼人" : "好人"}`, "private"); }
+  speak(g, me) { return this.ui.compose(g, me, false); }
+  lastWords(g, me) { return this.ui.compose(g, me, true); }
+  vote(g, me, cands) {
+    return this.ui.pickSeat({ title: cands.length < g.aliveSeats().length ? "PK 投票：要投誰？" : "投票：要放逐誰？", seats: cands.filter(c => c !== me.seat), none: "棄票" });
+  }
+  hunterShoot(g, me) { return this.ui.pickSeat({ title: "獵人：要開槍帶走誰？", seats: g.aliveSeats().filter(s => s !== me.seat), none: "不開槍" }); }
+  hunterPoisoned() { this.ui.say("你被女巫毒死，獵人不能開槍。", "private"); }
+}
+
+// ================================================================ 畫面
+const $ = id => document.getElementById(id);
+const S = { mode: "play", preset: 0, role: "RANDOM", game: null, human: null, ui: null };
+try { const saved = JSON.parse(localStorage.getItem("ww-setup") || "{}"); Object.assign(S, { mode: saved.mode || S.mode, preset: saved.preset ?? S.preset }); } catch {}
+
+class UI {
+  constructor(godView, humanSeat) {
+    this.godView = godView; this.humanSeat = humanSeat; this.pending = null; this.auto = false; this.over = false;
+    $("log").innerHTML = ""; $("action").innerHTML = "";
+  }
+  add(html, cls) {
+    const li = document.createElement("li");
+    li.className = cls; li.innerHTML = html;
+    const log = $("log");
+    log.appendChild(li);
+    log.scrollTop = log.scrollHeight;
+  }
+  say(msg, kind = "sys", seat = null) {
+    if (kind === "speech" || kind === "last") {
+      const mine = seat === this.humanSeat ? " mine" : "";
+      this.add(`<span class="who">${seat}號</span><span class="what">${esc(msg)}</span>`, `speech${kind === "last" ? " last" : ""}${mine}`);
+    } else this.add(esc(msg), kind);
+  }
+  secret(msg) { if (this.godView) this.add(esc("上帝視角｜" + msg), "secret"); }
+  phase(kind, title, sub) { this.add(`<span>${esc(title)}</span><small>${esc(sub)}</small>`, `phase ${kind}`); }
+
+  update(g) {
+    const h = this.humanSeat != null ? g.p(this.humanSeat) : null;
+    const hc = h ? g.ctrl[h.seat] : null;
+    const reveal = this.godView || this.over;
+    $("seats").innerHTML = g.players.map(p => {
+      const tags = [];
+      if (p.seat === this.humanSeat) tags.push(`<span class="tag">你</span>`);
+      if (reveal || p.revealed || p.seat === this.humanSeat) tags.push(`<span class="tag ${isWolf(p) ? "wolf" : "good"}">${R[p.role]}</span>`);
+      else if (h && isWolf(h) && isWolf(p)) tags.push(`<span class="tag wolf">狼隊友</span>`);
+      else if (hc && hc.checks && hc.checks.has(p.seat)) tags.push(`<span class="tag ${hc.checks.get(p.seat) ? "wolf" : "good"}">驗${hc.checks.get(p.seat) ? "狼" : "好"}</span>`);
+      const c = g.claimedRole(p.seat);
+      if (c) tags.push(`<span class="tag claim">跳${R[c]}</span>`);
+      if (!p.alive) tags.push(`<span class="tag">${reveal ? CAUSE[p.deathCause] : "出局"}</span>`);
+      else if (!p.canVote) tags.push(`<span class="tag">無投票權</span>`);
+      return `<div class="seat${p.alive ? "" : " dead"}${p.seat === this.humanSeat ? " you" : ""}"><span class="no">${p.seat}</span>${tags.join("")}</div>`;
+    }).join("");
+    if (h) {
+      const info = [];
+      if (isWolf(h)) info.push(`狼隊友：${g.players.filter(p => isWolf(p) && p.seat !== h.seat).map(p => p.seat + (p.alive ? "" : "（出局）")).join("、")}`);
+      if (h.role === "WITCH") info.push(`解藥：${g.antidote ? "有" : "已用"}　毒藥：${g.poison ? "有" : "已用"}`);
+      if (h.role === "SEER" && hc.checks.size) info.push("查驗：" + [...hc.checks].map(([t, w]) => `${t}號${w ? "狼" : "好"}`).join("、"));
+      if (h.role === "GUARD") info.push(`上一晚守護：${g.lastGuard ?? "無"}`);
+      if (!h.alive) info.push("你已出局，接下來觀戰");
+      $("me").innerHTML = `<span class="role ${isWolf(h) ? "wolfside" : "goodside"}">${h.seat}號・${R[h.role]}</span><span class="info">${esc(DESC[h.role])}</span>${info.length ? `<span class="info">${esc(info.join("｜"))}</span>` : ""}`;
+    } else {
+      $("me").innerHTML = `<span class="role">觀戰中</span><span class="info">${this.godView ? "上帝視角已開啟：虛線的紀錄是夜晚行動。" : "只看得到公開資訊，試著自己推理誰是狼。"}</span>`;
+    }
+  }
+
+  wait(render) {
+    return new Promise((resolve, reject) => {
+      this.pending = reject;
+      const el = $("action");
+      el.innerHTML = "";
+      render(el, v => { this.pending = null; el.innerHTML = ""; resolve(v); });
+      el.querySelector("button")?.focus({ preventScroll: true });
+    });
+  }
+  cancel() { if (this.pending) { const r = this.pending; this.pending = null; r(new Abort()); } }
+
+  head(el, title, note) {
+    el.insertAdjacentHTML("beforeend", `<div class="title">${esc(title)}</div>${note ? `<div class="hint">${esc(note)}</div>` : ""}`);
+  }
+  quitButton() {
+    const b = document.createElement("button");
+    b.className = "secondary"; b.textContent = "結束本局";
+    b.onclick = () => this.cancel();
+    return b;
+  }
+  pickSeat({ title, note, seats, none, mark = [] }) {
+    return this.wait((el, done) => {
+      this.head(el, title, note);
+      const grid = document.createElement("div");
+      grid.className = "seatpick";
+      for (const s of seats) {
+        const b = document.createElement("button");
+        b.innerHTML = `${s}${mark.includes(s) ? "<small>隊友</small>" : ""}`;
+        b.onclick = () => done(s);
+        grid.appendChild(b);
+      }
+      el.appendChild(grid);
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      if (none) { const n = document.createElement("button"); n.className = "secondary"; n.textContent = none; n.onclick = () => done(null); bar.appendChild(n); }
+      else bar.appendChild(document.createElement("span"));
+      bar.appendChild(this.quitButton());
+      el.appendChild(bar);
+    });
+  }
+  choose({ title, note, options }) {
+    return this.wait((el, done) => {
+      this.head(el, title, note);
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      const left = document.createElement("div");
+      left.className = "chips";
+      options.forEach(([v, label], i) => { const b = document.createElement("button"); b.className = i === 0 ? "primary" : "secondary"; b.textContent = label; b.onclick = () => done(v); left.appendChild(b); });
+      bar.append(left, this.quitButton());
+      el.appendChild(bar);
+    });
+  }
+  pause(label) {
+    if (this.humanSeat == null && this.auto) return new Promise(r => setTimeout(r, 900));
+    return this.wait((el, done) => {
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      const go = document.createElement("button");
+      go.className = "primary"; go.textContent = label;
+      go.onclick = () => done();
+      const left = document.createElement("div");
+      left.className = "chips";
+      left.appendChild(go);
+      if (this.humanSeat == null) {
+        const auto = document.createElement("button");
+        auto.className = "secondary"; auto.textContent = "自動播放";
+        auto.onclick = () => { this.auto = true; done(); };
+        left.appendChild(auto);
+      }
+      bar.append(left, this.quitButton());
+      el.appendChild(bar);
+    });
+  }
+  compose(g, me, last) {
+    return this.wait((el, done) => {
+      this.head(el, last ? `${me.seat}號 的遺言` : `輪到你（${me.seat}號）發言`, "宣稱身份、報查驗、歸票都可以不填。");
+      let claim = null, accuse = null;
+      const checks = new Map();
+      const box = document.createElement("div");
+      box.style.cssText = "display:flex;flex-direction:column;gap:10px";
+      el.appendChild(box);
+      const draw = () => {
+        const others = g.players.map(p => p.seat).filter(s => s !== me.seat);
+        const alive = g.aliveSeats().filter(s => s !== me.seat);
+        box.innerHTML = `
+          <div class="field"><span class="label">宣稱身份</span><div class="chips" id="cl"></div></div>
+          ${claim === "SEER" ? `<div class="field"><span class="label">報查驗（點一下＝金水，再點＝查殺，再點＝取消）</span><div class="seatpick" id="ck"></div></div>` : ""}
+          <div class="field"><span class="label">歸票</span><div class="seatpick" id="ac"></div></div>
+          <input type="text" id="speech-text" maxlength="80" placeholder="補充一句話（可空白）">
+          <div class="bar"><button class="primary" id="say">${last ? "說完遺言" : "發言"}</button></div>`;
+        const cl = box.querySelector("#cl");
+        [[null, "不宣稱"], ...ROLE_ORDER.map(r => [r, R[r]])].forEach(([r, label]) => {
+          const b = document.createElement("button");
+          b.className = "chip"; b.textContent = label; b.setAttribute("aria-pressed", String(claim === r));
+          b.onclick = () => { claim = r; if (r !== "SEER") checks.clear(); keep(); draw(); };
+          cl.appendChild(b);
+        });
+        const ck = box.querySelector("#ck");
+        if (ck) for (const s of others) {
+          const b = document.createElement("button");
+          const st = checks.has(s) ? (checks.get(s) ? "wolf" : "good") : "";
+          b.className = st;
+          b.innerHTML = `${s}${st ? `<small>${st === "wolf" ? "查殺" : "金水"}</small>` : ""}`;
+          b.onclick = () => { if (!checks.has(s)) checks.set(s, false); else if (!checks.get(s)) checks.set(s, true); else checks.delete(s); keep(); draw(); };
+          ck.appendChild(b);
+        }
+        const ac = box.querySelector("#ac");
+        for (const s of alive) {
+          const b = document.createElement("button");
+          b.textContent = s; b.setAttribute("aria-pressed", String(accuse === s));
+          b.onclick = () => { accuse = accuse === s ? null : s; keep(); draw(); };
+          ac.appendChild(b);
+        }
+        const input = box.querySelector("#speech-text");
+        input.value = draft;
+        box.querySelector("#say").onclick = () => done(mkSpeech(me.seat, { claim, checks: new Map(checks), accuse, text: input.value.trim() }));
+        const bar = box.querySelector(".bar");
+        bar.appendChild(this.quitButton());
+      };
+      let draft = "";
+      const keep = () => { const i = box.querySelector("#speech-text"); if (i) draft = i.value; };
+      draw();
+    });
+  }
+}
+
+// ---------------------------------------------------------------- 設定畫面
+function renderSetup() {
+  $("boards").innerHTML = "";
+  PRESETS.forEach((pr, i) => {
+    const b = document.createElement("button");
+    b.className = "board"; b.setAttribute("aria-pressed", String(S.preset === i));
+    b.innerHTML = `<b>${pr.name}</b><span>${pr.desc}</span>`;
+    b.onclick = () => { S.preset = i; S.role = "RANDOM"; renderSetup(); };
+    $("boards").appendChild(b);
+  });
+  const roles = [...new Set(PRESETS[S.preset].roles)];
+  if (S.role !== "RANDOM" && !roles.includes(S.role)) S.role = "RANDOM";
+  $("role-chips").innerHTML = "";
+  [["RANDOM", "隨機"], ...roles.map(r => [r, R[r]])].forEach(([v, label]) => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = label; b.setAttribute("aria-pressed", String(S.role === v));
+    b.onclick = () => { S.role = v; renderSetup(); };
+    $("role-chips").appendChild(b);
+  });
+  for (const b of $("mode-chips").children) b.setAttribute("aria-pressed", String(b.dataset.mode === S.mode));
+  $("role-field").hidden = S.mode !== "play";
+  $("god-field").hidden = S.mode !== "watch";
+  try { localStorage.setItem("ww-setup", JSON.stringify({ mode: S.mode, preset: S.preset })); } catch {}
+}
+for (const b of $("mode-chips").children) b.onclick = () => { S.mode = b.dataset.mode; renderSetup(); };
+
+async function startGame() {
+  const roles = shuffle([...PRESETS[S.preset].roles]);
+  const rules = { witchSelfSave: $("rule-self-save").value, sameGuardSaveDies: $("rule-sgs").value === "1", winMode: $("rule-win").value, maxRounds: 30 };
+  let humanSeat = null;
+  const controllers = {};
+  if (S.mode === "play") {
+    humanSeat = 1 + Math.floor(Math.random() * roles.length);
+    if (S.role !== "RANDOM") { const j = roles.indexOf(S.role); [roles[j], roles[humanSeat - 1]] = [roles[humanSeat - 1], roles[j]]; }
+  }
+  const ui = new UI(S.mode === "watch" && $("god-view").checked, humanSeat);
+  if (humanSeat != null) controllers[humanSeat] = new Human(ui);
+  const g = new Game(roles, controllers, rules, ui);
+  Object.assign(S, { game: g, ui, human: humanSeat });
+  $("setup").hidden = true; $("result").hidden = true; $("arena").hidden = false;
+  const counts = {};
+  for (const r of roles) counts[r] = (counts[r] || 0) + 1;
+  ui.say(`本局 ${roles.length} 人：${Object.entries(counts).map(([r, n]) => `${R[r]}×${n}`).join("、")}`);
+  let winner;
+  try { winner = await g.play(); }
+  catch (e) { if (e instanceof Abort) { backToSetup(); return; } throw e; }
+  ui.over = true; ui.update(g);
+  $("action").innerHTML = "";
+  showResult(g, winner, humanSeat);
+}
+function backToSetup() { $("arena").hidden = true; $("result").hidden = true; $("setup").hidden = false; renderSetup(); }
+$("start").onclick = startGame;
+
+function showResult(g, winner, humanSeat) {
+  const res = $("result");
+  const kind = winner ?? "DRAW";
+  let head = winner ? `${TEAM_NAME[winner]}獲勝` : "回合上限，平手";
+  let sub = "";
+  if (humanSeat != null && winner) sub = teamOf(g.p(humanSeat).role) === winner ? "你贏了！" : "你輸了，看看復盤找原因。";
+  const mark = t => g.p(t).role === "WEREWOLF" ? `<span class="w">${t}狼</span>` : `<span class="g">${t}好</span>`;
+  const voteRows = g.days.filter(d => d.votes.size).map(d => {
+    const fmt = m => [...m].map(([v, t]) => `<span class="pair">${v}→${t == null ? "棄" : mark(t)}</span>`).join("");
+    return `<div><b>第 ${d.day} 天</b>　${fmt(d.votes)}${d.pkVotes.size ? `<br><span class="hint">PK</span>　${fmt(d.pkVotes)}` : ""}</div>`;
+  }).join("");
+  const claims = [...g.seerClaims().keys()].map(c => `<li>${c}號 跳預言家 → ${g.p(c).role === "SEER" ? `<span class="g">真預言家</span>` : `<span class="w">假的（${R[g.p(c).role]}）</span>`}</li>`).join("");
+  let mine = "";
+  if (humanSeat != null) {
+    const ts = g.days.flatMap(d => [d.votes.get(humanSeat), d.pkVotes.get(humanSeat)]).filter(t => t != null);
+    if (ts.length) {
+      const hit = ts.filter(t => isWolf(g.p(t))).length;
+      const goodSide = !isWolf(g.p(humanSeat));
+      const tip = !goodSide ? "你是狼：檢查一下發言和投票有沒有前後不一致、露出破綻。"
+        : hit * 2 >= ts.length ? "投票準確度不錯。" : "你常投到好人。回頭看是被誰帶節奏、哪個查驗和事實矛盾。";
+      mine = `<div class="field"><h3>你的投票</h3><p>共 ${ts.length} 票，投中狼 <b class="w">${hit}</b> 票、投到好人 <b class="g">${ts.length - hit}</b> 票。${tip}</p></div>`;
+    }
+  }
+  res.innerHTML = `
+    <div class="panel">
+      <div class="banner ${kind}"><h2>${head}</h2>${sub ? `<p>${sub}</p>` : ""}</div>
+      <h2>復盤</h2>
+      <div class="field"><h3>身份</h3><div class="tablewrap"><table>
+        <thead><tr><th>座位</th><th>身份</th><th>結果</th></tr></thead>
+        <tbody>${g.players.map(p => `<tr><td>${p.seat}號${p.seat === humanSeat ? "（你）" : ""}</td><td class="${isWolf(p) ? "w" : "g"}">${R[p.role]}</td><td>${p.alive ? "存活" : CAUSE[p.deathCause]}</td></tr>`).join("")}</tbody>
+      </table></div></div>
+      <div class="field"><h3>夜晚行動</h3><ol class="godlog">${g.godLog.map(l => `<li>第 ${l.round} 夜：${esc(l.msg)}</li>`).join("")}</ol></div>
+      ${voteRows ? `<div class="field"><h3>票型</h3><div class="votes">${voteRows}</div></div>` : ""}
+      ${claims ? `<div class="field"><h3>預言家宣稱</h3><ul class="godlog">${claims}</ul></div>` : ""}
+      ${mine}
+      <div class="bar"><button class="primary" id="again">再來一局</button><button class="secondary" id="to-setup">換設定</button></div>
+    </div>`;
+  res.hidden = false;
+  $("again").onclick = startGame;
+  $("to-setup").onclick = backToSetup;
+  res.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ---------------------------------------------------------------- 測驗
+const QUIZ = [
+  ["守衛守了 5 號，女巫也對 5 號用了解藥（同守同救），5 號會怎樣？", ["存活", "死亡"], 1, "多數規則下同守同救會死亡。但這條有地區差異，開局前要問主持人。"],
+  ["獵人被女巫毒死，可以開槍嗎？", ["可以", "不可以"], 1, "獵人只有被狼殺或被投票放逐時能開槍，被毒死不能開槍。"],
+  ["白痴白天被投票放逐，會發生什麼事？", ["直接出局", "翻牌免死，但失去投票權", "翻牌免死，投票權不變"], 1, "白痴翻牌後留在場上、仍可發言，但不能投票。之後再被投出去就會真的出局。"],
+  ["白痴晚上被狼人殺，會怎樣？", ["翻牌免死", "正常死亡"], 1, "白痴的能力只在白天被投票時有效。"],
+  ["女巫同一晚可以同時使用解藥和毒藥嗎？", ["可以", "不可以"], 1, "一晚只能使用一瓶藥。"],
+  ["女巫的解藥用掉之後，晚上還能知道誰被狼殺嗎？", ["可以", "不可以"], 1, "常見規則：解藥用完後，主持人不再告訴女巫刀口。"],
+  ["守衛可以連續兩晚守護同一個人嗎？", ["可以", "不可以"], 1, "不能連續兩晚守同一人，但多數規則可以守自己。"],
+  ["「屠邊」規則下，狼人怎樣算獲勝？", ["殺光所有好人", "殺光所有平民，或殺光所有神職", "狼人數量多於好人"], 1, "任何一邊（平民或神職）全滅，狼人就贏。所以神職的存活非常重要。"],
+  ["夜晚行動的常見順序是？", ["預言家→狼人→女巫→守衛", "守衛→狼人→女巫→預言家", "狼人→預言家→守衛→女巫"], 1, "守衛先守、狼再殺，女巫才看得到刀口，最後預言家查驗。各地主持人可能略有不同。"],
+  ["「金水」是什麼意思？", ["女巫救的人", "預言家驗出的好人", "被狼人殺死的人"], 1, "金水是預言家查驗為好人的人；女巫救的人叫「銀水」。"],
+  ["你是平民。3 號跳預言家說你是狼，7 號也跳預言家。你可以確定什麼？", ["3 號一定是狼", "7 號一定是狼", "無法確定任何事"], 0, "你知道自己是好人，所以 3 號的查驗是假的，他是悍跳的狼。找矛盾是最強的推理。"],
+  ["你是預言家，昨晚驗 4 號是好人。今天 8 號也跳預言家，說 4 號是狼。你的結論？", ["8 號是狼", "4 號其實是狼", "8 號可能是好人"], 0, "真預言家只有你一個，對跳你的人就是狼。"],
+  ["投票平票時，最常見的處理方式？", ["兩人都出局", "平票者 PK 發言，其他人重投；再平則無人出局", "由主持人決定"], 1, "PK 台上的人不能投票。有警長的局，警長的 1.5 票常能打破平票。"],
+  ["獵人白天被投票放逐，可以開槍嗎？", ["可以", "不可以"], 0, "被放逐可以開槍，被毒死才不行。所以有人跳獵人時，大家常避免投他。"],
+  ["狼人「自爆」的效果通常是？", ["狼人出局，立刻天黑，跳過今天的投票", "狼人出局，可以帶走一人", "什麼都沒發生"], 0, "自爆常用來打斷對狼隊不利的投票；在警長競選時自爆還能讓警徽流失。"],
+  ["什麼是「倒鉤狼」？", ["發言很少的狼", "假裝站真預言家的邊、甚至投隊友，來騙好人信任的狼", "替悍跳隊友衝鋒的狼"], 1, "站對邊不代表一定是好人，要看投票和發言前後是否一致。"],
+  ["第一晚是平安夜（沒人死），最可能的原因是？", ["狼人空刀", "女巫用了解藥或守衛守中", "預言家查到了狼"], 1, "首夜女巫通常會救人，所以平安夜大多代表解藥已經用掉了。"],
+];
+const Q = { list: [], i: 0, score: 0, answered: false };
+function newQuiz() { Q.list = shuffle([...QUIZ]).slice(0, 10); Q.i = 0; Q.score = 0; Q.answered = false; renderQuiz(); }
+function renderQuiz() {
+  const el = $("quiz");
+  if (Q.i >= Q.list.length) {
+    el.innerHTML = `<div class="banner ${Q.score >= 8 ? "GOOD" : "DRAW"}"><h2>${Q.score} / ${Q.list.length}</h2><p>${Q.score >= 8 ? "規則很熟了，去對局練推理吧。" : "再做一次，或到「速查」複習。"}</p></div><button class="primary" id="quiz-again">再測一次</button>`;
+    $("quiz-again").onclick = newQuiz;
+    return;
+  }
+  const [q, opts, ans, why] = Q.list[Q.i];
+  el.innerHTML = `<div class="progress"><i style="width:${Q.i / Q.list.length * 100}%"></i></div>
+    <span class="label">第 ${Q.i + 1} 題，共 ${Q.list.length} 題｜答對 ${Q.score}</span>
+    <p class="q">${q}</p><div class="opts" id="opts"></div><div id="why"></div>`;
+  opts.forEach((o, j) => {
+    const b = document.createElement("button");
+    b.className = "opt"; b.textContent = o;
+    b.onclick = () => {
+      if (Q.answered) return;
+      Q.answered = true;
+      if (j === ans) Q.score++;
+      [...$("opts").children].forEach((c, k) => { if (k === ans) c.classList.add("right"); else if (k === j) c.classList.add("wrong"); });
+      $("why").innerHTML = `<div class="explain">${j === ans ? "答對。" : "答錯。"}${why}</div>`;
+      const next = document.createElement("button");
+      next.className = "primary"; next.textContent = Q.i + 1 < Q.list.length ? "下一題" : "看成績";
+      next.style.marginTop = "10px";
+      next.onclick = () => { Q.i++; Q.answered = false; renderQuiz(); };
+      $("why").appendChild(next);
+    };
+    $("opts").appendChild(b);
+  });
+}
+
+// ---------------------------------------------------------------- 速查
+$("sheet").innerHTML = `
+  <h2>一輪的流程</h2>
+  <div class="flow"><span>守衛守人</span><i>→</i><span>狼人殺人</span><i>→</i><span>女巫用藥</span><i>→</i><span>預言家查驗</span><i>→</i><span>天亮公布死訊</span><i>→</i><span>遺言／獵人開槍</span><i>→</i><span>輪流發言</span><i>→</i><span>投票放逐</span></div>
+  <p class="hint">真人局多半有「警長競選」：第一天先選警長，警長有 1.5 票、決定發言順序，死亡時可以移交警徽。這個練習場沒有實作警長。</p>
+  <h2>勝利條件</h2>
+  <ul><li>好人：所有狼人出局。</li><li>狼人（屠邊，最常見）：殺光所有平民，或殺光所有神職。</li><li>狼人（屠城）：殺光所有好人。</li></ul>
+  <h2>開局前要問主持人</h2>
+  <ol><li>女巫能不能自救？（全程不可／僅首夜可）</li><li>同守同救會不會死？</li><li>屠邊還是屠城？</li><li>有沒有警長？平票怎麼處理？</li><li>首夜以外的死者有沒有遺言？</li></ol>
+  <h2>術語</h2>
+  <dl class="terms">
+    <dt>金水</dt><dd>預言家查驗為好人的人</dd>
+    <dt>查殺</dt><dd>預言家查驗為狼人的人</dd>
+    <dt>銀水</dt><dd>女巫用解藥救的人</dd>
+    <dt>刀口</dt><dd>狼人當晚殺的對象。空刀是不殺人，自刀是狼殺自己人來騙解藥</dd>
+    <dt>跳</dt><dd>公開宣稱身份，例如「跳預言家」</dd>
+    <dt>悍跳</dt><dd>狼人假冒預言家，通常會給真預言家發查殺</dd>
+    <dt>對跳</dt><dd>兩人以上搶同一個身份</dd>
+    <dt>站邊</dt><dd>選擇相信哪一位預言家</dd>
+    <dt>歸票</dt><dd>發言最後說出要投誰</dd>
+    <dt>警徽流</dt><dd>預言家事先公布之後要驗誰、警徽交給誰，讓資訊不中斷</dd>
+    <dt>衝鋒狼</dt><dd>公開力挺悍跳隊友的狼</dd>
+    <dt>倒鉤狼</dt><dd>假裝站真預言家的邊、甚至投隊友，騙取好人信任</dd>
+    <dt>深水狼</dt><dd>發言低調、不表態的狼</dd>
+    <dt>抗推</dt><dd>好人被當成狼推出去</dd>
+    <dt>自爆</dt><dd>狼人白天直接翻牌出局，立刻進入黑夜，跳過投票</dd>
+    <dt>PK</dt><dd>平票的人再發言一次，其他人重新投票</dd>
+    <dt>票型</dt><dd>每個人投給誰。常常比發言更誠實</dd>
+  </dl>
+  <h2>真人局實戰建議</h2>
+  <ul>
+    <li>每輪記住三件事：誰跳了什麼、誰查殺誰、誰投給誰。</li>
+    <li>找矛盾最可靠：有人說你是狼，但你是好人，他就一定在說謊。</li>
+    <li>聽發言看三點：有沒有站邊、有沒有理由、有沒有歸票。含糊的人值得懷疑。</li>
+    <li>平民不要亂跳神職；當狼時，發言和投票要一致。</li>
+    <li>預言家提早想好警徽流；女巫首夜通常救人，毒藥有把握再用。</li>
+    <li>獵人沒把握不要亂開槍；守衛盯著真預言家守。</li>
+  </ul>`;
+
+// ---------------------------------------------------------------- 分頁
+for (const b of document.querySelectorAll(".tabs button")) {
+  b.onclick = () => {
+    for (const x of document.querySelectorAll(".tabs button")) x.setAttribute("aria-selected", String(x === b));
+    for (const p of document.querySelectorAll(".tabpane")) p.hidden = p.id !== "tab-" + b.dataset.tab;
+    if (b.dataset.tab === "quiz" && !Q.list.length) newQuiz();
+  };
+}
+renderSetup();
+</script>
