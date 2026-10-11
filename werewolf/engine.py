@@ -16,7 +16,12 @@ DEATH_CAUSES = {
     "poison": "被女巫毒死",
     "vote": "被投票放逐",
     "shot": "被獵人帶走",
+    "claw": "被狼王爪帶走",
+    "dream": "夢遊出局",
+    "trade": "交易失敗出局",
 }
+
+ITEMS = {"check": "查驗", "poison": "毒藥", "guard": "守護"}
 
 
 @dataclass
@@ -66,6 +71,7 @@ class NightRecord:
     saved: bool = False
     poison: int | None = None
     check: tuple[int, bool] | None = None
+    dream: int | None = None
     deaths: dict[int, str] = field(default_factory=dict)
 
 
@@ -85,12 +91,12 @@ class Player:
     role: Role
     alive: bool = True
     can_vote: bool = True
-    revealed: bool = False      # 身份已被公開證實（白痴翻牌、獵人開槍）
+    revealed: bool = False      # 身份已被公開證實（白痴翻牌、獵人開槍、狼王發動狼王爪）
     death_cause: str | None = None
 
     @property
     def is_wolf(self) -> bool:
-        return self.role is Role.WEREWOLF
+        return self.role.team is Team.WOLF
 
 
 class Controller:
@@ -108,8 +114,17 @@ class Controller:
     def speak(self, game: "Game", me: Player) -> Speech: return Speech(me.seat)
     def last_words(self, game: "Game", me: Player) -> Speech: return Speech(me.seat)
     def vote(self, game: "Game", me: Player, candidates: list[int]) -> int | None: return None
-    def hunter_shoot(self, game: "Game", me: Player) -> int | None: return None
-    def hunter_poisoned(self, game: "Game", me: Player) -> None: ...
+    def hunter_shoot(self, game: "Game", me: Player) -> int | None:
+        """獵人開槍、狼王（含覺醒狼王、親傳隊友）發動狼王爪時都會呼叫，回傳要帶走的人。"""
+        return None
+    def hunter_poisoned(self, game: "Game", me: Player) -> None:
+        """有開槍／狼王爪能力，但因被毒或夢遊出局而不能發動時通知。"""
+    def choose_dream(self, game: "Game", me: Player) -> int | None: return None
+    def merchant_trade(self, game: "Game", me: Player) -> tuple[int, str] | None: return None
+    def on_lucky(self, game: "Game", me: Player, item: str) -> None: ...
+    def lucky_action(self, game: "Game", me: Player, item: str) -> int | None: return None
+    def pass_claw(self, game: "Game", me: Player) -> int | None: return None
+    def on_claw(self, game: "Game", me: Player) -> None: ...
 
 
 def deal(roles: list[Role], rng: random.Random) -> list[Role]:
@@ -141,6 +156,13 @@ class Game:
         self.antidote = True
         self.poison = True
         self.last_guard: int | None = None
+        self.last_dream: int | None = None
+        self.trade_used = False
+        self.lucky: dict | None = None      # 幸運兒：{"seat", "item", "used"}
+        self.claws: dict[int, int] = {      # 剩餘的狼王爪次數
+            p.seat: (2 if p.role is Role.AWAKENED_WOLF_KING else 1)
+            for p in self.players.values() if p.role in (Role.WOLF_KING, Role.AWAKENED_WOLF_KING)}
+        self.claw_given: set[int] = set()  # 曾被親傳狼王爪的狼
         self.claims: dict[int, dict] = {}   # 公開宣稱：seat -> {"role": Role, "checks": {t: is_wolf}}
         self.nights: list[NightRecord] = []
         self.days: list[DayRecord] = []
@@ -194,18 +216,32 @@ class Game:
 
     @staticmethod
     def resolve_night(kill: int | None, guard: int | None, saved: bool, poison: int | None,
-                      same_guard_save_dies: bool = True) -> dict[int, str]:
-        """結算夜晚死亡：回傳 {座位: 死因}。守衛擋不住毒藥。"""
+                      same_guard_save_dies: bool = True, *, extra_guard: int | None = None,
+                      extra_poison: int | None = None, dream: int | None = None,
+                      dream_repeat: bool = False, dreamer: int | None = None,
+                      trade_death: int | None = None) -> dict[int, str]:
+        """結算夜晚死亡：回傳 {座位: 死因}。
+
+        守衛擋不住毒藥；夢遊者免疫狼刀與毒藥，但連續兩晚被攝夢會出局；
+        攝夢人晚上死亡時，夢遊者跟著出局。extra_guard / extra_poison 是幸運兒的道具。
+        """
         deaths: dict[int, str] = {}
         if kill is not None:
-            guarded = guard == kill
+            guarded = kill in (guard, extra_guard)
             if guarded and saved:
                 if same_guard_save_dies:
                     deaths[kill] = "wolf"
             elif not (guarded or saved):
                 deaths[kill] = "wolf"
-        if poison is not None:
-            deaths[poison] = "poison"
+        for p in (poison, extra_poison):
+            if p is not None:
+                deaths[p] = "poison"
+        if dream is not None and not dream_repeat:
+            deaths.pop(dream, None)
+        if trade_death is not None:
+            deaths.setdefault(trade_death, "trade")
+        if dream is not None and (dream_repeat or (dreamer is not None and dreamer in deaths)):
+            deaths[dream] = "dream"
         return deaths
 
     # ------------------------------------------------------------ 輸出
@@ -259,6 +295,49 @@ class Game:
         self.say(f"\n🌙 ===== 第 {n} 夜 ===== 天黑請閉眼")
         alive = set(self.alive_seats())
 
+        dream, dream_repeat = None, False
+        dreamer = self.alive_with_role(Role.DREAMER)
+        if dreamer:
+            t = self.controllers[dreamer.seat].choose_dream(self, dreamer)
+            if t in alive and t != dreamer.seat:
+                dream, dream_repeat = t, t == self.last_dream
+                self.secret(f"攝夢人({dreamer.seat}號) 讓 {t}號 夢遊" + ("（連續兩晚）" if dream_repeat else ""))
+            self.last_dream = dream
+        rec.dream = dream
+
+        trade_death = None
+        merchant = self.alive_with_role(Role.MERCHANT)
+        if merchant and not self.trade_used:
+            deal_ = self.controllers[merchant.seat].merchant_trade(self, merchant)
+            if deal_ and deal_[0] in alive and deal_[0] != merchant.seat and deal_[1] in ITEMS:
+                t, item = deal_
+                self.trade_used = True
+                if self.players[t].is_wolf:
+                    trade_death = merchant.seat
+                    self.secret(f"奇蹟商人({merchant.seat}號) 把{ITEMS[item]}交給 {t}號，但他是狼 → 交易失敗")
+                else:
+                    self.lucky = {"seat": t, "item": item, "used": False}
+                    self.secret(f"奇蹟商人({merchant.seat}號) 把{ITEMS[item]}交給 {t}號（幸運兒）")
+                    self.controllers[t].on_lucky(self, self.players[t], item)
+
+        lucky_guard = lucky_poison = None
+        lk = self.lucky
+        if lk and not lk["used"] and self.players[lk["seat"]].alive:
+            lp = self.players[lk["seat"]]
+            t = self.controllers[lp.seat].lucky_action(self, lp, lk["item"])
+            if t in alive and t != lp.seat:
+                lk["used"] = True
+                if lk["item"] == "check":
+                    result = self.players[t].is_wolf
+                    self.controllers[lp.seat].on_check_result(self, lp, t, result)
+                    self.secret(f"幸運兒({lp.seat}號) 查驗 {t}號 → {'狼人' if result else '好人'}")
+                elif lk["item"] == "guard":
+                    lucky_guard = t
+                    self.secret(f"幸運兒({lp.seat}號) 守護 {t}號")
+                else:
+                    lucky_poison = t
+                    self.secret(f"幸運兒({lp.seat}號) 毒了 {t}號")
+
         guard = self.alive_with_role(Role.GUARD)
         if guard:
             t = self.controllers[guard.seat].choose_guard(self, guard)
@@ -275,6 +354,17 @@ class Game:
             rec.kill = t if t in alive else None
             self.secret(f"狼人({'、'.join(str(w.seat) for w in wolves)}號) 殺 {rec.kill}號"
                         if rec.kill else "狼人空刀")
+
+        awk = self.alive_with_role(Role.AWAKENED_WOLF_KING)
+        if awk and self.claws.get(awk.seat, 0) > 0:
+            t = self.controllers[awk.seat].pass_claw(self, awk)
+            mate = self.players.get(t)
+            if mate and mate.alive and mate.is_wolf and t != awk.seat and t not in self.claw_given:
+                self.claws[awk.seat] -= 1
+                self.claw_given.add(t)
+                self.claws[t] = self.claws.get(t, 0) + 1
+                self.secret(f"覺醒狼王({awk.seat}號) 親傳狼王爪給 {t}號")
+                self.controllers[t].on_claw(self, mate)
 
         witch = self.alive_with_role(Role.WITCH)
         if witch:
@@ -298,8 +388,11 @@ class Game:
                 self.controllers[seer.seat].on_check_result(self, seer, t, result)
                 self.secret(f"預言家({seer.seat}號) 查驗 {t}號 → {'狼人' if result else '好人'}")
 
-        rec.deaths = self.resolve_night(rec.kill, rec.guard, rec.saved, rec.poison,
-                                        self.rules.same_guard_save_dies)
+        rec.deaths = self.resolve_night(
+            rec.kill, rec.guard, rec.saved, rec.poison, self.rules.same_guard_save_dies,
+            extra_guard=lucky_guard, extra_poison=lucky_poison, dream=dream,
+            dream_repeat=dream_repeat, dreamer=dreamer.seat if dreamer else None,
+            trade_death=trade_death)
         for seat, cause in rec.deaths.items():
             self._mark_dead(seat, cause)
         self.nights.append(rec)
@@ -417,25 +510,39 @@ class Game:
         p.death_cause = cause
 
     def _death_trigger(self, seat: int, cause: str) -> None:
+        """獵人開槍、狼王／覺醒狼王／親傳隊友發動狼王爪。"""
         p = self.players[seat]
-        if p.role is not Role.HUNTER:
+        shots = 1 if p.role is Role.HUNTER else self.claws.get(seat, 0)
+        if shots <= 0:
             return
         ctrl = self.controllers[seat]
-        if cause == "poison":
+        if cause in ("poison", "dream"):
             ctrl.hunter_poisoned(self, p)
-            self.secret(f"獵人({seat}號) 被毒死，不能開槍")
+            self.secret(f"{seat}號 因{DEATH_CAUSES[cause]}，不能發動技能")
             return
-        t = ctrl.hunter_shoot(self, p)
-        if t is None or t == seat or t not in self.alive_seats():
-            self.secret(f"獵人({seat}號) 選擇不開槍")
-            return
-        p.revealed = True
-        if self.today:
-            self.today.events.append(f"{seat}號 獵人開槍帶走 {t}號")
-        self.say(f"💥 {seat}號 翻牌【獵人】，開槍帶走了 {t}號！")
-        self._mark_dead(t, "shot")
-        if self.check_winner() is None:
+        hunter = p.role is Role.HUNTER
+        for _ in range(shots):
+            t = ctrl.hunter_shoot(self, p)
+            if t is None or t == seat or t not in self.alive_seats():
+                if not p.revealed:
+                    self.secret(f"{seat}號 選擇不發動技能")
+                return
+            if not hunter:
+                self.claws[seat] -= 1
+            label = p.role.value if p.role is not Role.WEREWOLF else "狼人（親傳狼王爪）"
+            p.revealed = True
+            action = "開槍" if hunter else "發動狼王爪"
+            if self.today:
+                self.today.events.append(f"{seat}號 {label}{action}帶走 {t}號")
+            self.say(f"💥 {seat}號 翻牌【{label}】，{action}帶走了 {t}號！")
+            cause_t = "shot" if hunter else "claw"
+            self._mark_dead(t, cause_t)
+            if self.check_winner() is not None:
+                return
             self._last_words(t)
+            self._death_trigger(t, cause_t)  # 被帶走的獵人／狼王也能發動
+            if self.check_winner() is not None:
+                return
 
     def _last_words(self, seat: int) -> None:
         p = self.players[seat]

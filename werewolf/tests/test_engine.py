@@ -201,6 +201,126 @@ class ClaimsTest(unittest.TestCase):
         self.assertEqual(k.trusted, 4)
 
 
+WK, AWK, D, M = Role.WOLF_KING, Role.AWAKENED_WOLF_KING, Role.DREAMER, Role.MERCHANT
+# 座位：1 狼王、2 覺醒狼王、3 狼、4 預言家、5 女巫、6 獵人、7 攝夢人、8 奇蹟商人、9-10 平民
+NEW_BOARD = [WK, AWK, W, S, WI, H, D, M, V, V]
+
+
+def idle(**extra):
+    base = dict(choose_kill=lambda g, m: None, witch_action=lambda g, m, v: (None, None),
+                choose_dream=lambda g, m: None, merchant_trade=lambda g, m: None,
+                pass_claw=lambda g, m: None, choose_check=lambda g, m: None)
+    base.update(extra)
+    return base
+
+
+class DreamResolveTest(unittest.TestCase):
+    def test_dream_blocks_kill_and_poison(self):
+        self.assertEqual(Game.resolve_night(5, None, False, None, dream=5), {})
+        self.assertEqual(Game.resolve_night(None, None, False, 5, dream=5), {})
+
+    def test_dream_twice_dies(self):
+        self.assertEqual(Game.resolve_night(None, None, False, None, dream=5, dream_repeat=True),
+                         {5: "dream"})
+
+    def test_dreamer_death_takes_sleeper(self):
+        self.assertEqual(Game.resolve_night(7, None, False, None, dream=5, dreamer=7),
+                         {7: "wolf", 5: "dream"})
+
+    def test_lucky_guard_and_poison(self):
+        self.assertEqual(Game.resolve_night(5, None, False, None, extra_guard=5), {})
+        self.assertEqual(Game.resolve_night(None, None, False, None, extra_poison=3), {3: "poison"})
+
+
+class NewRolesFlowTest(unittest.TestCase):
+    def game(self, ctrls):
+        g = quiet_game(NEW_BOARD, ctrls)
+        g.setup()
+        return g
+
+    def test_merchant_trades_with_wolf_dies(self):
+        g = self.game({s: Scripted(**idle()) for s in range(1, 11)} |
+                      {8: Scripted(**idle(merchant_trade=lambda g, m: (3, "check")))})
+        rec = g.run_night()
+        self.assertEqual(rec.deaths, {8: "trade"})
+        self.assertIsNone(g.lucky)
+
+    def test_lucky_checks_same_night(self):
+        lucky = Scripted(**idle(lucky_action=lambda g, m, item: 2))
+        g = self.game({s: Scripted(**idle()) for s in range(1, 11)} |
+                      {8: Scripted(**idle(merchant_trade=lambda g, m: (9, "check"))), 9: lucky})
+        g.run_night()
+        self.assertEqual(lucky.checks, {2: True})
+        self.assertTrue(g.lucky["used"])
+
+    def test_lucky_poison_ignores_guard_but_not_dream(self):
+        g = self.game({s: Scripted(**idle()) for s in range(1, 11)} |
+                      {8: Scripted(**idle(merchant_trade=lambda g, m: (9, "poison"))),
+                       9: Scripted(**idle(lucky_action=lambda g, m, item: 3)),
+                       7: Scripted(**idle(choose_dream=lambda g, m: 4))})
+        rec = g.run_night()
+        self.assertEqual(rec.deaths, {3: "poison"})
+
+    def test_wolf_king_claws_when_exiled(self):
+        ctrls = {s: Scripted(**idle(vote=lambda g, m, c: 1 if m.seat != 1 else 9))
+                 for s in range(1, 11)}
+        ctrls[1] = Scripted(**idle(vote=lambda g, m, c: 9, hunter_shoot=lambda g, m: 4))
+        g = self.game(ctrls)
+        g.run_dawn(g.run_night())
+        g.run_day()
+        self.assertEqual(g.players[4].death_cause, "claw")
+        self.assertTrue(g.players[1].revealed)
+
+    def test_poisoned_wolf_king_cannot_claw(self):
+        ctrls = {s: Scripted(**idle()) for s in range(1, 11)}
+        ctrls[5] = Scripted(**idle(witch_action=lambda g, m, v: ("poison", 1)))
+        ctrls[1] = Scripted(**idle(hunter_shoot=never))
+        g = self.game(ctrls)
+        g.run_dawn(g.run_night())
+        self.assertEqual(g.players[1].death_cause, "poison")
+
+    def test_dreamed_twice_hunter_cannot_shoot(self):
+        ctrls = {s: Scripted(**idle()) for s in range(1, 11)}
+        ctrls[7] = Scripted(**idle(choose_dream=lambda g, m: 6))
+        ctrls[6] = Scripted(**idle(hunter_shoot=never))
+        g = self.game(ctrls)
+        g.run_dawn(g.run_night())
+        g.days.append(DayRecord(1))
+        rec = g.run_night()
+        self.assertEqual(rec.deaths, {6: "dream"})
+        g.run_dawn(rec)
+
+    def test_awakened_passes_claw(self):
+        ctrls = {s: Scripted(**idle()) for s in range(1, 11)}
+        ctrls[2] = Scripted(**idle(pass_claw=lambda g, m: 3))
+        g = self.game(ctrls)
+        g.run_night()
+        self.assertEqual(g.claws[2], 1)
+        self.assertEqual(g.claws[3], 1)
+        g.run_night()                 # 同一隊友不能拿兩次
+        self.assertEqual(g.claws[3], 1)
+        self.assertEqual(g.claws[2], 1)
+
+    def test_awakened_exiled_takes_two(self):
+        targets = iter([4, 5])
+        ctrls = {s: Scripted(**idle(vote=lambda g, m, c: 2)) for s in range(1, 11)}
+        ctrls[2] = Scripted(**idle(vote=lambda g, m, c: 9, hunter_shoot=lambda g, m: next(targets)))
+        g = self.game(ctrls)
+        g.run_dawn(g.run_night())
+        g.run_day()
+        self.assertEqual([g.players[s].death_cause for s in (2, 4, 5)], ["vote", "claw", "claw"])
+        self.assertEqual(g.claws[2], 0)
+
+    def test_wolf_kings_count_as_wolves(self):
+        g = self.game({})
+        self.assertTrue(all(g.players[s].is_wolf for s in (1, 2, 3)))
+        for s in (3, 2):
+            g.players[s].alive = False
+        self.assertIsNone(g.check_winner())
+        g.players[1].alive = False
+        self.assertIs(g.check_winner(), Team.GOOD)
+
+
 class SimulationTest(unittest.TestCase):
     def test_many_bot_games_finish(self):
         rng = random.Random(42)

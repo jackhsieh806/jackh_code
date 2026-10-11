@@ -1,7 +1,7 @@
 """真人玩家（鍵盤輸入）的 Controller。"""
 from __future__ import annotations
 
-from .engine import Controller, Game, Player, Speech
+from .engine import ITEMS, Controller, Game, Player, Speech
 from .roles import ROLE_DESCRIPTIONS, Role
 
 
@@ -42,6 +42,10 @@ class HumanController(Controller):
         if me.is_wolf:
             mates = [p.seat for p in game.players.values() if p.is_wolf and p.seat != me.seat]
             print(f"   你的狼隊友：{'、'.join(map(str, mates)) or '無'}號")
+            kings = [f"{p.seat}號({p.role.value})" for p in game.players.values()
+                     if p.role in (Role.WOLF_KING, Role.AWAKENED_WOLF_KING) and p.seat != me.seat]
+            if kings:
+                print(f"   狼隊裡的狼王：{'、'.join(kings)}")
         print("=" * 50)
 
     def _alive_hint(self, game: Game) -> None:
@@ -126,8 +130,50 @@ class HumanController(Controller):
         return ask_seat(f"\n🗳  {me.seat}號 請投票（0=棄票）", options)
 
     def hunter_shoot(self, game: Game, me: Player) -> int | None:
-        print("\n🔫 你是獵人，可以開槍帶走一名玩家。")
-        return ask_seat("要開槍帶走誰（0=不開槍）", [s for s in game.alive_seats() if s != me.seat])
+        others = [s for s in game.alive_seats() if s != me.seat]
+        if me.role is Role.HUNTER:
+            print("\n🔫 你是獵人，可以開槍帶走一名玩家。")
+            return ask_seat("要開槍帶走誰（0=不開槍）", others)
+        left = game.claws.get(me.seat, 0)
+        print(f"\n🐾 你可以發動狼王爪帶走一名玩家（剩 {left} 次）。")
+        return ask_seat("要帶走誰（0=不發動）", others)
 
     def hunter_poisoned(self, game: Game, me: Player) -> None:
-        print("\n☠️  你被女巫毒死了，獵人不能開槍。")
+        cause = "被女巫毒死" if me.death_cause == "poison" else "夢遊出局"
+        print(f"\n☠️  你{cause}，不能發動技能。")
+
+    def choose_dream(self, game: Game, me: Player) -> int | None:
+        print(f"\n💤 攝夢人請睜眼。上一晚的夢遊者：{game.last_dream or '無'}"
+              "（連續兩晚選同一人會讓他出局）")
+        return ask_seat("今晚讓誰夢遊", [s for s in game.alive_seats() if s != me.seat],
+                        allow_none=False)
+
+    def merchant_trade(self, game: Game, me: Player):
+        print("\n🎁 奇蹟商人請睜眼。整局只能交易一次；交給狼人的話你會出局。")
+        t = ask_seat("要和誰交易（0=今晚不交易）", [s for s in game.alive_seats() if s != me.seat])
+        if t is None:
+            return None
+        while True:
+            raw = ask("  給什麼？ 1=查驗 2=毒藥 3=守護 > ")
+            if raw in ("1", "2", "3"):
+                return t, ["check", "poison", "guard"][int(raw) - 1]
+
+    def on_lucky(self, game: Game, me: Player, item: str) -> None:
+        print(f"\n🍀 你成為幸運兒！奇蹟商人給了你【{ITEMS[item]}】，可以使用一次（今晚就能用）。")
+
+    def lucky_action(self, game: Game, me: Player, item: str) -> int | None:
+        others = [s for s in game.alive_seats() if s != me.seat]
+        verb = {"check": "查驗", "poison": "毒", "guard": "守護"}[item]
+        print(f"\n🍀 幸運兒請睜眼，你的道具：{ITEMS[item]}（一次性）")
+        return ask_seat(f"今晚要{verb}誰（0=先不用）", others)
+
+    def pass_claw(self, game: Game, me: Player) -> int | None:
+        mates = [p.seat for p in game.alive() if p.is_wolf and p.seat != me.seat
+                 and p.seat not in game.claw_given]
+        if not mates:
+            return None
+        print(f"\n🐾 覺醒狼王：你還有 {game.claws.get(me.seat, 0)} 次狼王爪，可以親傳一次給隊友。")
+        return ask_seat("要親傳給誰（0=不傳）", mates)
+
+    def on_claw(self, game: Game, me: Player) -> None:
+        print("\n🐾 覺醒狼王把一次狼王爪親傳給你！出局時（被毒、夢遊除外）可以帶走一人。")

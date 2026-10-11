@@ -6,15 +6,40 @@ import random
 from .engine import DEATH_CAUSES, Game, Rules, deal
 from .guide import CHEATSHEET, run_quiz
 from .human import HumanController, ask, ask_yes
-from .roles import PRESETS, Role
+from .roles import PRESETS, Role, Team
 
 
 def choose_preset() -> list[Role]:
     print("\n請選擇板子：")
     for key, (desc, _) in PRESETS.items():
         print(f"  {key}. {desc}")
+    print("  0. 自訂板子")
     key = ask("> ")
+    if key == "0":
+        return custom_board()
     return list(PRESETS.get(key, PRESETS["1"])[1])
+
+
+def custom_board() -> list[Role]:
+    """依真人局的配置自己決定每個角色幾張。"""
+    print("\n輸入每個角色的數量（Enter = 0）：")
+    while True:
+        roles: list[Role] = []
+        for r in Role:
+            raw = ask(f"  {r.value} × ")
+            n = int(raw) if raw.isdigit() else 0
+            if r in (Role.WOLF_KING, Role.AWAKENED_WOLF_KING) and n > 1:
+                print("  （狼王類角色最多 1 張）")
+                n = 1
+            if r.is_god and n > 1:
+                print("  （神職每種最多 1 張）")
+                n = 1
+            roles += [r] * n
+        wolves = sum(r.team is Team.WOLF for r in roles)
+        if wolves and len(roles) - wolves and 5 <= len(roles) <= 18:
+            print(f"✅ 共 {len(roles)} 人，其中狼人陣營 {wolves} 人。")
+            return roles
+        print("⚠️ 需要 5～18 人，且至少要有 1 個狼人陣營、1 個好人陣營。請重新輸入。")
 
 
 def review(game: Game, human_seat: int | None = None) -> None:
