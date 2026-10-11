@@ -177,3 +177,25 @@ class HumanController(Controller):
 
     def on_claw(self, game: Game, me: Player) -> None:
         print("\n🐾 覺醒狼王把一次狼王爪親傳給你！出局時（被毒、夢遊除外）可以帶走一人。")
+
+    # ------------------------------------------------------------ 警長與自爆
+    def run_for_sheriff(self, game: Game, me: Player) -> bool:
+        print("\n🎖  警長競選開始。")
+        return ask_yes(f"{me.seat}號 要上警（競選警長）嗎")
+
+    def sheriff_vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
+        return ask_seat(f"\n🎖  {me.seat}號 請投警長票（0=棄票）", candidates)
+
+    def pass_badge(self, game: Game, me: Player) -> int | None:
+        print("\n🎖  你是警長，出局前要把警徽交給誰？")
+        return ask_seat("移交警徽給（0=撕掉警徽）", [s for s in game.alive_seats() if s != me.seat])
+
+    def choose_direction(self, game: Game, me: Player) -> str:
+        seats = game.alive_seats()
+        print(f"\n🎖  你是警長，決定今天的發言方向（你最後發言）。存活：{'、'.join(map(str, seats))}")
+        raw = ask("  1=往大號（警右） 2=往小號（警左）> ")
+        return "left" if raw == "2" else "right"
+
+    def self_explode(self, game: Game, me: Player) -> bool:
+        where = "警上發言" if game.phase == "election" else "發言"
+        return ask_yes(f"\n💣 輪到你{where}。要自爆嗎？（自爆後立即出局，今天直接天黑）")

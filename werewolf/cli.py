@@ -68,6 +68,11 @@ def review(game: Game, human_seat: int | None = None) -> None:
             line = "  ".join(f"{v}→{t}{mark(t)}" if t else f"{v}→棄" for v, t in d.pk_votes.items())
             print(f"     PK：{line}")
 
+    if game.sheriff_log:
+        print("\n警長：")
+        for line in game.sheriff_log:
+            print(f"  {line}")
+
     claims = game.seer_claims()
     if claims:
         print("\n預言家宣稱：")
@@ -129,7 +134,8 @@ def settings(rules: Rules) -> None:
     names = {"never": "全程不可自救", "first_night": "僅首夜可自救", "always": "隨時可自救"}
     print(f"\n目前設定：女巫 {names[rules.witch_self_save]}、"
           f"同守同救{'會死' if rules.same_guard_save_dies else '不會死'}、"
-          f"{'屠邊' if rules.win_mode == 'side' else '屠城'}")
+          f"{'屠邊' if rules.win_mode == 'side' else '屠城'}、"
+          f"{'有' if rules.sheriff else '無'}警長、{'可' if rules.self_explode else '不可'}自爆")
     raw = ask("女巫自救：1=全程不可 2=僅首夜 3=隨時（Enter 不變）> ")
     rules.witch_self_save = modes.get(raw, rules.witch_self_save)
     raw = ask("同守同救：1=會死 2=不會死（Enter 不變）> ")
@@ -138,6 +144,12 @@ def settings(rules: Rules) -> None:
     raw = ask("勝利條件：1=屠邊 2=屠城（Enter 不變）> ")
     if raw in ("1", "2"):
         rules.win_mode = "side" if raw == "1" else "all"
+    raw = ask("警長競選：1=有 2=沒有（Enter 不變）> ")
+    if raw in ("1", "2"):
+        rules.sheriff = raw == "1"
+    raw = ask("狼人自爆：1=可以 2=不可以（Enter 不變）> ")
+    if raw in ("1", "2"):
+        rules.self_explode = raw == "1"
     print("✅ 設定已更新。")
 
 

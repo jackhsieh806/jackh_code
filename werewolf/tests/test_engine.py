@@ -16,6 +16,8 @@ class Scripted(BotController):
 
 
 def quiet_game(roles, controllers=None, rules=None, seed=0):
+    """預設關閉警長與自爆，讓舊的流程測試保持確定性。"""
+    rules = rules or Rules(sheriff=False, self_explode=False)
     return Game(roles, controllers or {}, rules=rules, seed=seed, out=lambda _: None)
 
 
@@ -209,7 +211,8 @@ NEW_BOARD = [WK, AWK, W, S, WI, H, D, M, V, V]
 def idle(**extra):
     base = dict(choose_kill=lambda g, m: None, witch_action=lambda g, m, v: (None, None),
                 choose_dream=lambda g, m: None, merchant_trade=lambda g, m: None,
-                pass_claw=lambda g, m: None, choose_check=lambda g, m: None)
+                pass_claw=lambda g, m: None, choose_check=lambda g, m: None,
+                choose_guard=lambda g, m: None)
     base.update(extra)
     return base
 
@@ -321,6 +324,101 @@ class NewRolesFlowTest(unittest.TestCase):
         self.assertIs(g.check_winner(), Team.GOOD)
 
 
+class SheriffTest(unittest.TestCase):
+    def election_game(self, running, votes, extra=None):
+        extra = extra or {}
+        ctrls = {}
+        for s in range(1, 11):
+            ctrls[s] = Scripted(**idle(run_for_sheriff=lambda g, m: m.seat in running,
+                                       sheriff_vote=lambda g, m, c: votes.get(m.seat),
+                                       self_explode=lambda g, m: False, **extra.get(s, {})))
+        g = quiet_game(BOARD, ctrls, rules=Rules(sheriff=True, self_explode=True))
+        g.setup()
+        return g
+
+    def test_election_winner(self):
+        g = self.election_game({4, 9}, {s: 4 for s in range(1, 11)})
+        g.run_dawn(g.run_night())
+        self.assertEqual(g.sheriff, 4)
+
+    def test_candidates_cannot_vote(self):
+        g = self.election_game({4, 9}, {9: 4, 4: 9, 1: 9, 2: 9, 3: 4, 5: 4, 6: 4})
+        g.run_dawn(g.run_night())
+        self.assertEqual(g.sheriff, 4)   # 4 號拿 3 票，9 號只拿 2 票（4 號自己的票不算）
+
+    def test_tie_twice_loses_badge(self):
+        g = self.election_game({4, 9}, {1: 4, 2: 9})
+        g.run_dawn(g.run_night())
+        self.assertIsNone(g.sheriff)
+
+    def test_sheriff_vote_counts_one_and_half(self):
+        g = quiet_game(BOARD)
+        g.sheriff = 4
+        g.days.append(DayRecord(1))
+        self.assertEqual(g._show_votes({4: 1, 5: 2, 6: 1, 7: 2}), [1])   # 2.5 對 2
+
+    def test_dead_sheriff_passes_badge(self):
+        g = self.election_game({4}, {s: 4 for s in range(1, 11)},
+                               {1: {"choose_kill": lambda g, m: 4},
+                                4: {"pass_badge": lambda g, m: 9}})
+        g.run_dawn(g.run_night())   # 4 號第一晚被殺，但已經當選警長
+        self.assertFalse(g.players[4].alive)
+        self.assertEqual(g.sheriff, 9)
+
+    def test_sheriff_speaks_last(self):
+        g = quiet_game(BOARD)
+        g.setup()
+        g.night_no = 1
+        g.sheriff = 5
+        g.controllers[5] = Scripted(choose_direction=lambda g, m: "right")
+        self.assertEqual(g.speech_order(), [6, 7, 8, 9, 10, 1, 2, 3, 4, 5])
+        g.controllers[5] = Scripted(choose_direction=lambda g, m: "left")
+        self.assertEqual(g.speech_order(), [4, 3, 2, 1, 10, 9, 8, 7, 6, 5])
+
+
+class SelfExplodeTest(unittest.TestCase):
+    def game(self, board, exploder, extra=None):
+        ctrls = {s: Scripted(**idle(run_for_sheriff=lambda g, m: False,
+                                    self_explode=lambda g, m: m.seat == exploder,
+                                    vote=lambda g, m, c: never())) for s in range(1, 11)}
+        for s, ex in (extra or {}).items():
+            ctrls[s] = Scripted(**idle(run_for_sheriff=lambda g, m: False,
+                                       self_explode=lambda g, m: m.seat == exploder,
+                                       vote=lambda g, m, c: never(), **ex))
+        g = quiet_game(board, ctrls, rules=Rules(sheriff=False, self_explode=True))
+        g.setup()
+        g.run_dawn(g.run_night())
+        return g
+
+    def test_explode_skips_vote(self):
+        g = self.game(BOARD, 1)
+        self.assertIsNone(g.run_day())          # vote 被呼叫就會失敗
+        self.assertEqual(g.players[1].death_cause, "explode")
+        self.assertEqual(g.today.exploded, 1)
+
+    def test_good_player_cannot_explode(self):
+        ctrl = Scripted(self_explode=lambda g, m: True)
+        g = quiet_game(BOARD, {9: ctrl}, rules=Rules(sheriff=False, self_explode=True))
+        g.days.append(DayRecord(1))
+        self.assertFalse(g._try_explode(g.players[9]))
+
+    def test_wolf_king_explode_claws(self):
+        g = self.game(NEW_BOARD, 1, {1: {"hunter_shoot": lambda g, m: 4}})
+        g.run_day()
+        self.assertEqual(g.players[4].death_cause, "claw")
+
+    def test_explode_in_election_loses_badge(self):
+        ctrls = {s: Scripted(**idle(run_for_sheriff=lambda g, m: m.seat in (1, 4),
+                                    self_explode=lambda g, m: m.seat == 1,
+                                    sheriff_vote=lambda g, m, c: never())) for s in range(1, 11)}
+        g = quiet_game(BOARD, ctrls, rules=Rules(sheriff=True, self_explode=True))
+        g.setup()
+        g.run_dawn(g.run_night())
+        self.assertIsNone(g.sheriff)
+        self.assertEqual(g.players[1].death_cause, "explode")
+        self.assertIsNone(g.run_day())          # 警上自爆 → 當天直接天黑
+
+
 class SimulationTest(unittest.TestCase):
     def test_many_bot_games_finish(self):
         rng = random.Random(42)
@@ -328,7 +426,8 @@ class SimulationTest(unittest.TestCase):
         for key, (_, roles) in PRESETS.items():
             for _ in range(150):
                 seed = rng.randrange(1 << 30)
-                g = Game(deal(roles, random.Random(seed)), seed=seed, out=lambda _: None)
+                rules = Rules(sheriff=rng.random() < 0.7, self_explode=rng.random() < 0.7)
+                g = Game(deal(roles, random.Random(seed)), rules=rules, seed=seed, out=lambda _: None)
                 results[g.play()] += 1
         self.assertGreater(results[Team.GOOD], 0)
         self.assertGreater(results[Team.WOLF], 0)

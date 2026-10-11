@@ -19,6 +19,7 @@ DEATH_CAUSES = {
     "claw": "被狼王爪帶走",
     "dream": "夢遊出局",
     "trade": "交易失敗出局",
+    "explode": "自爆",
 }
 
 ITEMS = {"check": "查驗", "poison": "毒藥", "guard": "守護"}
@@ -34,6 +35,10 @@ class Rules:
     win_mode: str = "side"
     # 首夜死亡者是否有遺言
     first_night_last_words: bool = True
+    # 第一天是否競選警長（警長 1.5 票、決定發言方向、最後發言）
+    sheriff: bool = True
+    # 狼人可否在白天（含警長競選）自爆
+    self_explode: bool = True
     # 防止無限循環的回合上限
     max_rounds: int = 30
 
@@ -83,6 +88,7 @@ class DayRecord:
     pk_votes: dict[int, int | None] = field(default_factory=dict)
     exiled: int | None = None
     events: list[str] = field(default_factory=list)
+    exploded: int | None = None   # 今天自爆的狼（自爆後直接天黑）
 
 
 @dataclass
@@ -125,6 +131,17 @@ class Controller:
     def lucky_action(self, game: "Game", me: Player, item: str) -> int | None: return None
     def pass_claw(self, game: "Game", me: Player) -> int | None: return None
     def on_claw(self, game: "Game", me: Player) -> None: ...
+    def run_for_sheriff(self, game: "Game", me: Player) -> bool: return False
+    def sheriff_vote(self, game: "Game", me: Player, candidates: list[int]) -> int | None: return None
+    def pass_badge(self, game: "Game", me: Player) -> int | None:
+        """警長出局時移交警徽，回傳 None 代表撕掉警徽。"""
+        return None
+    def choose_direction(self, game: "Game", me: Player) -> str:
+        """警長決定發言方向："right" 從警長下一號往大號、"left" 往小號；警長最後發言。"""
+        return "right"
+    def self_explode(self, game: "Game", me: Player) -> bool:
+        """狼人在自己發言前可以選擇自爆。"""
+        return False
 
 
 def deal(roles: list[Role], rng: random.Random) -> list[Role]:
@@ -163,6 +180,9 @@ class Game:
             p.seat: (2 if p.role is Role.AWAKENED_WOLF_KING else 1)
             for p in self.players.values() if p.role in (Role.WOLF_KING, Role.AWAKENED_WOLF_KING)}
         self.claw_given: set[int] = set()  # 曾被親傳狼王爪的狼
+        self.sheriff: int | None = None    # 現任警長
+        self.sheriff_log: list[str] = []
+        self.phase = "night"               # night / election / day
         self.claims: dict[int, dict] = {}   # 公開宣稱：seat -> {"role": Role, "checks": {t: is_wolf}}
         self.nights: list[NightRecord] = []
         self.days: list[DayRecord] = []
@@ -290,6 +310,7 @@ class Game:
     # ------------------------------------------------------------ 夜晚
     def run_night(self) -> NightRecord:
         self.night_no += 1
+        self.phase = "night"
         n = self.night_no
         rec = NightRecord(n)
         self.say(f"\n🌙 ===== 第 {n} 夜 ===== 天黑請閉眼")
@@ -401,8 +422,11 @@ class Game:
     # ------------------------------------------------------------ 天亮
     def run_dawn(self, rec: NightRecord) -> Team | None:
         n = self.night_no
-        self.days.append(DayRecord(n))
+        day = DayRecord(n)
+        self.days.append(day)
         self.say(f"\n☀️  ===== 第 {n} 天 ===== 天亮了")
+        if n == 1 and self.rules.sheriff:
+            self.run_election()  # 真人局習慣：先競選警長，再公布昨晚死訊
         if not rec.deaths:
             self.say("昨晚是平安夜，沒有人死亡。")
         else:
@@ -416,31 +440,122 @@ class Game:
             self._death_trigger(seat, rec.deaths[seat])
             if (w := self.check_winner()) is not None:
                 return w
+        self._badge_check()
         self.pause()
         return None
+
+    # ------------------------------------------------------------ 警長
+    def run_election(self) -> None:
+        """第一天的警長競選。夜晚死掉的人此時還不知道自己死了，也能上警。"""
+        self.phase = "election"
+        self.say("\n🎖  ===== 警長競選 =====")
+        seats = sorted(self.players)
+        running = [s for s in seats if self.controllers[s].run_for_sheriff(self, self.players[s])]
+        if not running or len(running) == len(seats):
+            self.say("沒有人上警，警徽流失。" if not running else "全員上警，沒有人能投票，警徽流失。")
+            self.sheriff_log.append("警徽流失（無人可選）")
+            self.phase = "day"
+            return
+        self.say(f"上警：{'、'.join(map(str, running))}號")
+        for seat in running:
+            p = self.players[seat]
+            if self._try_explode(p):
+                self.say("警長競選中有人自爆，警徽流失。")
+                self.sheriff_log.append(f"{seat}號 警上自爆，警徽流失")
+                self.phase = "day"
+                return
+            speech = self.controllers[seat].speak(self, p)
+            speech.seat = seat
+            self._register_speech(speech)
+            self.say(f"  🗣  {seat}號（警上）：{speech.render()}")
+        voters = [s for s in seats if s not in running]
+        self.say("—— 警長投票（警下玩家投票）——")
+        votes = self._collect_votes(running, voters, sheriff=True)
+        leaders = self._show_votes(votes, weighted=False)
+        if len(leaders) > 1:
+            self.say(f"⚖️  平票！{'、'.join(map(str, leaders))}號 PK，警下玩家重新投票。")
+            votes = self._collect_votes(leaders, voters, sheriff=True)
+            leaders = self._show_votes(votes, weighted=False)
+        if len(leaders) != 1:
+            self.say("沒有人勝出，警徽流失。")
+            self.sheriff_log.append("警徽流失（平票）")
+        else:
+            self.sheriff = leaders[0]
+            self.sheriff_log.append(f"第1天 {self.sheriff}號 當選警長")
+            self.say(f"🎖  {self.sheriff}號 當選警長！（投票算 1.5 票，決定發言方向並最後發言）")
+        self.phase = "day"
+
+    def _badge_check(self) -> None:
+        """警長出局時移交或撕掉警徽。"""
+        s = self.sheriff
+        if s is None or self.players[s].alive:
+            return
+        p = self.players[s]
+        t = self.controllers[s].pass_badge(self, p)
+        if t is not None and t != s and t in self.alive_seats():
+            self.sheriff = t
+            self.sheriff_log.append(f"第{self.night_no}天 {s}號 把警徽移交給 {t}號")
+            self.say(f"🎖  警長 {s}號 把警徽移交給 {t}號。")
+        else:
+            self.sheriff = None
+            self.sheriff_log.append(f"第{self.night_no}天 {s}號 撕掉警徽")
+            self.say(f"🎖  警長 {s}號 撕掉了警徽，之後沒有警長。")
+
+    def _try_explode(self, p: Player) -> bool:
+        """狼人自爆：立即出局（無遺言），當天剩下的流程跳過。"""
+        if not (self.rules.self_explode and p.alive and p.is_wolf):
+            return False
+        if not self.controllers[p.seat].self_explode(self, p):
+            return False
+        p.revealed = True
+        self._mark_dead(p.seat, "explode")
+        self.today.exploded = p.seat
+        self.today.events.append(f"{p.seat}號 自爆")
+        label = p.role.value if p.role is not Role.WEREWOLF else "狼人"
+        self.say(f"💣 {p.seat}號 自爆！翻牌【{label}】，今天的發言與投票全部跳過。")
+        self._death_trigger(p.seat, "explode")  # 狼王自爆可以帶人
+        return True
 
     # ------------------------------------------------------------ 白天
     def speech_order(self) -> list[int]:
         seats = self.alive_seats()
+        if self.sheriff in seats:  # 警長決定方向，自己最後發言
+            sp = self.sheriff
+            direction = self.controllers[sp].choose_direction(self, self.players[sp])
+            ring = sorted(seats, reverse=direction == "left")
+            i = ring.index(sp)
+            return ring[i + 1:] + ring[:i] + [sp]
         start = (self.night_no - 1) % len(seats)
         return seats[start:] + seats[:start]
 
     def run_day(self) -> Team | None:
         day = self.today
+        if day.exploded is not None:  # 警上自爆 → 直接天黑
+            self.phase = "night"
+            return None
+        self.phase = "day"
         order = self.speech_order()
         self.say(f"\n—— 發言環節（從 {order[0]}號 開始）——")
         for seat in order:
             p = self.players[seat]
             if not p.alive:
                 continue
+            if self._try_explode(p):
+                self._badge_check()
+                self.phase = "night"
+                w = self.check_winner()
+                self.pause()
+                return w
             speech = self.controllers[seat].speak(self, p)
             speech.seat = seat
             self._register_speech(speech)
-            self.say(f"  🗣  {seat}號：{speech.render()}")
+            tag = "（警長）" if seat == self.sheriff else ""
+            self.say(f"  🗣  {seat}號{tag}：{speech.render()}")
         self.pause()
 
         self.say("\n—— 投票環節 ——")
         exiled = self._vote_phase()
+        self.phase = "night"
         if exiled is None:
             return None
         p = self.players[exiled]
@@ -457,32 +572,43 @@ class Game:
             return w
         self._last_words(exiled)
         self._death_trigger(exiled, "vote")
+        self._badge_check()
         w = self.check_winner()
         self.pause()
         return w
 
-    def _collect_votes(self, candidates: list[int], voters: list[int]) -> dict[int, int | None]:
+    def _collect_votes(self, candidates: list[int], voters: list[int],
+                       sheriff: bool = False) -> dict[int, int | None]:
         votes: dict[int, int | None] = {}
         for v in voters:
-            t = self.controllers[v].vote(self, self.players[v], list(candidates))
+            ctrl, me = self.controllers[v], self.players[v]
+            t = ctrl.sheriff_vote(self, me, list(candidates)) if sheriff \
+                else ctrl.vote(self, me, list(candidates))
             votes[v] = t if (t in candidates and t != v) else None
         return votes
 
-    def _show_votes(self, votes: dict[int, int | None]) -> list[int]:
-        """顯示票型並回傳最高票者（可能多人）。"""
+    def vote_weight(self, voter: int) -> float:
+        return 1.5 if voter == self.sheriff else 1.0
+
+    def _show_votes(self, votes: dict[int, int | None], weighted: bool = True) -> list[int]:
+        """顯示票型並回傳最高票者（可能多人）。警長的票算 1.5 票。"""
         by_target: dict[int, list[int]] = {}
         for voter, t in votes.items():
             if t is not None:
                 by_target.setdefault(t, []).append(voter)
-        for t, voters in sorted(by_target.items(), key=lambda kv: -len(kv[1])):
-            self.say(f"  {t}號 ← {'、'.join(map(str, voters))}（{len(voters)} 票）")
+        total = {t: sum(self.vote_weight(v) if weighted else 1 for v in vs)
+                 for t, vs in by_target.items()}
+        for t, voters in sorted(by_target.items(), key=lambda kv: -total[kv[0]]):
+            names = "、".join(f"{v}(警長)" if weighted and v == self.sheriff else str(v)
+                             for v in voters)
+            self.say(f"  {t}號 ← {names}（{total[t]:g} 票）")
         abstain = [v for v, t in votes.items() if t is None]
         if abstain:
             self.say(f"  棄票：{'、'.join(map(str, abstain))}")
         if not by_target:
             return []
-        top = max(len(v) for v in by_target.values())
-        return sorted(t for t, v in by_target.items() if len(v) == top)
+        top = max(total.values())
+        return sorted(t for t in by_target if total[t] == top)
 
     def _vote_phase(self) -> int | None:
         day = self.today

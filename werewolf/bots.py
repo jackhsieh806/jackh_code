@@ -382,3 +382,60 @@ class BotController(Controller):
             return None
         fake = game.wolf_plan.get("fake_seer")
         return fake if fake in mates else self.rng.choice(mates)
+
+    # ------------------------------------------------------------ 警長與自爆
+    def run_for_sheriff(self, game: Game, me: Player) -> bool:
+        if me.role is Role.SEER and self.checks:
+            return self.rng.random() < 0.9          # 真預言家上警拿警徽
+        if me.is_wolf and game.wolf_plan.get("fake_seer") == me.seat:
+            return True                             # 悍跳狼一定上警搶警徽
+        return self.rng.random() < (0.35 if me.is_wolf else 0.3)
+
+    def sheriff_vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
+        k = self.analyze(game, me)
+        if me.is_wolf:
+            wolves = [c for c in candidates if c in k.wolf]
+            if wolves:
+                return wolves[0]
+            real = set(game.seer_claims())
+            safe = [c for c in candidates if c not in real]
+            return self.rng.choice(safe) if safe else None
+        if k.trusted in candidates:
+            return k.trusted
+        score = self.suspicion(game, me, k)
+        pool = [c for c in candidates if c != me.seat]
+        return min(pool, key=lambda c: score.get(c, self.pref[c])) if pool else None
+
+    def pass_badge(self, game: Game, me: Player) -> int | None:
+        alive = [s for s in game.alive_seats() if s != me.seat]
+        if not alive:
+            return None
+        k = self.analyze(game, me)
+        if me.is_wolf:
+            mates = [s for s in alive if s in k.wolf]
+            return self.rng.choice(mates) if mates and self.rng.random() < 0.6 else None
+        good = [s for s in alive if s in k.good]
+        if k.trusted in alive:
+            return k.trusted
+        if good:
+            return good[0]
+        score = self.suspicion(game, me, k)
+        best = min(alive, key=lambda s: score.get(s, 0))
+        return best if score.get(best, 0) < 5 else None   # 沒把握就撕警徽
+
+    def choose_direction(self, game: Game, me: Player) -> str:
+        return self.rng.choice(["left", "right"])
+
+    def self_explode(self, game: Game, me: Player) -> bool:
+        wolves_alive = sum(p.is_wolf for p in game.alive())
+        if wolves_alive < 2 or game.night_no > 1 and self.rng.random() < 0.5:
+            return False
+        claims = game.seer_claims()
+        real = [c for c in claims if not game.players[c].is_wolf]
+        if game.phase == "election":
+            # 真預言家已經在警上報出查驗，自爆打斷，不讓他拿到警徽
+            spoke = {sp.seat for sp in game.today.speeches}
+            return any(c in spoke for c in real) and self.rng.random() < 0.2
+        # 被真預言家查殺、今天很可能被投出去 → 自爆跳過投票，保留隊友
+        exposed = any(claims[c].get(me.seat) for c in real if game.players[c].alive)
+        return exposed and self.rng.random() < 0.3
