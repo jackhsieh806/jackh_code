@@ -1,0 +1,13 @@
+{
+  "name": "狼人殺推理筆記",
+  "short_name": "推理筆記",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#11131c",
+  "theme_color": "#11131c",
+  "icons": [
+    { "src": "icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}
