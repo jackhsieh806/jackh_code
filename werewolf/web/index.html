@@ -66,9 +66,17 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .board b { font-family: var(--display); font-size: 1rem; }
 .board span { color: var(--muted); font-size: .85rem; }
 .board[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.steppers { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
+.stepper { display: grid; grid-template-columns: 1fr 34px 26px 34px; align-items: center; gap: 4px; }
+.stepper span { min-width: 0; }
+.stepper b { text-align: center; font-variant-numeric: tabular-nums; }
+.stepper button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; height: 34px; font-size: 1.1rem; cursor: pointer; }
+.stepper button:disabled { opacity: .35; cursor: default; }
+.stepper .wolfname { color: var(--wolf); }
 .row { display: flex; gap: 10px; flex-wrap: wrap; }
 .row > * { flex: 1 1 200px; min-width: 0; }
 select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.primary:disabled { opacity: .45; cursor: default; }
 .primary { border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 1rem; padding: 12px 18px; border-radius: 10px; cursor: pointer; }
 .secondary { border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 10px 14px; border-radius: 10px; cursor: pointer; font-size: .95rem; }
 .hint { color: var(--muted); font-size: .88rem; }
@@ -184,6 +192,11 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
         <span class="label">板子</span>
         <div class="boards" id="boards"></div>
       </div>
+      <div class="field" id="custom-field" hidden>
+        <span class="label">自訂每個角色的數量</span>
+        <div class="steppers" id="steppers"></div>
+        <span class="hint" id="custom-sum"></span>
+      </div>
       <div class="field" id="role-field">
         <span class="label">你的身份</span>
         <div class="chips" id="role-chips"></div>
@@ -211,7 +224,7 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
         </div>
       </div>
       <button class="primary" id="start">開始對局</button>
-      <p class="hint">電腦狼人會悍跳預言家、發假查殺、統一投票；好人電腦會找矛盾、看票型。沒有實作警長競選與自爆。</p>
+      <p class="hint">電腦狼人會悍跳預言家、發假查殺、統一投票；好人電腦會找矛盾、看票型。沒有實作警長競選與狼人自爆。</p>
     </div>
 
     <div id="arena" hidden>
@@ -238,9 +251,11 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
 <script>
 "use strict";
 // ================================================================ 角色與板子
-const R = { WEREWOLF: "狼人", SEER: "預言家", WITCH: "女巫", HUNTER: "獵人", GUARD: "守衛", IDIOT: "白痴", VILLAGER: "平民" };
+const R = { WEREWOLF: "狼人", WOLF_KING: "狼王", AWAKENED: "覺醒狼王", SEER: "預言家", WITCH: "女巫", HUNTER: "獵人", GUARD: "守衛", IDIOT: "白痴", DREAMER: "攝夢人", MERCHANT: "奇蹟商人", VILLAGER: "平民" };
 const ROLE_ORDER = Object.keys(R);
-const GODS = new Set(["SEER", "WITCH", "HUNTER", "GUARD", "IDIOT"]);
+const WOLVES = new Set(["WEREWOLF", "WOLF_KING", "AWAKENED"]);
+const GODS = new Set(["SEER", "WITCH", "HUNTER", "GUARD", "IDIOT", "DREAMER", "MERCHANT"]);
+const ITEMS = { check: "查驗", poison: "毒藥", guard: "守護" };
 const TEAM_NAME = { GOOD: "好人陣營", WOLF: "狼人陣營" };
 const DESC = {
   WEREWOLF: "每晚和狼隊友殺一個人。白天要隱藏身份，可以假冒神職（悍跳）。",
@@ -249,17 +264,25 @@ const DESC = {
   HUNTER: "被狼殺或被放逐時可以開槍帶走一人；被毒死不能開槍。",
   GUARD: "每晚守護一人不被狼殺，不能連續兩晚守同一人。同守同救仍會死。",
   IDIOT: "白天被放逐時翻牌免死，但之後不能投票；晚上被殺正常死亡。",
+  WOLF_KING: "狼人的一員。被放逐或晚上出局時可發動狼王爪帶走一人；被毒、夢遊出局不能。",
+  AWAKENED: "狼人的一員，有兩次狼王爪。晚上可親傳一爪給狼隊友（每晚一次、每人最多一次），剩下的出局時全部可用。被毒、夢遊出局不能發動。",
+  DREAMER: "每晚必選一人夢遊（不能選自己），夢遊者當晚不怕狼刀和毒藥。連續兩晚同一人會讓他出局；你晚上死亡時夢遊者也一起出局。",
+  MERCHANT: "整局一次：晚上把查驗、毒藥或守護交給一人（幸運兒），他當晚就能用一次。交給狼人的話對方拿不到，你天亮出局。",
   VILLAGER: "沒有技能，靠聽發言、找矛盾、投票找出狼人。",
 };
-const CAUSE = { wolf: "被狼殺", poison: "被毒死", vote: "被放逐", shot: "被獵人帶走" };
-const board = (w, gods, v) => [...Array(w).fill("WEREWOLF"), ...gods, ...Array(v).fill("VILLAGER")];
+const CAUSE = { wolf: "被狼殺", poison: "被毒死", vote: "被放逐", shot: "被獵人帶走", claw: "被狼王爪帶走", dream: "夢遊出局", trade: "交易失敗" };
+const board = (w, gods, v, king) => [...(king ? [king] : []), ...Array(w).fill("WEREWOLF"), ...gods, ...Array(v).fill("VILLAGER")];
 const PRESETS = [
   { name: "9 人局", desc: "3 狼｜預言家、女巫、獵人｜3 平民", roles: board(3, ["SEER", "WITCH", "HUNTER"], 3) },
   { name: "12 人 預女獵白", desc: "4 狼｜預、女、獵、白痴｜4 平民", roles: board(4, ["SEER", "WITCH", "HUNTER", "IDIOT"], 4) },
   { name: "12 人 預女獵守", desc: "4 狼｜預、女、獵、守衛｜4 平民", roles: board(4, ["SEER", "WITCH", "HUNTER", "GUARD"], 4) },
+  { name: "12 人 狼王守衛", desc: "狼王 + 3 狼｜預、女、獵、守衛｜4 平民", roles: board(3, ["SEER", "WITCH", "HUNTER", "GUARD"], 4, "WOLF_KING") },
+  { name: "12 人 攝夢人", desc: "狼王 + 3 狼｜預、女、獵、攝夢人｜4 平民", roles: board(3, ["SEER", "WITCH", "HUNTER", "DREAMER"], 4, "WOLF_KING") },
+  { name: "12 人 奇蹟商人", desc: "狼王 + 3 狼｜預、女、獵、奇蹟商人｜4 平民", roles: board(3, ["SEER", "WITCH", "HUNTER", "MERCHANT"], 4, "WOLF_KING") },
+  { name: "12 人 覺醒狼王", desc: "覺醒狼王 + 3 狼｜預、女、守衛、攝夢人｜4 平民", roles: board(3, ["SEER", "WITCH", "GUARD", "DREAMER"], 4, "AWAKENED") },
 ];
-const isWolf = p => p.role === "WEREWOLF";
-const teamOf = role => role === "WEREWOLF" ? "WOLF" : "GOOD";
+const isWolf = p => WOLVES.has(p.role);
+const teamOf = role => WOLVES.has(role) ? "WOLF" : "GOOD";
 const choice = a => a[Math.floor(Math.random() * a.length)];
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const bySeat = (a, b) => a - b;
@@ -286,6 +309,9 @@ class Game {
     this.ctrl = {};
     for (const p of this.players) this.ctrl[p.seat] = controllers[p.seat] || new Bot();
     this.nightNo = 0; this.antidote = true; this.poison = true; this.lastGuard = null;
+    this.lastDream = null; this.tradeUsed = false; this.lucky = null; this.clawGiven = new Set();
+    this.claws = {};
+    for (const p of this.players) if (p.role === "WOLF_KING" || p.role === "AWAKENED") this.claws[p.seat] = p.role === "AWAKENED" ? 2 : 1;
     this.claims = new Map(); this.nights = []; this.days = []; this.godLog = []; this.wolfPlan = {};
   }
   p(s) { return this.players[s - 1]; }
@@ -316,14 +342,18 @@ class Game {
     const villDead = hasVill && !good.some(p => p.role === "VILLAGER");
     return (godsDead || villDead || !good.length) ? "WOLF" : null;
   }
-  static resolveNight(kill, guard, saved, poison, sameGuardSaveDies) {
+  // 守衛擋不住毒藥；夢遊者免疫狼刀與毒藥，連續兩晚會出局；攝夢人晚上死亡則夢遊者一起出局
+  static resolveNight(kill, guard, saved, poison, sameGuardSaveDies, x = {}) {
     const d = new Map();
     if (kill != null) {
-      const guarded = guard === kill;
+      const guarded = guard === kill || x.extraGuard === kill;
       if (guarded && saved) { if (sameGuardSaveDies) d.set(kill, "wolf"); }
       else if (!(guarded || saved)) d.set(kill, "wolf");
     }
-    if (poison != null) d.set(poison, "poison");
+    for (const p of [poison, x.extraPoison]) if (p != null) d.set(p, "poison");
+    if (x.dream != null && !x.dreamRepeat) d.delete(x.dream);
+    if (x.tradeDeath != null && !d.has(x.tradeDeath)) d.set(x.tradeDeath, "trade");
+    if (x.dream != null && (x.dreamRepeat || (x.dreamer != null && d.has(x.dreamer)))) d.set(x.dream, "dream");
     return d;
   }
   say(msg, kind = "sys", seat = null) { this.io.say(msg, kind, seat); }
@@ -349,6 +379,52 @@ class Game {
     this.io.phase("night", `第 ${n} 夜`, "天黑請閉眼");
     const alive = new Set(this.aliveSeats());
 
+    let dream = null, dreamRepeat = false;
+    const dreamer = this.aliveWithRole("DREAMER");
+    if (dreamer) {
+      const t = await this.ctrl[dreamer.seat].chooseDream(this, dreamer);
+      if (alive.has(t) && t !== dreamer.seat) {
+        dream = t; dreamRepeat = t === this.lastDream;
+        this.secret(`攝夢人 ${dreamer.seat}號 讓 ${t}號 夢遊${dreamRepeat ? "（連續兩晚）" : ""}`);
+      }
+      this.lastDream = dream;
+    }
+    rec.dream = dream;
+
+    let tradeDeath = null;
+    const merchant = this.aliveWithRole("MERCHANT");
+    if (merchant && !this.tradeUsed) {
+      const deal = await this.ctrl[merchant.seat].merchantTrade(this, merchant);
+      if (deal && alive.has(deal[0]) && deal[0] !== merchant.seat && ITEMS[deal[1]]) {
+        const [t, item] = deal;
+        this.tradeUsed = true;
+        if (isWolf(this.p(t))) {
+          tradeDeath = merchant.seat;
+          this.secret(`奇蹟商人 ${merchant.seat}號 把${ITEMS[item]}交給 ${t}號，但他是狼 → 交易失敗`);
+        } else {
+          this.lucky = { seat: t, item, used: false };
+          this.secret(`奇蹟商人 ${merchant.seat}號 把${ITEMS[item]}交給 ${t}號（幸運兒）`);
+          await this.ctrl[t].onLucky(this, this.p(t), item);
+        }
+      }
+    }
+
+    let luckyGuard = null, luckyPoison = null;
+    const lk = this.lucky;
+    if (lk && !lk.used && this.p(lk.seat).alive) {
+      const lp = this.p(lk.seat);
+      const t = await this.ctrl[lp.seat].luckyAction(this, lp, lk.item);
+      if (alive.has(t) && t !== lp.seat) {
+        lk.used = true;
+        if (lk.item === "check") {
+          const res = isWolf(this.p(t));
+          await this.ctrl[lp.seat].onCheckResult(this, lp, t, res);
+          this.secret(`幸運兒 ${lp.seat}號 查驗 ${t}號 → ${res ? "狼人" : "好人"}`);
+        } else if (lk.item === "guard") { luckyGuard = t; this.secret(`幸運兒 ${lp.seat}號 守護 ${t}號`); }
+        else { luckyPoison = t; this.secret(`幸運兒 ${lp.seat}號 毒了 ${t}號`); }
+      }
+    }
+
     const guard = this.aliveWithRole("GUARD");
     if (guard) {
       let t = await this.ctrl[guard.seat].chooseGuard(this, guard);
@@ -362,6 +438,16 @@ class Game {
       const t = await this.ctrl[leader.seat].chooseKill(this, leader);
       rec.kill = alive.has(t) ? t : null;
       this.secret(rec.kill != null ? `狼人（${wolves.map(w => w.seat).join("、")}號）殺 ${rec.kill}號` : "狼人空刀");
+    }
+    const awk = this.aliveWithRole("AWAKENED");
+    if (awk && (this.claws[awk.seat] || 0) > 0) {
+      const t = await this.ctrl[awk.seat].passClaw(this, awk);
+      const mate = t != null ? this.p(t) : null;
+      if (mate && mate.alive && isWolf(mate) && t !== awk.seat && !this.clawGiven.has(t)) {
+        this.claws[awk.seat]--; this.clawGiven.add(t); this.claws[t] = (this.claws[t] || 0) + 1;
+        this.secret(`覺醒狼王 ${awk.seat}號 親傳狼王爪給 ${t}號`);
+        await this.ctrl[t].onClaw(this, mate);
+      }
     }
     const witch = this.aliveWithRole("WITCH");
     if (witch) {
@@ -385,7 +471,8 @@ class Game {
         this.secret(`預言家 ${seer.seat}號 查驗 ${t}號 → ${res ? "狼人" : "好人"}`);
       }
     }
-    rec.deaths = Game.resolveNight(rec.kill, rec.guard, rec.saved, rec.poison, this.rules.sameGuardSaveDies);
+    rec.deaths = Game.resolveNight(rec.kill, rec.guard, rec.saved, rec.poison, this.rules.sameGuardSaveDies,
+      { extraGuard: luckyGuard, extraPoison: luckyPoison, dream, dreamRepeat, dreamer: dreamer ? dreamer.seat : null, tradeDeath });
     for (const [s, c] of rec.deaths) this.markDead(s, c);
     this.nights.push(rec);
     return rec;
@@ -491,19 +578,31 @@ class Game {
   }
 
   markDead(s, cause) { const p = this.p(s); p.alive = false; p.deathCause = cause; }
+  // 獵人開槍；狼王、覺醒狼王、被親傳的狼發動狼王爪
   async deathTrigger(s, cause) {
     const p = this.p(s);
-    if (p.role !== "HUNTER") return;
+    const hunter = p.role === "HUNTER";
+    const shots = hunter ? 1 : (this.claws[s] || 0);
+    if (shots <= 0) return;
     const c = this.ctrl[s];
-    if (cause === "poison") { await c.hunterPoisoned(this, p); this.secret(`獵人 ${s}號 被毒死，不能開槍`); return; }
-    const t = await c.hunterShoot(this, p);
-    if (t == null || t === s || !this.p(t).alive) { this.secret(`獵人 ${s}號 選擇不開槍`); return; }
-    p.revealed = true;
-    if (this.today) this.today.events.push(`${s}號 獵人開槍帶走 ${t}號`);
-    this.say(`${s}號 翻牌【獵人】，開槍帶走了 ${t}號！`, "event");
-    this.markDead(t, "shot");
-    this.io.update(this);
-    if (this.checkWinner() == null) await this.lastWords(t);
+    if (cause === "poison" || cause === "dream") { await c.hunterPoisoned(this, p); this.secret(`${s}號 因${CAUSE[cause]}，不能發動技能`); return; }
+    for (let i = 0; i < shots; i++) {
+      const t = await c.hunterShoot(this, p);
+      if (t == null || t === s || !this.p(t).alive) { if (!p.revealed) this.secret(`${s}號 選擇不發動技能`); return; }
+      if (!hunter) this.claws[s]--;
+      p.revealed = true;
+      const label = p.role === "WEREWOLF" ? "狼人（親傳狼王爪）" : R[p.role];
+      const action = hunter ? "開槍" : "發動狼王爪";
+      if (this.today) this.today.events.push(`${s}號 ${label}${action}帶走 ${t}號`);
+      this.say(`${s}號 翻牌【${label}】，${action}帶走了 ${t}號！`, "event");
+      const ct = hunter ? "shot" : "claw";
+      this.markDead(t, ct);
+      this.io.update(this);
+      if (this.checkWinner() != null) return;
+      await this.lastWords(t);
+      await this.deathTrigger(t, ct);
+      if (this.checkWinner() != null) return;
+    }
   }
   async lastWords(s) {
     const sp = await this.ctrl[s].lastWords(this, this.p(s));
@@ -529,7 +628,7 @@ class Game {
 
 // ================================================================ 電腦玩家
 class Bot {
-  constructor() { this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; }
+  constructor() { this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; }
   setup(g, me) {
     for (const p of g.players) this.pref[p.seat] = Math.random();
     if (isWolf(me) && !("fakeSeer" in g.wolfPlan)) {
@@ -543,12 +642,11 @@ class Bot {
       const wolf = new Set(g.players.filter(isWolf).map(p => p.seat));
       return { good: new Set(g.players.map(p => p.seat).filter(s => !wolf.has(s))), wolf, trusted: null, claims };
     }
-    const good = new Set([me.seat, ...g.players.filter(p => p.revealed).map(p => p.seat)]);
-    const wolf = new Set();
-    if (me.role === "SEER") {
-      for (const [t, w] of this.checks) (w ? wolf : good).add(t);
-      for (const c of claims.keys()) if (c !== me.seat) wolf.add(c);
-    }
+    const revealed = g.players.filter(p => p.revealed);
+    const good = new Set([me.seat, ...revealed.filter(p => !isWolf(p)).map(p => p.seat)]);
+    const wolf = new Set(revealed.filter(isWolf).map(p => p.seat));
+    for (const [t, w] of this.checks) (w ? wolf : good).add(t);  // 預言家或拿到查驗的幸運兒
+    if (me.role === "SEER") for (const c of claims.keys()) if (c !== me.seat) wolf.add(c);
     let changed = true;
     while (changed) {
       changed = false;
@@ -577,7 +675,7 @@ class Bot {
         if (checks.has(s)) v += checks.get(s) ? 20 : -8;
         if (s === k.trusted) v -= 15; else if (k.claims.has(s)) v += 10;
       }
-      if (["HUNTER", "WITCH", "IDIOT"].includes(g.claimedRole(s))) v -= 3;
+      if (["HUNTER", "WITCH", "IDIOT", "DREAMER", "MERCHANT"].includes(g.claimedRole(s))) v -= 3;
       for (const d of g.days) {
         for (const sp of d.speeches) if (sp.seat === s && sp.accuse != null) {
           if (k.good.has(sp.accuse) || sp.accuse === k.trusted) v += 5; else if (k.wolf.has(sp.accuse)) v -= 2;
@@ -666,11 +764,18 @@ class Bot {
     if (last) {
       let text = k.trusted != null ? `請相信 ${k.trusted}號 預言家` : "大家加油";
       if (me.role === "WITCH" && this.saved) text += `；我救過 ${this.saved}號`;
+      if (me.role === "MERCHANT" && this.traded) text += `；我把${ITEMS[this.traded[1]]}給了 ${this.traded[0]}號`;
       return mkSpeech(me.seat, { claim: me.role, accuse: top, text });
     }
-    if ((me.role === "HUNTER" || me.role === "WITCH") && this.accusedToday(g, me)) {
-      let text = me.role === "HUNTER" ? "出我的話我會開槍" : "";
+    if (this.item === "check" && this.checks.size) {
+      const [t, w] = [...this.checks][0];
+      const aw = [...this.checks].filter(([x, y]) => y && g.p(x).alive).map(([x]) => x);
+      return mkSpeech(me.seat, { accuse: [...aw, top][0], text: `我是幸運兒，用商人給的查驗驗了 ${t}號，他是${w ? "狼人" : "好人"}` });
+    }
+    if (["HUNTER", "WITCH", "MERCHANT", "DREAMER"].includes(me.role) && this.accusedToday(g, me)) {
+      let text = { HUNTER: "出我的話我會開槍", DREAMER: "我是攝夢人，出我很虧" }[me.role] || "";
       if (me.role === "WITCH" && this.saved) text = `我救過 ${this.saved}號（銀水）`;
+      if (me.role === "MERCHANT" && this.traded) text = `我把${ITEMS[this.traded[1]]}給了 ${this.traded[0]}號`;
       return mkSpeech(me.seat, { claim: me.role, accuse: top, text });
     }
     const text = k.trusted != null ? `我站 ${k.trusted}號 預言家的邊` : (k.claims.size >= 2 ? "預言家對跳，我還在聽" : "目前資訊不多");
@@ -729,12 +834,64 @@ class Bot {
   }
   hunterShoot(g, me) {
     const k = this.analyze(g, me);
+    if (isWolf(me)) {  // 狼王爪：帶走最有威脅的好人
+      const good = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
+      const claims = g.seerClaims();
+      const threats = [...[...claims.keys()].filter(c => good.includes(c)), ...good.filter(s => ["WITCH", "DREAMER", "MERCHANT"].includes(g.claimedRole(s)))];
+      return threats.length ? threats[0] : (good.length ? choice(good) : null);
+    }
     const certain = [...k.wolf].filter(s => g.p(s).alive);
     if (certain.length) return certain[0];
     const score = this.suspicion(g, me, k), t = this.top(score);
     if (t != null && score.get(t) >= 10) return t;
     return Math.random() < 0.4 ? t : null;
   }
+  chooseDream(g, me) {
+    const opts = g.aliveSeats().filter(s => s !== me.seat);
+    if (!opts.length) return null;
+    const k = this.analyze(g, me);
+    if (k.wolf.has(g.lastDream) && opts.includes(g.lastDream)) return g.lastDream;  // 連夢處決確定的狼
+    const certain = [...k.wolf].filter(s => opts.includes(s));
+    if (certain.length && Math.random() < 0.5) return certain[0];
+    let fresh = opts.filter(s => s !== g.lastDream);
+    if (!fresh.length) fresh = opts;
+    if (fresh.includes(k.trusted)) return k.trusted;
+    return choice(fresh);
+  }
+  merchantTrade(g, me) {
+    if (g.nightNo === 1 && Math.random() > 0.85) return null;
+    const k = this.analyze(g, me);
+    const opts = g.aliveSeats().filter(s => s !== me.seat);
+    if (!opts.length) return null;
+    const score = g.nightNo > 1 ? this.suspicion(g, me, k) : new Map();
+    const val = s => score.has(s) ? score.get(s) : this.pref[s];
+    const t = opts.reduce((a, b) => val(b) < val(a) ? b : a);
+    const r = Math.random();
+    const item = r < 0.7 ? "check" : r < 0.85 ? "poison" : "guard";
+    this.traded = [t, item];
+    return [t, item];
+  }
+  onLucky(g, me, item) { this.item = item; }
+  luckyAction(g, me, item) {
+    const k = this.analyze(g, me);
+    const others = g.aliveSeats().filter(s => s !== me.seat);
+    if (item === "check") {
+      const pool = others.filter(s => !this.checks.has(s) && !k.good.has(s));
+      if (!pool.length) return null;
+      return g.nightNo > 1 ? this.top(this.suspicion(g, me, k), pool) : choice(pool);
+    }
+    if (item === "guard") return others.includes(k.trusted) ? k.trusted : choice(others);
+    const certain = [...k.wolf].filter(s => others.includes(s));
+    if (certain.length) return certain[0];
+    const score = this.suspicion(g, me, k), t = this.top(score);
+    return t != null && score.get(t) >= 20 ? t : null;
+  }
+  passClaw(g, me) {
+    const mates = g.alive().filter(p => isWolf(p) && p.seat !== me.seat && !g.clawGiven.has(p.seat)).map(p => p.seat);
+    if (!mates.length || Math.random() > 0.5) return null;
+    return mates.includes(g.wolfPlan.fakeSeer) ? g.wolfPlan.fakeSeer : choice(mates);
+  }
+  onClaw() {}
   hunterPoisoned() {}
 }
 
@@ -743,7 +900,7 @@ class Human {
   constructor(ui) { this.isHuman = true; this.ui = ui; this.checks = new Map(); }
   setup(g, me) {
     let msg = `你是 ${me.seat}號【${R[me.role]}】。${DESC[me.role]}`;
-    if (isWolf(me)) msg += ` 狼隊友：${g.players.filter(p => isWolf(p) && p.seat !== me.seat).map(p => p.seat).join("、")}號。`;
+    if (isWolf(me)) msg += ` 狼隊友：${g.players.filter(p => isWolf(p) && p.seat !== me.seat).map(p => p.seat + (p.role !== "WEREWOLF" ? `（${R[p.role]}）` : "")).join("、")}號。`;
     this.ui.say(msg, "private");
   }
   chooseGuard(g, me) {
@@ -778,14 +935,54 @@ class Human {
   vote(g, me, cands) {
     return this.ui.pickSeat({ title: cands.length < g.aliveSeats().length ? "PK 投票：要投誰？" : "投票：要放逐誰？", seats: cands.filter(c => c !== me.seat), none: "棄票" });
   }
-  hunterShoot(g, me) { return this.ui.pickSeat({ title: "獵人：要開槍帶走誰？", seats: g.aliveSeats().filter(s => s !== me.seat), none: "不開槍" }); }
-  hunterPoisoned() { this.ui.say("你被女巫毒死，獵人不能開槍。", "private"); }
+  hunterShoot(g, me) {
+    const others = g.aliveSeats().filter(s => s !== me.seat);
+    if (me.role === "HUNTER") return this.ui.pickSeat({ title: "獵人：要開槍帶走誰？", seats: others, none: "不開槍" });
+    return this.ui.pickSeat({ title: "狼王爪：要帶走誰？", note: `剩 ${g.claws[me.seat] || 0} 次`, seats: others, none: "不發動" });
+  }
+  hunterPoisoned(g, me) { this.ui.say(`你${me.deathCause === "poison" ? "被女巫毒死" : "夢遊出局"}，不能發動技能。`, "private"); }
+  chooseDream(g, me) {
+    return this.ui.pickSeat({ title: "攝夢人：今晚讓誰夢遊？", note: `上一晚的夢遊者：${g.lastDream ?? "無"}（連續兩晚選同一人會讓他出局）`, seats: g.aliveSeats().filter(s => s !== me.seat) });
+  }
+  async merchantTrade(g, me) {
+    const t = await this.ui.pickSeat({ title: "奇蹟商人：要和誰交易？", note: "整局只能一次；交給狼人的話你會出局。", seats: g.aliveSeats().filter(s => s !== me.seat), none: "今晚不交易" });
+    if (t == null) return null;
+    const item = await this.ui.choose({ title: `要給 ${t}號 什麼？`, options: [["check", "查驗"], ["poison", "毒藥"], ["guard", "守護"]] });
+    return [t, item];
+  }
+  onLucky(g, me, item) { this.item = item; this.ui.say(`你成為幸運兒！奇蹟商人給了你【${ITEMS[item]}】，可以使用一次，今晚就能用。`, "private"); }
+  luckyAction(g, me, item) {
+    const verb = { check: "查驗", poison: "毒", guard: "守護" }[item];
+    return this.ui.pickSeat({ title: `幸運兒：今晚要${verb}誰？`, note: `你的道具：${ITEMS[item]}（一次性）`, seats: g.aliveSeats().filter(s => s !== me.seat), none: "先不用" });
+  }
+  passClaw(g, me) {
+    const mates = g.alive().filter(p => isWolf(p) && p.seat !== me.seat && !g.clawGiven.has(p.seat)).map(p => p.seat);
+    if (!mates.length) return null;
+    return this.ui.pickSeat({ title: "覺醒狼王：要親傳狼王爪給誰？", note: `你還有 ${g.claws[me.seat]} 次狼王爪`, seats: mates, none: "不傳" });
+  }
+  onClaw() { this.ui.say("覺醒狼王把一次狼王爪親傳給你！出局時（被毒、夢遊除外）可以帶走一人。", "private"); }
 }
 
 // ================================================================ 畫面
 const $ = id => document.getElementById(id);
-const S = { mode: "play", preset: 0, role: "RANDOM", game: null, human: null, ui: null };
-try { const saved = JSON.parse(localStorage.getItem("ww-setup") || "{}"); Object.assign(S, { mode: saved.mode || S.mode, preset: saved.preset ?? S.preset }); } catch {}
+const S = { mode: "play", preset: 0, role: "RANDOM", game: null, human: null, ui: null,
+  custom: { WEREWOLF: 3, WOLF_KING: 1, SEER: 1, WITCH: 1, HUNTER: 1, DREAMER: 1, VILLAGER: 4 } };
+const MAX_ONE = new Set(["WOLF_KING", "AWAKENED", ...GODS]);
+function currentRoles() {
+  if (S.preset >= 0) return [...PRESETS[S.preset].roles];
+  return ROLE_ORDER.flatMap(r => Array(S.custom[r] || 0).fill(r));
+}
+function customProblem(roles) {
+  const wolves = roles.filter(r => WOLVES.has(r)).length;
+  if (roles.length < 5 || roles.length > 18) return `目前 ${roles.length} 人，需要 5～18 人。`;
+  if (!wolves || wolves === roles.length) return "至少要有 1 個狼人陣營和 1 個好人陣營。";
+  return null;
+}
+try {
+  const saved = JSON.parse(localStorage.getItem("ww-setup") || "{}");
+  Object.assign(S, { mode: saved.mode || S.mode, preset: saved.preset ?? S.preset, custom: saved.custom || S.custom });
+  if (S.preset >= PRESETS.length) S.preset = 0;
+} catch {}
 
 class UI {
   constructor(godView, humanSeat) {
@@ -816,7 +1013,7 @@ class UI {
       const tags = [];
       if (p.seat === this.humanSeat) tags.push(`<span class="tag">你</span>`);
       if (reveal || p.revealed || p.seat === this.humanSeat) tags.push(`<span class="tag ${isWolf(p) ? "wolf" : "good"}">${R[p.role]}</span>`);
-      else if (h && isWolf(h) && isWolf(p)) tags.push(`<span class="tag wolf">狼隊友</span>`);
+      else if (h && isWolf(h) && isWolf(p)) tags.push(`<span class="tag wolf">${p.role === "WEREWOLF" ? "狼隊友" : R[p.role]}</span>`);
       else if (hc && hc.checks && hc.checks.has(p.seat)) tags.push(`<span class="tag ${hc.checks.get(p.seat) ? "wolf" : "good"}">驗${hc.checks.get(p.seat) ? "狼" : "好"}</span>`);
       const c = g.claimedRole(p.seat);
       if (c) tags.push(`<span class="tag claim">跳${R[c]}</span>`);
@@ -830,6 +1027,11 @@ class UI {
       if (h.role === "WITCH") info.push(`解藥：${g.antidote ? "有" : "已用"}　毒藥：${g.poison ? "有" : "已用"}`);
       if (h.role === "SEER" && hc.checks.size) info.push("查驗：" + [...hc.checks].map(([t, w]) => `${t}號${w ? "狼" : "好"}`).join("、"));
       if (h.role === "GUARD") info.push(`上一晚守護：${g.lastGuard ?? "無"}`);
+      if (h.role === "DREAMER") info.push(`上一晚夢遊者：${g.lastDream ?? "無"}`);
+      if (h.role === "MERCHANT") info.push(g.tradeUsed ? "已交易" : "還沒交易");
+      if (g.claws[h.seat]) info.push(`狼王爪：${g.claws[h.seat]} 次`);
+      if (g.lucky && g.lucky.seat === h.seat) info.push(`幸運兒道具：${ITEMS[g.lucky.item]}${g.lucky.used ? "（已用）" : ""}`);
+      if (h.role !== "SEER" && hc.checks.size) info.push("查驗：" + [...hc.checks].map(([t, w]) => `${t}號${w ? "狼" : "好"}`).join("、"));
       if (!h.alive) info.push("你已出局，接下來觀戰");
       $("me").innerHTML = `<span class="role ${isWolf(h) ? "wolfside" : "goodside"}">${h.seat}號・${R[h.role]}</span><span class="info">${esc(DESC[h.role])}</span>${info.length ? `<span class="info">${esc(info.join("｜"))}</span>` : ""}`;
     } else {
@@ -973,7 +1175,28 @@ function renderSetup() {
     b.onclick = () => { S.preset = i; S.role = "RANDOM"; renderSetup(); };
     $("boards").appendChild(b);
   });
-  const roles = [...new Set(PRESETS[S.preset].roles)];
+  const cb = document.createElement("button");
+  cb.className = "board"; cb.setAttribute("aria-pressed", String(S.preset === -1));
+  cb.innerHTML = `<b>自訂板子</b><span>照真人局的配置，自己決定每個角色幾張</span>`;
+  cb.onclick = () => { S.preset = -1; S.role = "RANDOM"; renderSetup(); };
+  $("boards").appendChild(cb);
+  $("custom-field").hidden = S.preset !== -1;
+  if (S.preset === -1) {
+    $("steppers").innerHTML = "";
+    for (const r of ROLE_ORDER) {
+      const n = S.custom[r] || 0, max = MAX_ONE.has(r) ? 1 : 8;
+      const row = document.createElement("div");
+      row.className = "stepper";
+      row.innerHTML = `<span class="${WOLVES.has(r) ? "wolfname" : ""}">${R[r]}</span><button aria-label="減少${R[r]}" ${n <= 0 ? "disabled" : ""}>−</button><b>${n}</b><button aria-label="增加${R[r]}" ${n >= max ? "disabled" : ""}>＋</button>`;
+      const [minus, plus] = row.querySelectorAll("button");
+      minus.onclick = () => { S.custom[r] = Math.max(0, n - 1); renderSetup(); };
+      plus.onclick = () => { S.custom[r] = Math.min(max, n + 1); renderSetup(); };
+      $("steppers").appendChild(row);
+    }
+    const all = currentRoles(), w = all.filter(r => WOLVES.has(r)).length;
+    $("custom-sum").textContent = customProblem(all) || `共 ${all.length} 人：狼人陣營 ${w}、好人陣營 ${all.length - w}。`;
+  }
+  const roles = [...new Set(currentRoles())];
   if (S.role !== "RANDOM" && !roles.includes(S.role)) S.role = "RANDOM";
   $("role-chips").innerHTML = "";
   [["RANDOM", "隨機"], ...roles.map(r => [r, R[r]])].forEach(([v, label]) => {
@@ -985,12 +1208,14 @@ function renderSetup() {
   for (const b of $("mode-chips").children) b.setAttribute("aria-pressed", String(b.dataset.mode === S.mode));
   $("role-field").hidden = S.mode !== "play";
   $("god-field").hidden = S.mode !== "watch";
-  try { localStorage.setItem("ww-setup", JSON.stringify({ mode: S.mode, preset: S.preset })); } catch {}
+  $("start").disabled = S.preset === -1 && !!customProblem(currentRoles());
+  try { localStorage.setItem("ww-setup", JSON.stringify({ mode: S.mode, preset: S.preset, custom: S.custom })); } catch {}
 }
 for (const b of $("mode-chips").children) b.onclick = () => { S.mode = b.dataset.mode; renderSetup(); };
 
 async function startGame() {
-  const roles = shuffle([...PRESETS[S.preset].roles]);
+  const roles = shuffle(currentRoles());
+  if (customProblem(roles)) return;
   const rules = { witchSelfSave: $("rule-self-save").value, sameGuardSaveDies: $("rule-sgs").value === "1", winMode: $("rule-win").value, maxRounds: 30 };
   let humanSeat = null;
   const controllers = {};
@@ -1077,7 +1302,13 @@ const QUIZ = [
   ["獵人白天被投票放逐，可以開槍嗎？", ["可以", "不可以"], 0, "被放逐可以開槍，被毒死才不行。所以有人跳獵人時，大家常避免投他。"],
   ["狼人「自爆」的效果通常是？", ["狼人出局，立刻天黑，跳過今天的投票", "狼人出局，可以帶走一人", "什麼都沒發生"], 0, "自爆常用來打斷對狼隊不利的投票；在警長競選時自爆還能讓警徽流失。"],
   ["什麼是「倒鉤狼」？", ["發言很少的狼", "假裝站真預言家的邊、甚至投隊友，來騙好人信任的狼", "替悍跳隊友衝鋒的狼"], 1, "站對邊不代表一定是好人，要看投票和發言前後是否一致。"],
-  ["第一晚是平安夜（沒人死），最可能的原因是？", ["狼人空刀", "女巫用了解藥或守衛守中", "預言家查到了狼"], 1, "首夜女巫通常會救人，所以平安夜大多代表解藥已經用掉了。"],
+  ["第一晚是平安夜（沒人死），最可能的原因是？", ["狼人空刀", "女巫用了解藥、守衛守中或攝夢人夢中", "預言家查到了狼"], 1, "首夜女巫通常會救人，所以平安夜大多代表解藥已經用掉了，或被守衛守中、攝夢人夢中。"],
+  ["攝夢人連續兩晚都選 6 號當夢遊者，6 號會怎樣？", ["連續兩晚免疫傷害", "第二晚夢遊出局", "什麼都沒發生"], 1, "連續兩晚被攝夢會出局。攝夢人可以用這招「連夢」處決確定的狼。"],
+  ["5 號當晚是夢遊者，又被狼刀、又被女巫毒，5 號會怎樣？", ["死亡", "存活"], 1, "夢遊者當晚免疫夜間傷害，狼刀和毒藥都擋得住。"],
+  ["攝夢人晚上被狼殺了，他當晚選的夢遊者會怎樣？", ["一起出局", "繼續存活", "改成免疫兩晚"], 0, "攝夢人晚上死亡時，夢遊者跟著出局，所以可能一晚死兩個。"],
+  ["奇蹟商人把查驗交給了 3 號，3 號其實是狼人，會發生什麼？", ["3 號得到查驗", "3 號拿不到技能，商人天亮出局", "什麼都不會發生"], 1, "交易給狼人會失敗、商人出局。反過來說，商人隔天還活著，就代表幸運兒是好人。"],
+  ["狼王被女巫毒死，可以發動狼王爪嗎？", ["可以", "不可以"], 1, "和獵人一樣，被毒或夢遊出局都不能發動。女巫常用毒藥處理疑似狼王的人。"],
+  ["覺醒狼王還沒親傳過狼王爪，白天被放逐，最多可以帶走幾人？", ["1 人", "2 人", "不能帶人"], 1, "覺醒狼王有兩次狼王爪，沒傳出去的都留在自己身上，出局時可以全部用掉。"],
 ];
 const Q = { list: [], i: 0, score: 0, answered: false };
 function newQuiz() { Q.list = shuffle([...QUIZ]).slice(0, 10); Q.i = 0; Q.score = 0; Q.answered = false; renderQuiz(); }
@@ -1114,8 +1345,16 @@ function renderQuiz() {
 // ---------------------------------------------------------------- 速查
 $("sheet").innerHTML = `
   <h2>一輪的流程</h2>
-  <div class="flow"><span>守衛守人</span><i>→</i><span>狼人殺人</span><i>→</i><span>女巫用藥</span><i>→</i><span>預言家查驗</span><i>→</i><span>天亮公布死訊</span><i>→</i><span>遺言／獵人開槍</span><i>→</i><span>輪流發言</span><i>→</i><span>投票放逐</span></div>
+  <div class="flow"><span>攝夢人選夢遊者</span><i>→</i><span>奇蹟商人交易</span><i>→</i><span>幸運兒用道具</span><i>→</i><span>守衛守人</span><i>→</i><span>狼人殺人（覺醒狼王親傳）</span><i>→</i><span>女巫用藥</span><i>→</i><span>預言家查驗</span><i>→</i><span>天亮公布死訊</span><i>→</i><span>遺言／獵人開槍</span><i>→</i><span>輪流發言</span><i>→</i><span>投票放逐</span></div>
   <p class="hint">真人局多半有「警長競選」：第一天先選警長，警長有 1.5 票、決定發言順序，死亡時可以移交警徽。這個練習場沒有實作警長。</p>
+  <h2>進階角色</h2>
+  <dl class="terms">
+    <dt>狼王</dt><dd>狼人陣營。被放逐或晚上出局可以發動狼王爪帶走一人；被毒、夢遊出局不能。</dd>
+    <dt>覺醒狼王</dt><dd>狼人陣營，有兩次狼王爪。晚上可親傳一爪給隊友（每晚一次、每人最多一次），沒傳出去的出局時全部可用，最多帶走兩人。被毒、夢遊出局不能發動。</dd>
+    <dt>攝夢人</dt><dd>神職。每晚必選一人夢遊（不能選自己），夢遊者當晚不怕狼刀和毒藥。連續兩晚選同一人，他會出局；攝夢人晚上死亡，夢遊者一起出局。</dd>
+    <dt>奇蹟商人</dt><dd>神職。整局一次，把查驗、毒藥或守護交給一人（幸運兒），當晚就能用一次。交給狼人則對方拿不到，商人天亮出局，所以商人活著代表幸運兒是好人。</dd>
+  </dl>
+  <p class="hint">這些角色各地細節可能不同，例如被狼王帶走的獵人能不能開槍。練習場的設定是可以，開局前記得問主持人。</p>
   <h2>勝利條件</h2>
   <ul><li>好人：所有狼人出局。</li><li>狼人（屠邊，最常見）：殺光所有平民，或殺光所有神職。</li><li>狼人（屠城）：殺光所有好人。</li></ul>
   <h2>開局前要問主持人</h2>
