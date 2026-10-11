@@ -49,7 +49,8 @@ class HumanController(Controller):
         print("=" * 50)
 
     def _alive_hint(self, game: Game) -> None:
-        print(f"  存活玩家：{'、'.join(map(str, game.alive_seats()))}")
+        if game.phase != "election":
+            print(f"  存活玩家：{'、'.join(map(str, game.alive_seats()))}")
 
     # ------------------------------------------------------------ 夜晚
     def choose_guard(self, game: Game, me: Player) -> int | None:
@@ -120,8 +121,9 @@ class HumanController(Controller):
                 bits = item.split()
                 if len(bits) == 2 and bits[0].isdigit() and bits[1] in ("狼", "好"):
                     checks[int(bits[0])] = bits[1] == "狼"
-        others = [s for s in game.alive_seats() if s != me.seat]
-        accuse = ask_seat("  要指認（歸票）誰", others)
+        # 警長競選時昨晚死訊還沒公布，所有座位都能選，避免洩漏死訊
+        pool = list(game.players) if game.phase == "election" else game.alive_seats()
+        accuse = ask_seat("  要指認（歸票）誰", [s for s in pool if s != me.seat])
         text = ask("  補充發言（可空白）> ")
         return Speech(me.seat, claim, checks, accuse, text)
 

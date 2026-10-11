@@ -62,3 +62,8 @@ python3 -m unittest werewolf.tests.test_engine   # 執行測試
 - `human.py`：真人輸入
 - `guide.py`：規則速查、術語、測驗題
 - `cli.py`：主選單與復盤
+
+## 網頁版
+
+`web/index.html` 是手機也能玩的單頁版本，規則和電腦策略與 Python 版相同。
+測驗題以 `guide.py` 為準，修改題目後執行 `python3 werewolf/web/sync_quiz.py` 同步到網頁版。
