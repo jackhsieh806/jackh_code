@@ -104,7 +104,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 .seg button { border: none; border-radius: 0; background: transparent; padding: 8px 14px; }
 .seg button.on { background: var(--accent); color: #11131c; font-weight: 600; }
 .hint { color: var(--muted); font-size: 13px; }
-.seats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.seats { display: grid; grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr)); gap: 10px; }
+.seat-gap { visibility: hidden; }
 .table-mid {
   grid-column: 1 / -1;
   text-align: center;
@@ -130,10 +131,12 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   transition: transform .08s;
 }
 .seat:active { transform: scale(.96); }
-.seat .num { font-size: 30px; font-weight: 700; line-height: 1; }
+.seat .num { font-size: clamp(22px, 3.2vw, 30px); font-weight: 700; line-height: 1; }
 .seat .name { font-size: 13px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 17px; }
 .seat .badges { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
 .badge { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: var(--panel-2); white-space: nowrap; }
+.seat .badge { white-space: normal; max-width: 100%; line-height: 1.3; }
+.badge.mentor { background: rgba(255, 209, 102, .18); color: var(--gold); }
 .badge.claim { background: rgba(139, 156, 255, .2); color: #c5cdff; }
 .badge.gold { background: var(--good-bg); color: var(--good); }
 .badge.kill { background: var(--wolf-bg); color: var(--wolf); }
@@ -173,7 +176,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 .ballot { display: grid; grid-template-columns: 48px 1fr; gap: 6px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
 .ballot:first-of-type { border-top: none; }
 .ballot .voter { font-weight: 700; text-align: center; }
-.chips { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+.chips { display: grid; grid-template-columns: repeat(var(--cols, 12), minmax(0, 1fr)); gap: 3px; }
 .chip { min-height: 36px; min-width: 36px; padding: 4px 6px; font-size: 14px; border-radius: 8px; }
 .chips .chip { min-width: 0; padding: 4px 0; }
 .chip.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 700; }
@@ -186,6 +189,13 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 .vote-head .grow { flex: 1; font-weight: 600; }
 .pair { display: flex; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .pair:first-child { border-top: none; }
+.rules h4 { margin: 14px 0 6px; font-size: 15px; }
+.rules h4.wolf-side { color: var(--wolf); }
+.rules h4.good-side { color: var(--good); }
+.rules dl { margin: 0; }
+.rules dt { font-weight: 600; margin-top: 10px; }
+.rules dd { margin: 3px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; white-space: pre-line; }
+.rules .order { font-size: 15px; line-height: 1.7; }
 
 /* ---------- sheet ---------- */
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; z-index: 20; }
@@ -226,7 +236,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 <body>
 <div class="app">
   <header class="topbar">
-    <h1>🐺 推理筆記</h1>
+    <h1>🐺 推理筆記 <span class="hint" id="boardLabel"></span></h1>
     <div class="day-stepper">
       <button id="dayDown" aria-label="前一天">−</button>
       <div class="day-label" id="dayLabel">第 1 天</div>
@@ -260,6 +270,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         <button data-tab="checks" class="on">查驗</button>
         <button data-tab="votes">投票</button>
         <button data-tab="memo">我的筆記</button>
+        <button data-tab="rules">板子</button>
       </nav>
       <div class="tab-body" id="tabBody"></div>
     </aside>
@@ -273,16 +284,66 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 (() => {
   'use strict';
 
-  const SEATS = 12;
   const STORE_KEY = 'werewolf-notes-v1';
-  const ROLES = ['預言家', '女巫', '獵人', '白痴', '守衛', '平民', '狼人', '白狼王', '狼王'];
+
+  // Each board sets the seat count, the roles people can claim, death causes,
+  // which roles report checks, and the rules shown in the 板子 tab.
+  const BOARDS = {
+    std12: {
+      name: '12人 標準局（預女獵白）',
+      seats: 12,
+      roles: ['預言家', '女巫', '獵人', '白痴', '守衛', '平民', '狼人', '白狼王', '狼王'],
+      causes: ['被刀', '被毒', '被投出', '被槍殺', '自爆', '其他'],
+      checkers: ['預言家'],
+      wolfCount: '4 狼',
+      wolfSlots: 4,
+      setup: { wolf: ['狼人 ×4'], good: ['預言家', '女巫', '獵人', '白痴', '平民 ×4'] },
+      roleInfo: null,
+      night: null,
+      win: { wolf: '神職全部出局，或平民全部出局。', good: '狼人全部出局。' },
+    },
+    hu15: {
+      name: '15人 村姑與虎姑婆',
+      seats: 15,
+      roles: ['預言家', '女巫', '騎士', '守衛', '村姑', '平民', '狼美人', '虎姑婆', '小狼', '野孩子'],
+      causes: ['被刀', '被毒', '被投出', '被騎士決鬥', '被狼美人帶走', '被反傷', '自爆', '其他'],
+      checkers: ['預言家', '村姑'],
+      wolfCount: '4 狼 + 野孩子',
+      wolfSlots: 5,
+      setup: {
+        wolf: ['狼美人', '虎姑婆', '小狼 ×2', '野孩子'],
+        good: ['預言家', '女巫', '騎士', '守衛', '村姑', '平民 ×5'],
+      },
+      roleInfo: {
+        wolf: [
+          ['狼美人【迷魅】', '每晚可迷魅一個玩家，不可連續（ABA）。\n狼美人出局時，被迷魅的玩家一同出局。'],
+          ['虎姑婆【誘導】', '第二晚開始，選擇一個號碼，預言家與村姑的查驗只能用在此號碼及左右兩個號碼的玩家身上（例：選 3 → 只能驗 2、3、4）。\n每隔一晚才能使用一次，相同號碼不可重複。'],
+          ['虎姑婆【被動・惡靈反傷】', '當虎姑婆被查驗或被女巫毒，技能使用者被反傷出局。\n只生效一次，生效順序：村姑驗 > 預言家驗 > 女巫毒。'],
+          ['小狼 ×2', '一般狼人。'],
+          ['野孩子（被驗是金水）', '首夜選一位榜樣學習：榜樣是狼 → 屬狼陣營（不知道狼隊、不見面）；榜樣是好人 → 屬好人陣營（不知道）。\n榜樣出局後，野孩子轉入狼陣營。野孩子入狼隊後，虎姑婆【誘導】只能再用一次。\n彩蛋：榜樣是村姑 → 永遠是好人陣營；榜樣是虎姑婆 → 知道所有狼隊位置。'],
+        ],
+        good: [
+          ['預言家', '每晚查驗一人身分。'],
+          ['女巫', '一瓶毒藥、一瓶解藥。'],
+          ['騎士', '守護他人，也守護正義。'],
+          ['守衛', '黑夜中的盾，守護村莊。'],
+          ['村姑【認錯人】', '投票後獲得查驗一人的機會，夜晚使用（全場一次，結果優先以警上票為主）：\n・警徽投狼人 → 正確查驗\n・警徽投好人 → 相反查驗\n・出局投狼人 → 相反查驗\n・出局投好人 → 正確查驗'],
+          ['平民 ×5', '平凡卻重要，團結找出真相。'],
+        ],
+      },
+      night: {
+        first: '野孩子 → 4狼（狼美人迷魅） → 守衛 → 女巫 → 村姑 → 預言家',
+        next: '4狼（狼美人迷魅、虎姑婆誘導） → 守衛 → 女巫 → 村姑（查驗） → 預言家（查驗）',
+      },
+      win: { wolf: '四神（預、女、騎、守）全部出局，或五平民＋村姑全部出局。', good: '四狼出局（野孩子若已入狼隊，不需要出局）。' },
+    },
+  };
   const MARKS = [
     { id: 'none', label: '未定', icon: '' },
     { id: 'good', label: '好人', icon: '🟢 好人' },
     { id: 'wolf', label: '狼', icon: '🔴 狼' },
     { id: 'sus', label: '存疑', icon: '🟡 存疑' },
   ];
-  const CAUSES = ['被刀', '被毒', '被投出', '被槍殺', '自爆', '其他'];
   const VOTE_KINDS = ['放逐投票', '警長競選', 'PK 投票'];
   const QUICK_TAGS = ['發言好', '發言差', '劃水', '聊爆', '倒鉤', '衝鋒', '站邊', '踩人', '保人', '像預言家', '像狼'];
 
@@ -290,11 +351,13 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   const blankPlayer = (seat, name = '') => ({
     seat, name, mark: 'none', alive: true, death: null, sheriff: false, claim: '', notes: {},
   });
-  const blankState = (names) => ({
+  const blankState = (boardId = 'std12', names) => ({
+    board: boardId,
     day: 1,
     mySeat: null,
     myRole: '',
-    players: Array.from({ length: SEATS }, (_, i) => blankPlayer(i + 1, names ? names[i] : '')),
+    mentor: null,
+    players: Array.from({ length: BOARDS[boardId].seats }, (_, i) => blankPlayer(i + 1, names ? names[i] || '' : '')),
     checks: [],
     votes: [],
     memo: '',
@@ -308,7 +371,10 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         const s = JSON.parse(raw);
-        if (s && Array.isArray(s.players) && s.players.length === SEATS) return Object.assign(blankState(), s);
+        const boardId = s && BOARDS[s.board] ? s.board : 'std12';
+        if (s && Array.isArray(s.players) && s.players.length === BOARDS[boardId].seats) {
+          return Object.assign(blankState(boardId), s, { board: boardId });
+        }
       }
     } catch (e) { /* storage unavailable */ }
     return blankState();
@@ -317,6 +383,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
   }
   const P = (seat) => state.players[seat - 1];
+  const B = () => BOARDS[state.board];
+  const N = () => state.players.length;
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const seatLabel = (seat) => {
@@ -326,11 +394,23 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   const $ = (id) => document.getElementById(id);
 
   // ---------- seats ----------
-  // Table order: 1–6 across the top, 12–7 across the bottom, so neighbours sit next to each other.
-  const SEAT_ORDER = [1, 2, 3, 4, 5, 6, 12, 11, 10, 9, 8, 7];
+  // Table order: first half across the top left→right, the rest across the bottom right→left,
+  // so neighbours sit next to each other (12人: 1–6 / 12–7, 15人: 1–8 / 15–9).
+  function seatOrder() {
+    const n = N();
+    const cols = Math.ceil(n / 2);
+    const top = Array.from({ length: cols }, (_, i) => i + 1);
+    const bottom = Array.from({ length: n - cols }, (_, i) => n - i);
+    while (bottom.length < cols) bottom.unshift(0);
+    return { cols, order: top.concat(bottom) };
+  }
 
   function renderSeats() {
-    const html = SEAT_ORDER.map((seat, idx) => {
+    const { cols, order } = seatOrder();
+    $('seats').style.setProperty('--cols', cols);
+    const html = order.map((seat, idx) => {
+      const mid = idx === cols ? '<div class="table-mid">桌子</div>' : '';
+      if (!seat) return `${mid}<div class="seat-gap"></div>`;
       const p = P(seat);
       const cls = ['seat', p.mark !== 'none' ? p.mark : '', p.alive ? '' : 'dead'].join(' ');
       const badges = [];
@@ -340,8 +420,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       if (gold) badges.push(`<span class="badge gold">金水${gold > 1 ? '×' + gold : ''}</span>`);
       if (kill) badges.push(`<span class="badge kill">查殺${kill > 1 ? '×' + kill : ''}</span>`);
       if (!p.alive && p.death) badges.push(`<span class="badge">D${p.death.day} ${esc(p.death.cause)}</span>`);
+      if (state.myRole === '野孩子' && state.mentor === seat) badges.push('<span class="badge mentor">我的榜樣</span>');
       const mark = MARKS.find((m) => m.id === p.mark);
-      const mid = idx === 6 ? '<div class="table-mid">桌子</div>' : '';
       return `${mid}<div class="${cls}" data-seat="${seat}">
         ${state.mySeat === seat ? '<span class="me">我</span>' : ''}
         ${p.sheriff ? '<span class="sheriff">★</span>' : ''}
@@ -379,7 +459,10 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   });
 
   // ---------- day ----------
-  function renderDay() { $('dayLabel').textContent = `第 ${state.day} 天`; }
+  function renderDay() {
+    $('dayLabel').textContent = `第 ${state.day} 天`;
+    $('boardLabel').textContent = B().name;
+  }
   $('dayUp').addEventListener('click', () => { state.day++; commit(); });
   $('dayDown').addEventListener('click', () => { if (state.day > 1) { state.day--; commit(); } });
 
@@ -420,7 +503,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       .map((d) => `<div><b>第 ${d} 天：</b><span class="day-note">${esc(p.notes[d])}</span></div>`)
       .join('');
     const checksBy = state.checks.filter((c) => c.seer === seat)
-      .map((c) => `N${c.day} 驗 ${c.target}號 → <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span>`);
+      .map((c) => `N${c.day} ${c.by && c.by !== '預言家' ? esc(c.by) + ' ' : ''}驗 ${c.target}號 → <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span>`);
     const checksOn = state.checks.filter((c) => c.target === seat)
       .map((c) => `${c.seer}號 在 N${c.day} 給 <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span>`);
     const votes = voteHistoryFor(seat);
@@ -439,13 +522,13 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       <div class="field-label">他跳的身分</div>
       <div class="opt-group">
         ${opt('claim', '', '沒跳', !p.claim)}
-        ${ROLES.map((r) => opt('claim', r, r, p.claim === r)).join('')}
+        ${B().roles.map((r) => opt('claim', r, r, p.claim === r)).join('')}
       </div>
 
       <div class="field-label">狀態</div>
       <div class="opt-group">
         ${opt('alive', '1', '存活', p.alive)}
-        ${CAUSES.map((c) => opt('death', c, c, !p.alive && p.death && p.death.cause === c)).join('')}
+        ${B().causes.map((c) => opt('death', c, c, !p.alive && p.death && p.death.cause === c)).join('')}
       </div>
       <div class="row" style="margin-top:8px">
         ${opt('sheriff', '1', '★ 警長', p.sheriff)}
@@ -512,13 +595,14 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     const b = e.target.closest('button');
     if (!b) return;
     ui.tab = b.dataset.tab;
+    $('tabBody').scrollTop = 0;
     [...$('tabs').children].forEach((x) => x.classList.toggle('on', x === b));
     renderTab();
   });
 
   function seatOptions(selected, { allowNone = false } = {}) {
     let html = allowNone ? '<option value="">—</option>' : '';
-    for (let s = 1; s <= SEATS; s++) {
+    for (let s = 1; s <= N(); s++) {
       html += `<option value="${s}" ${selected === s ? 'selected' : ''}>${seatLabel(s)}</option>`;
     }
     return html;
@@ -528,16 +612,17 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     const body = $('tabBody');
     if (ui.tab === 'checks') body.innerHTML = checksHTML();
     else if (ui.tab === 'votes') body.innerHTML = votesHTML();
-    else body.innerHTML = memoHTML();
+    else if (ui.tab === 'memo') body.innerHTML = memoHTML();
+    else body.innerHTML = rulesHTML();
   }
 
   // ---------- checks ----------
-  let checkDraft = { seer: null, target: null, result: 'good' };
+  let checkDraft = { seer: null, target: null, result: 'good', by: '預言家' };
 
   function checksHTML() {
     const seers = [...new Set(state.checks.map((c) => c.seer))];
     const conflicts = [];
-    for (let t = 1; t <= SEATS; t++) {
+    for (let t = 1; t <= N(); t++) {
       const rs = state.checks.filter((c) => c.target === t);
       if (rs.some((c) => c.result === 'good') && rs.some((c) => c.result === 'wolf')) {
         const who = rs.map((c) => `${c.seer}號說${c.result === 'good' ? '金水' : '查殺'}`).join('、');
@@ -546,8 +631,9 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     }
     const cols = seers.map((s) => {
       const items = state.checks.filter((c) => c.seer === s).sort((a, b) => a.day - b.day);
+      const roles = [...new Set(items.map((c) => c.by || '預言家'))].join('/');
       return `<div class="seer-col">
-        <h4>${seatLabel(s)}${P(s).alive ? '' : '（已出局）'}</h4>
+        <h4>${seatLabel(s)}（${esc(roles)}）${P(s).alive ? '' : '（已出局）'}</h4>
         ${items.map((c) => `<div class="list-item">
           <span class="grow">N${c.day} 驗 ${seatLabel(c.target)} →
             <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span></span>
@@ -558,7 +644,10 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 
     return `
       <div class="card">
-        <h3>新增查驗（預言家報的結果）</h3>
+        <h3>新增查驗（${B().checkers.join('／')}報的結果）</h3>
+        ${B().checkers.length > 1 ? `<div class="row"><div class="opt-group">
+          ${B().checkers.map((r) => `<button data-ck-by="${esc(r)}" class="${checkDraft.by === r ? 'on' : ''}">${r}</button>`).join('')}
+        </div></div>` : ''}
         <div class="row">
           <select id="ckSeer">${seatOptions(checkDraft.seer, { allowNone: true })}</select>
           <span>驗</span>
@@ -582,6 +671,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   $('tabBody').addEventListener('change', (e) => {
     if (e.target.id === 'ckSeer') checkDraft.seer = Number(e.target.value) || null;
     if (e.target.id === 'ckTarget') checkDraft.target = Number(e.target.value) || null;
+    if (e.target.id === 'mentorInput') { state.mentor = Number(e.target.value) || null; commit(); }
   });
 
   // ---------- votes ----------
@@ -601,8 +691,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 
   function similarPairs() {
     const pairs = [];
-    for (let a = 1; a <= SEATS; a++) {
-      for (let b = a + 1; b <= SEATS; b++) {
+    for (let a = 1; a <= N(); a++) {
+      for (let b = a + 1; b <= N(); b++) {
         let same = 0;
         let both = 0;
         state.votes.forEach((v) => {
@@ -635,12 +725,12 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         ballots = state.players.map((p) => {
           const cur = v.ballots[p.seat];
           const chips = [`<button class="chip ${cur === 0 ? 'on' : ''}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="0">棄</button>`];
-          for (let s = 1; s <= SEATS; s++) {
+          for (let s = 1; s <= N(); s++) {
             if (s === p.seat) continue;
             chips.push(`<button class="chip ${cur === s ? 'on' : ''} ${P(s).alive ? '' : 'dim'}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="${s}">${s}</button>`);
           }
           return `<div class="ballot" style="${p.alive ? '' : 'opacity:.45'}">
-            <div class="voter">${p.seat}</div><div class="chips">${chips.join('')}</div></div>`;
+            <div class="voter">${p.seat}</div><div class="chips" style="--cols:${N()}">${chips.join('')}</div></div>`;
         }).join('');
       }
       return `<div class="card">
@@ -679,8 +769,13 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         <h3>我的身分（只有你看得到）</h3>
         <div class="row"><span>座位：${me}</span></div>
         <div class="opt-group" style="margin-top:8px">
-          ${['', ...ROLES].map((r) => `<button data-my-role="${esc(r)}" class="${state.myRole === r ? 'on' : ''}">${r || '未設定'}</button>`).join('')}
+          ${['', ...B().roles].map((r) => `<button data-my-role="${esc(r)}" class="${state.myRole === r ? 'on' : ''}">${r || '未設定'}</button>`).join('')}
         </div>
+        ${state.myRole === '野孩子' ? `<div class="row" style="margin-top:10px">
+          <span>我的榜樣：</span>
+          <select id="mentorInput">${seatOptions(state.mentor, { allowNone: true })}</select>
+          <span class="hint">榜樣出局 → 你轉入狼陣營</span>
+        </div>` : ''}
       </div>
       <div class="card">
         <h3>整體推理</h3>
@@ -694,12 +789,39 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     const group = (mark) => state.players.filter((p) => p.mark === mark).map((p) => p.seat);
     const alive = state.players.filter((p) => p.alive).map((p) => p.seat);
     const line = (label, arr) => `<div class="list-item"><span style="min-width:72px">${label}</span><span class="grow">${arr.length ? arr.join('、') : '—'}</span></div>`;
+    const wolves = group('wolf');
     return `<div class="card"><h3>目前判斷</h3>
-      ${line('🔴 狼', group('wolf'))}
+      ${line('🔴 狼', wolves)}
+      <div class="hint" style="padding:2px 0 6px">狼坑：已標 ${wolves.length} / ${B().wolfSlots}（${esc(B().wolfCount)}）</div>
       ${line('🟡 存疑', group('sus'))}
       ${line('🟢 好人', group('good'))}
       ${line('存活', alive)}
     </div>`;
+  }
+
+  function rulesHTML() {
+    const b = B();
+    const list = (items) => items.map((x) => `<span class="badge" style="font-size:13px;padding:4px 8px">${esc(x)}</span>`).join(' ');
+    const info = (items) => `<dl>${items.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl>`;
+    return `
+      <div class="card rules">
+        <h3>${esc(b.name)}</h3>
+        <h4 class="wolf-side">狼人陣營</h4><div class="opt-group">${list(b.setup.wolf)}</div>
+        <h4 class="good-side">好人陣營</h4><div class="opt-group">${list(b.setup.good)}</div>
+        <div class="hint" style="margin-top:12px">要換板子：按上方「新的一局」。</div>
+      </div>
+      ${b.roleInfo ? `<div class="card rules"><h3>角色技能</h3>
+        <h4 class="wolf-side">狼人陣營</h4>${info(b.roleInfo.wolf)}
+        <h4 class="good-side">好人陣營</h4>${info(b.roleInfo.good)}
+      </div>` : ''}
+      ${b.night ? `<div class="card rules"><h3>夜晚睜眼順序</h3>
+        <h4>首夜</h4><div class="order">${esc(b.night.first)}</div>
+        <h4>次夜起</h4><div class="order">${esc(b.night.next)}</div>
+      </div>` : ''}
+      <div class="card rules"><h3>獲勝條件</h3>
+        <h4 class="wolf-side">狼人</h4><div class="order">${esc(b.win.wolf)}</div>
+        <h4 class="good-side">好人</h4><div class="order">${esc(b.win.good)}</div>
+      </div>`;
   }
 
   $('tabBody').addEventListener('input', (e) => {
@@ -712,11 +834,13 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     const d = b.dataset;
 
     if (d.ckResult) { checkDraft.result = d.ckResult; renderTab(); return; }
+    if (d.ckBy) { checkDraft.by = d.ckBy; renderTab(); return; }
     if (b.id === 'ckAdd') {
       if (!checkDraft.seer || !checkDraft.target) { alert('請選擇查驗者和被驗的人'); return; }
       if (checkDraft.seer === checkDraft.target) { alert('不能驗自己'); return; }
-      state.checks.push({ id: uid(), day: state.day, seer: checkDraft.seer, target: checkDraft.target, result: checkDraft.result });
-      if (!P(checkDraft.seer).claim) P(checkDraft.seer).claim = '預言家';
+      const by = B().checkers.includes(checkDraft.by) ? checkDraft.by : B().checkers[0];
+      state.checks.push({ id: uid(), day: state.day, seer: checkDraft.seer, target: checkDraft.target, result: checkDraft.result, by });
+      if (!P(checkDraft.seer).claim) P(checkDraft.seer).claim = by;
       checkDraft.target = null;
       commit();
       return;
@@ -761,6 +885,10 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     $('sheet').innerHTML = `
       <h3 style="margin-top:0">開始新的一局？</h3>
       <p class="hint">目前的標記、查驗、投票和筆記都會清空。</p>
+      <div class="field-label">板子</div>
+      <div class="opt-group" id="ngBoard">
+        ${Object.entries(BOARDS).map(([id, b]) => `<button data-board="${id}" class="${id === state.board ? 'on' : ''}">${esc(b.name)}</button>`).join('')}
+      </div>
       <div class="sheet-foot">
         <button id="ngCancel">取消</button>
         <button id="ngKeep">清空，但保留名字</button>
@@ -769,8 +897,15 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     ui.sheetSeat = null;
     $('overlay').classList.add('open');
     $('ngCancel').onclick = closeSheet;
-    $('ngKeep').onclick = () => { state = blankState(state.players.map((p) => p.name)); save(); closeSheet(); };
-    $('ngAll').onclick = () => { state = blankState(); save(); closeSheet(); };
+    let boardId = state.board;
+    $('ngBoard').onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      boardId = b.dataset.board;
+      [...$('ngBoard').children].forEach((x) => x.classList.toggle('on', x === b));
+    };
+    $('ngKeep').onclick = () => { state = blankState(boardId, state.players.map((p) => p.name)); save(); closeSheet(); };
+    $('ngAll').onclick = () => { state = blankState(boardId); save(); closeSheet(); };
   });
 
   // ---------- privacy cover ----------
