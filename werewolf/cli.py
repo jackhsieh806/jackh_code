@@ -49,7 +49,10 @@ def review(game: Game, human_seat: int | None = None) -> None:
     for p in game.players.values():
         status = "存活" if p.alive else DEATH_CAUSES[p.death_cause]
         me = " ← 你" if p.seat == human_seat else ""
-        print(f"  {p.seat:>2}號 {p.role.value:<4} {status}{me}")
+        role = p.role.value
+        if p.role is Role.WILD_CHILD:
+            role += "（轉狼）" if p.turned else f"（{game.alignment(p).value}）"
+        print(f"  {p.seat:>2}號 {role:<4} {status}{me}")
 
     print("\n上帝視角（夜晚行動）：")
     for line in game.god_log:
@@ -87,7 +90,7 @@ def review(game: Game, human_seat: int | None = None) -> None:
         mine = [t for t in mine if t is not None]
         if mine:
             hit = sum(game.players[t].is_wolf for t in mine)
-            good_side = not me.is_wolf
+            good_side = game.alignment(me) is Team.GOOD
             print(f"\n你的投票：共 {len(mine)} 票，投中狼 {hit} 票、投到好人 {len(mine) - hit} 票。")
             if good_side and len(mine) - hit > hit:
                 print("  💡 你常投到好人。回頭看看：那些人是被誰帶節奏推出去的？誰的查驗跟事實矛盾？")
@@ -123,7 +126,7 @@ def play_game(rules: Rules, spectate: bool = False) -> None:
                 seed=rng.randrange(1 << 30), pause=pause)
     winner = game.play()
     if human_seat is not None and winner is not None:
-        mine = game.players[human_seat].role.team
+        mine = game.alignment(game.players[human_seat])
         print("🎉 你贏了！" if mine is winner else "😢 你輸了，再接再厲！")
     if ask_yes("\n要看復盤嗎"):
         review(game, human_seat)

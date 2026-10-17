@@ -419,6 +419,189 @@ class SelfExplodeTest(unittest.TestCase):
         self.assertIsNone(g.run_day())          # 警上自爆 → 當天直接天黑
 
 
+WB, TG, WC, KN, VG = (Role.WOLF_BEAUTY, Role.TIGER_GRANDMA, Role.WILD_CHILD, Role.KNIGHT,
+                      Role.VILLAGE_GIRL)
+# 座位：1 狼美人、2 虎姑婆、3-4 小狼、5 野孩子、6 預言家、7 女巫、8 騎士、9 守衛、10 村姑、11-15 平民
+TIGER_BOARD = [WB, TG, W, W, WC, S, WI, KN, G, VG, V, V, V, V, V]
+
+
+def tiger_game(overrides=None, rules=None):
+    ctrls = {s: Scripted(**idle(choose_model=lambda g, m: 11, choose_charm=lambda g, m: None,
+                                choose_lure=lambda g, m, c: None, girl_check=lambda g, m, o: None,
+                                knight_duel=lambda g, m: None, self_explode=lambda g, m: False))
+             for s in range(1, 16)}
+    for seat, ex in (overrides or {}).items():
+        base = dict(choose_model=lambda g, m: 11, choose_charm=lambda g, m: None,
+                    choose_lure=lambda g, m, c: None, girl_check=lambda g, m, o: None,
+                    knight_duel=lambda g, m: None, self_explode=lambda g, m: False)
+        base.update(ex)
+        ctrls[seat] = Scripted(**idle(**base))
+    g = quiet_game(TIGER_BOARD, ctrls, rules=rules)
+    g.setup()
+    return g
+
+
+class WildChildTest(unittest.TestCase):
+    def test_always_checked_good(self):
+        g = tiger_game()
+        g.players[5].turned = True
+        self.assertFalse(g.check_result(5))
+        self.assertTrue(g.players[5].is_wolf)
+
+    def test_turns_when_model_dies(self):
+        g = tiger_game({1: {"choose_kill": lambda g, m: 11}})
+        g.run_night()
+        self.assertTrue(g.players[5].turned)
+        self.assertIs(g.alignment(g.players[5]), Team.WOLF)
+
+    def test_wolf_model_means_wolf_side_without_knowing(self):
+        g = tiger_game({5: {"choose_model": lambda g, m: 3}})
+        g.run_night()
+        self.assertFalse(g.players[5].turned)
+        self.assertIs(g.alignment(g.players[5]), Team.WOLF)
+
+    def test_village_girl_model_stays_good(self):
+        g = tiger_game({5: {"choose_model": lambda g, m: 10}, 1: {"choose_kill": lambda g, m: 10}})
+        g.run_night()
+        self.assertFalse(g.players[10].alive)
+        self.assertFalse(g.players[5].turned)
+        self.assertIs(g.alignment(g.players[5]), Team.GOOD)
+
+    def test_tiger_model_joins_wolves(self):
+        g = tiger_game({5: {"choose_model": lambda g, m: 2}})
+        g.run_night()
+        self.assertTrue(g.players[5].turned)
+
+    def test_good_wins_without_exiling_turned_child(self):
+        g = tiger_game()
+        g.players[5].turned = True
+        for s in (1, 2, 3, 4):
+            g.players[s].alive = False
+        self.assertIs(g.check_winner(), Team.GOOD)
+
+
+class TigerGrandmaTest(unittest.TestCase):
+    def test_reflect_priority_girl_before_seer(self):
+        g = tiger_game({10: {"girl_check": lambda g, m, o: 2}, 6: {"choose_check": lambda g, m: 2}})
+        g.sheriff_votes = {10: 11}
+        rec = g.run_night()
+        self.assertEqual(rec.deaths, {10: "reflect"})
+        self.assertTrue(g.reflect_used)
+
+    def test_reflect_poison_saves_tiger(self):
+        g = tiger_game({7: {"witch_action": lambda g, m, v: ("poison", 2)}})
+        rec = g.run_night()
+        self.assertEqual(rec.deaths, {7: "reflect"})
+        self.assertTrue(g.players[2].alive)
+
+    def test_reflect_only_once(self):
+        g = tiger_game({6: {"choose_check": lambda g, m: 2}})
+        self.assertEqual(g.run_night().deaths, {6: "reflect"})
+        g = tiger_game({6: {"choose_check": lambda g, m: 2}})
+        g.reflect_used = True
+        self.assertEqual(g.run_night().deaths, {})
+
+    def test_lure_limits_checks_and_alternates(self):
+        g = tiger_game({2: {"choose_lure": lambda g, m, c: 3},
+                        6: {"choose_check": lambda g, m: 8}})
+        g.run_night()                                   # 第一晚不能誘導
+        self.assertIsNone(g.lure_range)
+        rec = g.run_night()
+        self.assertEqual(g.lure_range, {2, 3, 4})
+        self.assertIsNone(rec.check)                    # 8 號不在範圍內，查驗無效
+        self.assertEqual(g.lure_centers(), [])          # 隔一晚才能再用
+        g.night_no = 4
+        centers = g.lure_centers()
+        self.assertNotIn(5, centers)                    # 4、5、6 和上次重疊
+        self.assertIn(6, centers)
+        self.assertIn(15, centers)                      # 14、15、1 不重疊
+
+    def test_lure_once_when_child_joined_wolves(self):
+        g = tiger_game()
+        g.players[5].turned = True
+        g.night_no, g.lure_uses, g.last_lure_night = 5, 1, 2
+        self.assertEqual(g.lure_centers(), [])
+
+
+class WolfBeautyTest(unittest.TestCase):
+    def test_charmed_dies_with_beauty_at_night(self):
+        g = tiger_game({1: {"choose_charm": lambda g, m: 12},
+                        7: {"witch_action": lambda g, m, v: ("poison", 1)}})
+        self.assertEqual(g.run_night().deaths, {1: "poison", 12: "charm"})
+
+    def test_charmed_dies_when_beauty_exiled(self):
+        ctrls = {s: {"vote": lambda g, m, c: 1 if m.seat != 1 else 11} for s in range(1, 16)}
+        ctrls[1]["choose_charm"] = lambda g, m: 12
+        g = tiger_game(ctrls)
+        g.run_dawn(g.run_night())
+        g.run_day()
+        self.assertEqual(g.players[12].death_cause, "charm")
+
+    def test_cannot_charm_same_player_twice_in_a_row(self):
+        g = tiger_game({1: {"choose_charm": lambda g, m: 12}})
+        g.run_night()
+        g.run_night()
+        self.assertIsNone(g.charm)
+
+    def test_beauty_cannot_explode(self):
+        g = tiger_game({1: {"self_explode": lambda g, m: True}},
+                       rules=Rules(sheriff=False, self_explode=True))
+        g.days.append(DayRecord(1))
+        self.assertFalse(g._try_explode(g.players[1]))
+
+
+class KnightAndGirlTest(unittest.TestCase):
+    def day_game(self, duel_target):
+        ctrls = {s: {"vote": lambda g, m, c: never()} for s in range(1, 16)}
+        ctrls[8] = {"knight_duel": lambda g, m: duel_target, "vote": lambda g, m, c: None}
+        g = tiger_game(ctrls)
+        g.run_dawn(g.run_night())
+        return g
+
+    def test_duel_wolf_ends_day(self):
+        g = self.day_game(3)
+        self.assertIsNone(g.run_day())                  # 投票沒有被呼叫
+        self.assertEqual(g.players[3].death_cause, "duel")
+        self.assertTrue(g.players[8].alive)
+
+    def test_duel_good_kills_knight(self):
+        g = self.day_game(11)
+        for s in range(1, 16):
+            g.controllers[s].vote = lambda g_, m, c: None
+        g.run_day()
+        self.assertEqual(g.players[8].death_cause, "duel_fail")
+        self.assertTrue(g.players[11].alive)
+
+    def test_girl_accuracy_rules(self):
+        g = tiger_game()
+        girl = g.players[10]
+        self.assertIsNone(g.girl_accuracy(girl))        # 還沒投票不能用
+        g.sheriff_votes = {10: 3}
+        self.assertTrue(g.girl_accuracy(girl))          # 警長票投狼 → 正確
+        g.sheriff_votes = {10: 11}
+        self.assertFalse(g.girl_accuracy(girl))         # 警長票投好人 → 相反
+        g.sheriff_votes = {}
+        g.days.append(DayRecord(1, votes={10: 3}))
+        self.assertFalse(g.girl_accuracy(girl))         # 放逐票投狼 → 相反
+        g.days.append(DayRecord(2, votes={10: 11}))
+        self.assertTrue(g.girl_accuracy(girl))          # 看最近一次：投好人 → 正確
+
+    def test_girl_sees_reversed_result(self):
+        seen = []
+        g = tiger_game({10: {"girl_check": lambda g, m, o: 3,
+                             "on_girl_result": lambda g, m, t, w: seen.append((t, w))}})
+        g.sheriff_votes = {10: 11}                      # 警長票投好人 → 相反
+        g.run_night()
+        self.assertEqual(seen, [(3, False)])            # 3 號是狼，卻看到好人
+        self.assertTrue(g.girl_used)
+
+    def test_side_kill_ignores_girl_and_child(self):
+        g = tiger_game()
+        for s in range(11, 16):
+            g.players[s].alive = False
+        self.assertIs(g.check_winner(), Team.WOLF)      # 五民全滅，村姑還活著也一樣
+
+
 class SimulationTest(unittest.TestCase):
     def test_many_bot_games_finish(self):
         rng = random.Random(42)

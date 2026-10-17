@@ -13,7 +13,8 @@ from .engine import ITEMS, Controller, Game, Player, Speech
 from .roles import Role
 
 
-CLAIMABLE = (Role.HUNTER, Role.WITCH, Role.IDIOT, Role.DREAMER, Role.MERCHANT)
+CLAIMABLE = (Role.HUNTER, Role.WITCH, Role.IDIOT, Role.DREAMER, Role.MERCHANT, Role.KNIGHT,
+             Role.VILLAGE_GIRL)
 
 
 @dataclass
@@ -33,6 +34,8 @@ class BotController(Controller):
         self.saved: int | None = None           # 女巫救過的人（銀水）
         self.item: str | None = None            # 幸運兒拿到的道具
         self.traded: tuple[int, str] | None = None  # 奇蹟商人交易紀錄
+        self.girl_seen: tuple[int, bool, bool] | None = None  # 村姑：(目標, 看到狼?, 確定準確?)
+        self.soft: dict[int, float] = {}        # 不確定的線索（村姑猜測的結果）
 
     # ------------------------------------------------------------ 初始化與推理
     def setup(self, game: Game, me: Player) -> None:
@@ -110,6 +113,7 @@ class BotController(Controller):
                         v += 5
                     elif tgt in k.wolf:
                         v -= 3
+            v += self.soft.get(s, 0)
             base[s] = v
 
         # 今天的指認：只採信「我不懷疑的人」說的話
@@ -172,7 +176,8 @@ class BotController(Controller):
         return None, None
 
     def choose_check(self, game: Game, me: Player) -> int | None:
-        pool = [s for s in game.alive_seats() if s != me.seat and s not in self.checks]
+        options = game.check_options(me)   # 可能被虎姑婆誘導限制
+        pool = [s for s in options if s not in self.checks] or options
         if not pool:
             return None
         if game.night_no > 1 and self.rng.random() < 0.6:
@@ -218,6 +223,13 @@ class BotController(Controller):
                 text += f"；我把{ITEMS[self.traded[1]]}給了 {self.traded[0]}號"
             return Speech(me.seat, me.role, accuse=top, text=text)
 
+        if me.role is Role.VILLAGE_GIRL and self.girl_seen:
+            t, shown, sure = self.girl_seen
+            note = "" if sure else "（不確定準不準）"
+            alive_wolf = t if (t in k.wolf or (not sure and self.soft.get(t, 0) > 0)) \
+                and game.players[t].alive else None
+            return Speech(me.seat, Role.VILLAGE_GIRL, accuse=alive_wolf or top,
+                          text=f"我驗了 {t}號，看到{'狼人' if shown else '好人'}{note}")
         if self.item == "check" and self.checks:
             t, w = next(iter(self.checks.items()))
             alive_wolves = [x for x, y in self.checks.items() if y and game.players[x].alive]
@@ -439,3 +451,62 @@ class BotController(Controller):
         # 被真預言家查殺、今天很可能被投出去 → 自爆跳過投票，保留隊友
         exposed = any(claims[c].get(me.seat) for c in real if game.players[c].alive)
         return exposed and self.rng.random() < 0.3
+
+    # ------------------------------------------------------------ 村姑與虎姑婆
+    def choose_model(self, game: Game, me: Player) -> int | None:
+        return self.rng.choice([s for s in game.alive_seats() if s != me.seat])
+
+    def choose_charm(self, game: Game, me: Player) -> int | None:
+        good = [p.seat for p in game.alive() if not p.is_wolf and p.seat != game.last_charm]
+        if not good:
+            return None
+        claims = game.seer_claims()
+        threats = [c for c in claims if c in good] + \
+                  [s for s in good if game.claimed_role(s) in (Role.WITCH, Role.KNIGHT, Role.VILLAGE_GIRL)]
+        return threats[0] if threats and self.rng.random() < 0.7 else self.rng.choice(good)
+
+    def choose_lure(self, game: Game, me: Player, centers: list[int]) -> int | None:
+        if self.rng.random() < 0.2:
+            return None
+        wolves = {p.seat for p in game.alive() if p.is_wolf}
+        best = min(len(game._ring(c) & wolves) for c in centers)
+        return self.rng.choice([c for c in centers if len(game._ring(c) & wolves) == best])
+
+    def girl_check(self, game: Game, me: Player, options: list[int]) -> int | None:
+        k = self.analyze(game, me)
+        pool = [s for s in options if s not in k.good and s not in k.wolf] or options
+        score = self.suspicion(game, me, k)
+        return self._top(score, pool) if game.night_no > 1 else self.rng.choice(pool)
+
+    def on_girl_result(self, game: Game, me: Player, target: int, shown_wolf: bool) -> None:
+        """村姑只知道自己投給誰；投票對象身份確定時才能判斷結果準不準。"""
+        k = self.analyze(game, me)
+        basis = game.sheriff_votes.get(me.seat)
+        via_sheriff = basis is not None
+        if not via_sheriff:
+            for d in reversed(game.days):
+                basis = d.pk_votes.get(me.seat) or d.votes.get(me.seat)
+                if basis is not None:
+                    break
+        if basis in k.good or basis in k.wolf:
+            correct = (basis in k.wolf) == via_sheriff
+            truth = shown_wolf if correct else not shown_wolf
+            self.checks[target] = truth
+            self.girl_seen = (target, shown_wolf, True)
+        else:
+            # 不確定：投票對象多半是好人 → 警長票結果相反、放逐票結果正確
+            guess = shown_wolf if not via_sheriff else not shown_wolf
+            self.soft[target] = 12 if guess else -6
+            self.girl_seen = (target, shown_wolf, False)
+
+    def knight_duel(self, game: Game, me: Player) -> int | None:
+        k = self.analyze(game, me)
+        alive = set(game.alive_seats()) - {me.seat}
+        certain = [s for s in k.wolf if s in alive]
+        if certain:
+            return certain[0]
+        if game.night_no >= 2 and k.trusted is not None:
+            checked = [t for t, w in k.claims.get(k.trusted, {}).items() if w and t in alive]
+            if checked and self.rng.random() < 0.5:
+                return checked[0]
+        return None

@@ -20,6 +20,10 @@ DEATH_CAUSES = {
     "dream": "夢遊出局",
     "trade": "交易失敗出局",
     "explode": "自爆",
+    "charm": "被狼美人迷魅一同出局",
+    "reflect": "被虎姑婆反傷",
+    "duel": "被騎士決鬥",
+    "duel_fail": "決鬥失敗以死謝罪",
 }
 
 ITEMS = {"check": "查驗", "poison": "毒藥", "guard": "守護"}
@@ -99,10 +103,12 @@ class Player:
     can_vote: bool = True
     revealed: bool = False      # 身份已被公開證實（白痴翻牌、獵人開槍、狼王發動狼王爪）
     death_cause: str | None = None
+    turned: bool = False        # 野孩子已轉入狼隊
 
     @property
     def is_wolf(self) -> bool:
-        return self.role.team is Team.WOLF
+        """是否以狼人身份行動（知道狼隊、參與夜晚殺人）。"""
+        return self.role.team is Team.WOLF or self.turned
 
 
 class Controller:
@@ -142,6 +148,14 @@ class Controller:
     def self_explode(self, game: "Game", me: Player) -> bool:
         """狼人在自己發言前可以選擇自爆。"""
         return False
+    def choose_model(self, game: "Game", me: Player) -> int | None: return None
+    def on_turn(self, game: "Game", me: Player) -> None:
+        """野孩子轉入狼隊時通知。"""
+    def choose_charm(self, game: "Game", me: Player) -> int | None: return None
+    def choose_lure(self, game: "Game", me: Player, centers: list[int]) -> int | None: return None
+    def girl_check(self, game: "Game", me: Player, options: list[int]) -> int | None: return None
+    def on_girl_result(self, game: "Game", me: Player, target: int, shown_wolf: bool) -> None: ...
+    def knight_duel(self, game: "Game", me: Player) -> int | None: return None
 
 
 def deal(roles: list[Role], rng: random.Random) -> list[Role]:
@@ -183,6 +197,19 @@ class Game:
         self.sheriff: int | None = None    # 現任警長
         self.sheriff_log: list[str] = []
         self.phase = "night"               # night / election / day
+        # 村姑與虎姑婆
+        self.wild_model: int | None = None   # 野孩子的榜樣
+        self.wild_fixed_good = False         # 榜樣是村姑：永遠是好人
+        self.charm: int | None = None        # 狼美人目前迷魅的人
+        self.last_charm: int | None = None
+        self.lure_range: set[int] | None = None   # 今晚虎姑婆誘導的查驗範圍
+        self.last_lure_range: set[int] = set()
+        self.last_lure_night: int | None = None
+        self.lure_uses = 0
+        self.reflect_used = False
+        self.girl_used = False
+        self.sheriff_votes: dict[int, int | None] = {}
+        self.knight_used = False
         self.claims: dict[int, dict] = {}   # 公開宣稱：seat -> {"role": Role, "checks": {t: is_wolf}}
         self.nights: list[NightRecord] = []
         self.days: list[DayRecord] = []
@@ -220,11 +247,33 @@ class Game:
         mode = self.rules.witch_self_save
         return mode == "always" or (mode == "first_night" and self.night_no == 1)
 
+    def alignment(self, p: Player) -> Team:
+        """目前所屬陣營（野孩子看榜樣與是否轉狼）。"""
+        if p.role is Role.WILD_CHILD:
+            if p.turned:
+                return Team.WOLF
+            model = self.players.get(self.wild_model)
+            if model and not self.wild_fixed_good and model.role.team is Team.WOLF:
+                return Team.WOLF
+            return Team.GOOD
+        return p.role.team
+
+    def check_result(self, seat: int) -> bool:
+        """查驗結果是否為狼。野孩子永遠驗出好人（金水）。"""
+        return self.players[seat].role.team is Team.WOLF
+
+    def check_options(self, me: Player) -> list[int]:
+        """預言家／村姑今晚可以查驗的人（受虎姑婆誘導限制）。"""
+        seats = [s for s in self.alive_seats() if s != me.seat]
+        if self.lure_range is not None:
+            seats = [s for s in seats if s in self.lure_range]
+        return seats
+
     def check_winner(self) -> Team | None:
         alive = self.alive()
-        if not any(p.is_wolf for p in alive):
+        if not any(p.role.team is Team.WOLF for p in alive):  # 真狼全滅（轉狼的野孩子不用出局）
             return Team.GOOD
-        good = [p for p in alive if not p.is_wolf]
+        good = [p for p in alive if self.alignment(p) is Team.GOOD]
         if self.rules.win_mode == "all":
             return Team.WOLF if not good else None
         everyone = self.players.values()
@@ -315,6 +364,19 @@ class Game:
         rec = NightRecord(n)
         self.say(f"\n🌙 ===== 第 {n} 夜 ===== 天黑請閉眼")
         alive = set(self.alive_seats())
+        self.lure_range = None
+
+        wild = self.alive_with_role(Role.WILD_CHILD)
+        if wild and self.wild_model is None and n == 1:
+            t = self.controllers[wild.seat].choose_model(self, wild)
+            if t in alive and t != wild.seat:
+                self.wild_model = t
+                model = self.players[t]
+                self.secret(f"野孩子({wild.seat}號) 選 {t}號（{model.role.value}）當榜樣")
+                if model.role is Role.VILLAGE_GIRL:
+                    self.wild_fixed_good = True
+                elif model.role is Role.TIGER_GRANDMA:
+                    self._turn_wild(wild)   # 彩蛋：知道所有狼隊位置
 
         dream, dream_repeat = None, False
         dreamer = self.alive_with_role(Role.DREAMER)
@@ -349,7 +411,7 @@ class Game:
             if t in alive and t != lp.seat:
                 lk["used"] = True
                 if lk["item"] == "check":
-                    result = self.players[t].is_wolf
+                    result = self.check_result(t)
                     self.controllers[lp.seat].on_check_result(self, lp, t, result)
                     self.secret(f"幸運兒({lp.seat}號) 查驗 {t}號 → {'狼人' if result else '好人'}")
                 elif lk["item"] == "guard":
@@ -376,6 +438,27 @@ class Game:
             self.secret(f"狼人({'、'.join(str(w.seat) for w in wolves)}號) 殺 {rec.kill}號"
                         if rec.kill else "狼人空刀")
 
+        beauty = self.alive_with_role(Role.WOLF_BEAUTY)
+        if beauty:
+            t = self.controllers[beauty.seat].choose_charm(self, beauty)
+            if t not in alive or t == beauty.seat or t == self.last_charm:
+                t = None
+            self.charm = self.last_charm = t
+            if t is not None:
+                self.secret(f"狼美人({beauty.seat}號) 迷魅 {t}號")
+
+        tiger = self.alive_with_role(Role.TIGER_GRANDMA)
+        centers = self.lure_centers() if tiger else []
+        if centers:
+            c = self.controllers[tiger.seat].choose_lure(self, tiger, centers)
+            if c in centers:
+                self.lure_range = self._ring(c)
+                self.last_lure_range = set(self.lure_range)
+                self.last_lure_night = n
+                self.lure_uses += 1
+                rng = "、".join(map(str, sorted(self.lure_range)))
+                self.secret(f"虎姑婆({tiger.seat}號) 誘導 {c}號：今晚只能查驗 {rng}號")
+
         awk = self.alive_with_role(Role.AWAKENED_WOLF_KING)
         if awk and self.claws.get(awk.seat, 0) > 0:
             t = self.controllers[awk.seat].pass_claw(self, awk)
@@ -400,20 +483,59 @@ class Game:
                 self.poison = False
                 self.secret(f"女巫({witch.seat}號) 毒了 {target}號")
 
+        girl_target = None
+        girl = self.alive_with_role(Role.VILLAGE_GIRL)
+        if girl and not self.girl_used and self.girl_accuracy(girl) is not None:
+            options = self.check_options(girl)
+            t = self.controllers[girl.seat].girl_check(self, girl, options) if options else None
+            if t in options:
+                self.girl_used = True
+                girl_target = t
+                correct = self.girl_accuracy(girl)
+                truth = self.check_result(t)
+                shown = truth if correct else not truth
+                self.controllers[girl.seat].on_girl_result(self, girl, t, shown)
+                self.secret(f"村姑({girl.seat}號) 查驗 {t}號 → 看到{'狼人' if shown else '好人'}"
+                            f"（{'正確' if correct else '相反'}）")
+
+        seer_target = None
         seer = self.alive_with_role(Role.SEER)
         if seer:
-            t = self.controllers[seer.seat].choose_check(self, seer)
-            if t in alive and t != seer.seat:
-                result = self.players[t].is_wolf
+            options = self.check_options(seer)
+            t = self.controllers[seer.seat].choose_check(self, seer) if options else None
+            if t in options:
+                seer_target = t
+                result = self.check_result(t)
                 rec.check = (t, result)
                 self.controllers[seer.seat].on_check_result(self, seer, t, result)
                 self.secret(f"預言家({seer.seat}號) 查驗 {t}號 → {'狼人' if result else '好人'}")
+
+        reflect_death = None
+        tiger = self.alive_with_role(Role.TIGER_GRANDMA)
+        if tiger and not self.reflect_used:   # 惡靈反傷：村姑查驗 > 預言家查驗 > 女巫毒
+            hit = None
+            if girl_target == tiger.seat:
+                hit = girl
+            elif seer_target == tiger.seat:
+                hit = seer
+            elif rec.poison == tiger.seat:
+                hit = witch
+                rec.poison = None
+            if hit is not None:
+                self.reflect_used = True
+                reflect_death = hit.seat
+                self.secret(f"虎姑婆({tiger.seat}號) 惡靈反傷 → {hit.role.value}({hit.seat}號) 出局")
 
         rec.deaths = self.resolve_night(
             rec.kill, rec.guard, rec.saved, rec.poison, self.rules.same_guard_save_dies,
             extra_guard=lucky_guard, extra_poison=lucky_poison, dream=dream,
             dream_repeat=dream_repeat, dreamer=dreamer.seat if dreamer else None,
             trade_death=trade_death)
+        if reflect_death is not None:
+            rec.deaths.setdefault(reflect_death, "reflect")
+        beauty = self.alive_with_role(Role.WOLF_BEAUTY)
+        if beauty and beauty.seat in rec.deaths and self.charm in alive and self.charm not in rec.deaths:
+            rec.deaths[self.charm] = "charm"
         for seat, cause in rec.deaths.items():
             self._mark_dead(seat, cause)
         self.nights.append(rec)
@@ -471,10 +593,12 @@ class Game:
         voters = [s for s in seats if s not in running]
         self.say("—— 警長投票（警下玩家投票）——")
         votes = self._collect_votes(running, voters, sheriff=True)
+        self.sheriff_votes = dict(votes)
         leaders = self._show_votes(votes, weighted=False)
         if len(leaders) > 1:
             self.say(f"⚖️  平票！{'、'.join(map(str, leaders))}號 PK，警下玩家重新投票。")
             votes = self._collect_votes(leaders, voters, sheriff=True)
+            self.sheriff_votes.update({v: t for v, t in votes.items() if t is not None})
             leaders = self._show_votes(votes, weighted=False)
         if len(leaders) != 1:
             self.say("沒有人勝出，警徽流失。")
@@ -503,12 +627,12 @@ class Game:
 
     def _try_explode(self, p: Player) -> bool:
         """狼人自爆：立即出局（無遺言），當天剩下的流程跳過。"""
-        if not (self.rules.self_explode and p.alive and p.is_wolf):
-            return False
+        if not (self.rules.self_explode and p.alive and p.is_wolf) or p.role is Role.WOLF_BEAUTY:
+            return False   # 狼美人不能自爆
         if not self.controllers[p.seat].self_explode(self, p):
             return False
         p.revealed = True
-        self._mark_dead(p.seat, "explode")
+        self._kill(p.seat, "explode")
         self.today.exploded = p.seat
         self.today.events.append(f"{p.seat}號 自爆")
         label = p.role.value if p.role is not Role.WEREWOLF else "狼人"
@@ -546,6 +670,17 @@ class Game:
                 w = self.check_winner()
                 self.pause()
                 return w
+            if p.role is Role.KNIGHT:
+                duel = self._try_duel(p)
+                if duel is not None:
+                    self._badge_check()
+                    if (w := self.check_winner()) is not None:
+                        return w
+                    if duel:
+                        self.phase = "night"
+                        self.pause()
+                        return None
+                    continue   # 騎士出局，換下一位發言
             speech = self.controllers[seat].speak(self, p)
             speech.seat = seat
             self._register_speech(speech)
@@ -567,7 +702,7 @@ class Game:
             return None
         day.exiled = exiled
         self.say(f"🚪 {exiled}號 被放逐出局。")
-        self._mark_dead(exiled, "vote")
+        self._kill(exiled, "vote")
         if (w := self.check_winner()) is not None:
             return w
         self._last_words(exiled)
@@ -634,6 +769,72 @@ class Game:
         p = self.players[seat]
         p.alive = False
         p.death_cause = cause
+        wild = self.alive_with_role(Role.WILD_CHILD)
+        if wild and seat == self.wild_model and not self.wild_fixed_good and not wild.turned:
+            self._turn_wild(wild)
+
+    def _kill(self, seat: int, cause: str) -> None:
+        """白天的出局：處理狼美人迷魅的連帶出局。"""
+        self._mark_dead(seat, cause)
+        p = self.players[seat]
+        c = self.charm
+        if p.role is Role.WOLF_BEAUTY and c is not None and self.players[c].alive:
+            self.say(f"💔 {c}號 被狼美人迷魅，一同出局。")
+            self._mark_dead(c, "charm")
+            self._death_trigger(c, "charm")
+
+    def _turn_wild(self, wild: Player) -> None:
+        wild.turned = True
+        self.secret(f"野孩子({wild.seat}號) 轉入狼隊")
+        self.controllers[wild.seat].on_turn(self, wild)
+
+    # ------------------------------------------------------------ 虎姑婆、村姑、騎士
+    def _ring(self, center: int) -> set[int]:
+        n = len(self.players)
+        return {(center - 2) % n + 1, center, center % n + 1}
+
+    def lure_centers(self) -> list[int]:
+        """虎姑婆今晚可以誘導的號碼；不能用時回傳空串列。"""
+        if self.night_no < 2:
+            return []
+        if self.last_lure_night is not None and self.night_no - self.last_lure_night < 2:
+            return []   # 每隔一晚才能用
+        wild = next((p for p in self.players.values() if p.role is Role.WILD_CHILD), None)
+        if wild and self.alignment(wild) is Team.WOLF and self.lure_uses >= 1:
+            return []   # 野孩子入狼隊：誘導整局只能用一次
+        return [c for c in self.players if not (self._ring(c) & self.last_lure_range)]
+
+    def girl_accuracy(self, girl: Player) -> bool | None:
+        """村姑查驗是否正確；還沒投過票回傳 None。優先看警長票。"""
+        t = self.sheriff_votes.get(girl.seat)
+        if t is not None:
+            return self.players[t].role.team is Team.WOLF        # 警徽投狼 → 正確
+        for d in reversed(self.days):
+            t = d.pk_votes.get(girl.seat) or d.votes.get(girl.seat)
+            if t is not None:
+                return self.players[t].role.team is not Team.WOLF  # 出局投好人 → 正確
+        return None
+
+    def _try_duel(self, knight: Player) -> bool | None:
+        """騎士決鬥。回傳 True 代表狼出局（立刻天黑），False 代表騎士出局，None 代表沒有決鬥。"""
+        if self.knight_used:
+            return None
+        t = self.controllers[knight.seat].knight_duel(self, knight)
+        if t is None or t == knight.seat or t not in self.alive_seats():
+            return None
+        self.knight_used = True
+        knight.revealed = True
+        target = self.players[t]
+        self.today.events.append(f"{knight.seat}號 騎士決鬥 {t}號")
+        if target.is_wolf:
+            target.revealed = True
+            self.say(f"⚔️  {knight.seat}號 翻牌【騎士】決鬥 {t}號：{t}號 是狼人，出局！立刻天黑。")
+            self._kill(t, "duel")
+            self._death_trigger(t, "duel")
+            return True
+        self.say(f"⚔️  {knight.seat}號 翻牌【騎士】決鬥 {t}號：{t}號 是好人，騎士以死謝罪。")
+        self._kill(knight.seat, "duel_fail")
+        return False
 
     def _death_trigger(self, seat: int, cause: str) -> None:
         """獵人開槍、狼王／覺醒狼王／親傳隊友發動狼王爪。"""
@@ -662,7 +863,7 @@ class Game:
                 self.today.events.append(f"{seat}號 {label}{action}帶走 {t}號")
             self.say(f"💥 {seat}號 翻牌【{label}】，{action}帶走了 {t}號！")
             cause_t = "shot" if hunter else "claw"
-            self._mark_dead(t, cause_t)
+            self._kill(t, cause_t)
             if self.check_winner() is not None:
                 return
             self._last_words(t)

@@ -43,9 +43,9 @@ class HumanController(Controller):
             mates = [p.seat for p in game.players.values() if p.is_wolf and p.seat != me.seat]
             print(f"   你的狼隊友：{'、'.join(map(str, mates)) or '無'}號")
             kings = [f"{p.seat}號({p.role.value})" for p in game.players.values()
-                     if p.role in (Role.WOLF_KING, Role.AWAKENED_WOLF_KING) and p.seat != me.seat]
+                     if p.is_wolf and p.role is not Role.WEREWOLF and p.seat != me.seat]
             if kings:
-                print(f"   狼隊裡的狼王：{'、'.join(kings)}")
+                print(f"   隊友中的特殊狼：{'、'.join(kings)}")
         print("=" * 50)
 
     def _alive_hint(self, game: Game) -> None:
@@ -91,7 +91,12 @@ class HumanController(Controller):
                 f"{t}號={'狼' if w else '好'}" for t, w in self.checks.items()))
         else:
             print()
-        options = [s for s in game.alive_seats() if s != me.seat]
+        options = game.check_options(me)
+        if game.lure_range is not None:
+            print(f"  ⚠️ 虎姑婆的誘導生效：今晚只能查驗 {'、'.join(map(str, sorted(game.lure_range)))}號")
+        if not options:
+            print("  今晚沒有可以查驗的人。")
+            return None
         return ask_seat("今晚要查驗誰", options, allow_none=False)
 
     def on_check_result(self, game: Game, me: Player, target: int, is_wolf: bool) -> None:
@@ -201,3 +206,38 @@ class HumanController(Controller):
     def self_explode(self, game: Game, me: Player) -> bool:
         where = "警上發言" if game.phase == "election" else "發言"
         return ask_yes(f"\n💣 輪到你{where}。要自爆嗎？（自爆後立即出局，今天直接天黑）")
+
+    # ------------------------------------------------------------ 村姑與虎姑婆
+    def choose_model(self, game: Game, me: Player) -> int | None:
+        print("\n🧒 野孩子請睜眼，選一名玩家當你的榜樣。榜樣出局後你會轉入狼隊。")
+        return ask_seat("要選誰當榜樣", [s for s in game.alive_seats() if s != me.seat], allow_none=False)
+
+    def on_turn(self, game: Game, me: Player) -> None:
+        mates = [p.seat for p in game.alive() if p.is_wolf and p.seat != me.seat]
+        print(f"\n🐺 你（野孩子）轉入狼隊了！狼隊友：{'、'.join(map(str, mates)) or '無'}號。"
+              "從下一晚起和狼人一起行動。")
+
+    def choose_charm(self, game: Game, me: Player) -> int | None:
+        print(f"\n💋 狼美人：上一晚迷魅 {game.last_charm or '無'}（不能連續兩晚同一人）。你出局時被迷魅的人會一起出局。")
+        return ask_seat("今晚要迷魅誰（0=不迷魅）",
+                        [s for s in game.alive_seats() if s != me.seat and s != game.last_charm])
+
+    def choose_lure(self, game: Game, me: Player, centers: list[int]) -> int | None:
+        print("\n🐯 虎姑婆：可以使用【誘導】。選一個號碼，今晚預言家和村姑只能查驗這個號碼和左右兩人。")
+        if game.last_lure_range:
+            print(f"   上次的範圍：{'、'.join(map(str, sorted(game.last_lure_range)))}號（新範圍不能重疊）")
+        return ask_seat("要誘導哪個號碼（0=今晚不用）", centers)
+
+    def girl_check(self, game: Game, me: Player, options: list[int]) -> int | None:
+        print("\n👧 村姑請睜眼。你整局有一次查驗，結果準不準取決於你的投票（優先看警長票）：")
+        print("   警長票投狼人／放逐票投好人 → 正確；警長票投好人／放逐票投狼人 → 相反")
+        if game.lure_range is not None:
+            print(f"  ⚠️ 虎姑婆的誘導生效：今晚只能查驗 {'、'.join(map(str, sorted(game.lure_range)))}號")
+        return ask_seat("要查驗誰（0=先不用）", options)
+
+    def on_girl_result(self, game: Game, me: Player, target: int, shown_wolf: bool) -> None:
+        print(f"  👉 你看到 {target}號 是 {'🐺 狼人' if shown_wolf else '😇 好人'}（可能是反的，想想你投給了誰）")
+
+    def knight_duel(self, game: Game, me: Player) -> int | None:
+        print("\n⚔️  你是騎士，可以在發言前翻牌決鬥（整局一次）：對方是狼就出局並立刻天黑，是好人你就出局。")
+        return ask_seat("要決鬥誰（0=不決鬥，正常發言）", [s for s in game.alive_seats() if s != me.seat])
