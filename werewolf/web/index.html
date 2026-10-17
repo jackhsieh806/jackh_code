@@ -97,7 +97,7 @@ select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-r
 .seat.you { border-color: var(--night); box-shadow: inset 0 0 0 1px var(--night); }
 .seat.dead { background: var(--sunken); opacity: .6; }
 .seat.dead .no { text-decoration: line-through; }
-.log { list-style: none; margin: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); height: min(48vh, 460px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.log { list-style: none; margin: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); height: min(40vh, 460px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .log li { font-size: .92rem; overflow-wrap: anywhere; }
 .log .phase { margin-top: 8px; padding: 6px 10px; border-radius: 8px; font-family: var(--display); font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
 .log .phase:first-child { margin-top: 0; }
@@ -114,7 +114,7 @@ select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-r
 .log .event { font-weight: 700; }
 .log .secret { color: var(--muted); font-size: .84rem; padding-left: 10px; border-left: 2px dashed var(--night); }
 .log .private { color: var(--night); background: var(--night-soft); padding: 6px 10px; border-radius: 8px; font-size: .9rem; }
-.action { position: sticky; bottom: env(safe-area-inset-bottom, 0px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 -6px 18px rgb(0 0 0 / .08); }
+.action { scroll-margin-bottom: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 -6px 18px rgb(0 0 0 / .08); }
 .action .title { font-family: var(--display); font-weight: 700; font-size: 1.05rem; }
 .action .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
 .seatpick { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; }
@@ -1463,6 +1463,8 @@ class UI {
       el.innerHTML = "";
       render(el, v => { this.pending = null; el.innerHTML = ""; resolve(v); });
       el.querySelector("button")?.focus({ preventScroll: true });
+      // 新的操作出現時捲到面板，紀錄框就在它正上方
+      el.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     });
   }
   cancel() { if (this.pending) { const r = this.pending; this.pending = null; r(new Abort()); } }
@@ -1548,7 +1550,8 @@ class UI {
           <input type="text" id="speech-text" maxlength="80" placeholder="補充一句話（可空白）">
           <div class="bar"><button class="primary" id="say">${last ? "說完遺言" : "發言"}</button></div>`;
         const cl = box.querySelector("#cl");
-        [[null, "不宣稱"], ...ROLE_ORDER.map(r => [r, R[r]])].forEach(([r, label]) => {
+        const onBoard = new Set(g.players.map(p => p.role));  // 只列出這個板子裡有的角色
+        [[null, "不宣稱"], ...ROLE_ORDER.filter(r => onBoard.has(r)).map(r => [r, R[r]])].forEach(([r, label]) => {
           const b = document.createElement("button");
           b.className = "chip"; b.textContent = label; b.setAttribute("aria-pressed", String(claim === r));
           b.onclick = () => { claim = r; if (r !== "SEER") checks.clear(); keep(); draw(); };

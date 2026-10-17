@@ -1,0 +1,940 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#11131c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="推理筆記">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
+<title>狼人殺推理筆記</title>
+<style>
+:root {
+  --bg: #11131c;
+  --panel: #1a1d2a;
+  --panel-2: #232738;
+  --line: #2f3448;
+  --text: #e9eaf2;
+  --muted: #9095ad;
+  --accent: #8b9cff;
+  --good: #3fbf7f;
+  --good-bg: rgba(63, 191, 127, .16);
+  --wolf: #ff5c6c;
+  --wolf-bg: rgba(255, 92, 108, .16);
+  --sus: #f2b84b;
+  --sus-bg: rgba(242, 184, 75, .16);
+  --gold: #ffd166;
+  --radius: 14px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  font-size: 16px;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+textarea, input { -webkit-user-select: text; user-select: text; }
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-height: 44px;
+  cursor: pointer;
+}
+button:active { transform: scale(.97); }
+button.primary { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
+button.danger { color: var(--wolf); }
+button.ghost { background: transparent; }
+select, input[type=text], textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-height: 44px;
+}
+textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
+
+/* ---------- layout ---------- */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.topbar h1 { font-size: 18px; margin: 0 auto 0 0; white-space: nowrap; }
+.day-stepper { display: flex; align-items: center; gap: 6px; }
+.day-stepper button { min-width: 44px; padding: 8px; }
+.day-label { min-width: 72px; text-align: center; font-weight: 600; }
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  min-height: 0;
+}
+@media (max-width: 860px), (orientation: portrait) {
+  .main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow-y: auto; }
+  .side { border-left: none !important; border-top: 1px solid var(--line); }
+}
+.board { padding: 16px; overflow-y: auto; }
+.side { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+
+/* ---------- seats ---------- */
+.mode-bar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: none; border-radius: 0; background: transparent; padding: 8px 14px; }
+.seg button.on { background: var(--accent); color: #11131c; font-weight: 600; }
+.hint { color: var(--muted); font-size: 13px; }
+.seats { display: grid; grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr)); gap: 10px; }
+.seat-gap { visibility: hidden; }
+.table-mid {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 0;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+.seat {
+  position: relative;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 8px 8px;
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform .08s;
+}
+.seat:active { transform: scale(.96); }
+.seat .num { font-size: clamp(22px, 3.2vw, 30px); font-weight: 700; line-height: 1; }
+.seat .name { font-size: 13px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 17px; }
+.seat .badges { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
+.badge { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: var(--panel-2); white-space: nowrap; }
+.seat .badge { white-space: normal; max-width: 100%; line-height: 1.3; }
+.badge.mentor { background: rgba(255, 209, 102, .18); color: var(--gold); }
+.badge.claim { background: rgba(139, 156, 255, .2); color: #c5cdff; }
+.badge.gold { background: var(--good-bg); color: var(--good); }
+.badge.kill { background: var(--wolf-bg); color: var(--wolf); }
+.seat.good { border-color: var(--good); background: linear-gradient(var(--good-bg), var(--good-bg)), var(--panel); }
+.seat.wolf { border-color: var(--wolf); background: linear-gradient(var(--wolf-bg), var(--wolf-bg)), var(--panel); }
+.seat.sus { border-color: var(--sus); background: linear-gradient(var(--sus-bg), var(--sus-bg)), var(--panel); }
+.seat.dead { opacity: .45; }
+.seat.dead .num { text-decoration: line-through; }
+.seat .me { position: absolute; top: 6px; left: 8px; font-size: 11px; color: var(--accent); font-weight: 700; }
+.seat .sheriff { position: absolute; top: 4px; right: 8px; color: var(--gold); font-size: 16px; }
+.seat .mark-icon { font-size: 13px; min-height: 17px; }
+.legend { display: flex; gap: 14px; margin-top: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 5px; vertical-align: -1px; }
+
+/* ---------- side tabs ---------- */
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; border: none; border-radius: 0; background: transparent; color: var(--muted); border-bottom: 3px solid transparent; }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tab-body { padding: 16px; overflow-y: auto; flex: 1; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+.card h3 { margin: 0 0 10px; font-size: 15px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row + .row { margin-top: 8px; }
+.empty { color: var(--muted); font-size: 14px; text-align: center; padding: 20px 0; }
+.list-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.list-item:first-child { border-top: none; }
+.list-item .grow { flex: 1; }
+.x-btn { min-height: 34px; min-width: 34px; padding: 4px 8px; font-size: 13px; color: var(--muted); }
+.seer-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.seer-col { background: var(--panel-2); border-radius: 10px; padding: 10px; }
+.seer-col h4 { margin: 0 0 6px; font-size: 14px; }
+.res-good { color: var(--good); font-weight: 600; }
+.res-wolf { color: var(--wolf); font-weight: 600; }
+.warn { background: var(--wolf-bg); color: var(--wolf); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+
+/* ---------- votes ---------- */
+.ballot { display: grid; grid-template-columns: 48px 1fr; gap: 6px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
+.ballot:first-of-type { border-top: none; }
+.ballot .voter { font-weight: 700; text-align: center; }
+.chips { display: grid; grid-template-columns: repeat(var(--cols, 12), minmax(0, 1fr)); gap: 3px; }
+.chip { min-height: 36px; min-width: 36px; padding: 4px 6px; font-size: 14px; border-radius: 8px; }
+.chips .chip { min-width: 0; padding: 4px 0; }
+.chip.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 700; }
+.chip.dim { opacity: .35; }
+.tally { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.tally-row { display: flex; gap: 8px; font-size: 14px; align-items: baseline; }
+.tally-row b { min-width: 46px; }
+.tally-row .bar { height: 8px; background: var(--accent); border-radius: 4px; align-self: center; }
+.vote-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.vote-head .grow { flex: 1; font-weight: 600; }
+.pair { display: flex; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.pair:first-child { border-top: none; }
+.rules h4 { margin: 14px 0 6px; font-size: 15px; }
+.rules h4.wolf-side { color: var(--wolf); }
+.rules h4.good-side { color: var(--good); }
+.rules dl { margin: 0; }
+.rules dt { font-weight: 600; margin-top: 10px; }
+.rules dd { margin: 3px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; white-space: pre-line; }
+.rules .order { font-size: 15px; line-height: 1.7; }
+
+/* ---------- sheet ---------- */
+.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; z-index: 20; }
+.overlay.open { display: flex; align-items: center; justify-content: center; }
+.sheet {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  width: min(620px, calc(100% - 32px));
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  padding: 18px;
+}
+.sheet-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.sheet-head .big { font-size: 34px; font-weight: 700; }
+.sheet-head input { flex: 1; min-width: 0; }
+.field-label { color: var(--muted); font-size: 13px; margin: 14px 0 6px; }
+.opt-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.opt-group button { padding: 8px 12px; }
+.opt-group button.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
+.opt-group button.on.good { background: var(--good); border-color: var(--good); }
+.opt-group button.on.wolf { background: var(--wolf); border-color: var(--wolf); }
+.opt-group button.on.sus { background: var(--sus); border-color: var(--sus); }
+.history { font-size: 14px; color: var(--muted); line-height: 1.6; }
+.history .day-note { white-space: pre-wrap; color: var(--text); }
+.sheet-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* ---------- privacy cover ---------- */
+.cover {
+  position: fixed; inset: 0; z-index: 50; background: #05060a;
+  display: none; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+  color: #3a3f55; font-size: 15px;
+}
+.cover.open { display: flex; }
+.cover .moon { font-size: 64px; opacity: .5; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <h1>🐺 推理筆記 <span class="hint" id="boardLabel"></span></h1>
+    <div class="day-stepper">
+      <button id="dayDown" aria-label="前一天">−</button>
+      <div class="day-label" id="dayLabel">第 1 天</div>
+      <button id="dayUp" aria-label="下一天">＋</button>
+    </div>
+    <button id="hideBtn" title="遮住螢幕，避免被偷看">🙈 遮住</button>
+    <button id="newGameBtn">新的一局</button>
+  </header>
+
+  <div class="main">
+    <section class="board">
+      <div class="mode-bar">
+        <div class="seg" id="modeSeg">
+          <button data-mode="detail" class="on">點擊看詳細</button>
+          <button data-mode="quick">快速標記</button>
+        </div>
+        <span class="hint" id="modeHint">點座位打開詳細筆記</span>
+      </div>
+      <div class="seats" id="seats"></div>
+      <div class="legend">
+        <span><i style="background:var(--good)"></i>好人</span>
+        <span><i style="background:var(--wolf)"></i>狼</span>
+        <span><i style="background:var(--sus)"></i>存疑</span>
+        <span>★ 警長</span>
+        <span>劃線 = 出局</span>
+      </div>
+    </section>
+
+    <aside class="side">
+      <nav class="tabs" id="tabs">
+        <button data-tab="checks" class="on">查驗</button>
+        <button data-tab="votes">投票</button>
+        <button data-tab="memo">我的筆記</button>
+        <button data-tab="rules">板子</button>
+      </nav>
+      <div class="tab-body" id="tabBody"></div>
+    </aside>
+  </div>
+</div>
+
+<div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
+<div class="cover" id="cover"><div class="moon">🌙</div><div>點兩下解除</div></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const STORE_KEY = 'werewolf-notes-v1';
+
+  // Each board sets the seat count, the roles people can claim, death causes,
+  // which roles report checks, and the rules shown in the 板子 tab.
+  const BOARDS = {
+    std12: {
+      name: '12人 標準局（預女獵白）',
+      seats: 12,
+      roles: ['預言家', '女巫', '獵人', '白痴', '守衛', '平民', '狼人', '白狼王', '狼王'],
+      causes: ['被刀', '被毒', '被投出', '被槍殺', '自爆', '其他'],
+      checkers: ['預言家'],
+      wolfCount: '4 狼',
+      wolfSlots: 4,
+      setup: { wolf: ['狼人 ×4'], good: ['預言家', '女巫', '獵人', '白痴', '平民 ×4'] },
+      roleInfo: null,
+      night: null,
+      win: { wolf: '神職全部出局，或平民全部出局。', good: '狼人全部出局。' },
+    },
+    hu15: {
+      name: '15人 村姑與虎姑婆',
+      seats: 15,
+      roles: ['預言家', '女巫', '騎士', '守衛', '村姑', '平民', '狼美人', '虎姑婆', '小狼', '野孩子'],
+      causes: ['被刀', '被毒', '被投出', '被騎士決鬥', '被狼美人帶走', '被反傷', '自爆', '其他'],
+      checkers: ['預言家', '村姑'],
+      wolfCount: '4 狼 + 野孩子',
+      wolfSlots: 5,
+      setup: {
+        wolf: ['狼美人', '虎姑婆', '小狼 ×2', '野孩子'],
+        good: ['預言家', '女巫', '騎士', '守衛', '村姑', '平民 ×5'],
+      },
+      roleInfo: {
+        wolf: [
+          ['狼美人【迷魅】', '每晚可迷魅一個玩家，不可連續（ABA）。\n狼美人出局時，被迷魅的玩家一同出局。'],
+          ['虎姑婆【誘導】', '第二晚開始，選擇一個號碼，預言家與村姑的查驗只能用在此號碼及左右兩個號碼的玩家身上（例：選 3 → 只能驗 2、3、4）。\n每隔一晚才能使用一次，相同號碼不可重複。'],
+          ['虎姑婆【被動・惡靈反傷】', '當虎姑婆被查驗或被女巫毒，技能使用者被反傷出局。\n只生效一次，生效順序：村姑驗 > 預言家驗 > 女巫毒。'],
+          ['小狼 ×2', '一般狼人。'],
+          ['野孩子（被驗是金水）', '首夜選一位榜樣學習：榜樣是狼 → 屬狼陣營（不知道狼隊、不見面）；榜樣是好人 → 屬好人陣營（不知道）。\n榜樣出局後，野孩子轉入狼陣營。野孩子入狼隊後，虎姑婆【誘導】只能再用一次。\n彩蛋：榜樣是村姑 → 永遠是好人陣營；榜樣是虎姑婆 → 知道所有狼隊位置。'],
+        ],
+        good: [
+          ['預言家', '每晚查驗一人身分。'],
+          ['女巫', '一瓶毒藥、一瓶解藥。'],
+          ['騎士', '守護他人，也守護正義。'],
+          ['守衛', '黑夜中的盾，守護村莊。'],
+          ['村姑【認錯人】', '投票後獲得查驗一人的機會，夜晚使用（全場一次，結果優先以警上票為主）：\n・警徽投狼人 → 正確查驗\n・警徽投好人 → 相反查驗\n・出局投狼人 → 相反查驗\n・出局投好人 → 正確查驗'],
+          ['平民 ×5', '平凡卻重要，團結找出真相。'],
+        ],
+      },
+      night: {
+        first: '野孩子 → 4狼（狼美人迷魅） → 守衛 → 女巫 → 村姑 → 預言家',
+        next: '4狼（狼美人迷魅、虎姑婆誘導） → 守衛 → 女巫 → 村姑（查驗） → 預言家（查驗）',
+      },
+      win: { wolf: '四神（預、女、騎、守）全部出局，或五平民＋村姑全部出局。', good: '四狼出局（野孩子若已入狼隊，不需要出局）。' },
+    },
+  };
+  const MARKS = [
+    { id: 'none', label: '未定', icon: '' },
+    { id: 'good', label: '好人', icon: '🟢 好人' },
+    { id: 'wolf', label: '狼', icon: '🔴 狼' },
+    { id: 'sus', label: '存疑', icon: '🟡 存疑' },
+  ];
+  const VOTE_KINDS = ['放逐投票', '警長競選', 'PK 投票'];
+  const QUICK_TAGS = ['發言好', '發言差', '劃水', '聊爆', '倒鉤', '衝鋒', '站邊', '踩人', '保人', '像預言家', '像狼'];
+
+  // ---------- state ----------
+  const blankPlayer = (seat, name = '') => ({
+    seat, name, mark: 'none', alive: true, death: null, sheriff: false, claim: '', notes: {},
+  });
+  const blankState = (boardId = 'std12', names) => ({
+    board: boardId,
+    day: 1,
+    mySeat: null,
+    myRole: '',
+    mentor: null,
+    players: Array.from({ length: BOARDS[boardId].seats }, (_, i) => blankPlayer(i + 1, names ? names[i] || '' : '')),
+    checks: [],
+    votes: [],
+    memo: '',
+  });
+
+  let state = load();
+  let ui = { mode: 'detail', tab: 'checks', openVote: null, sheetSeat: null };
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        const s = JSON.parse(raw);
+        const boardId = s && BOARDS[s.board] ? s.board : 'std12';
+        if (s && Array.isArray(s.players) && s.players.length === BOARDS[boardId].seats) {
+          return Object.assign(blankState(boardId), s, { board: boardId });
+        }
+      }
+    } catch (e) { /* storage unavailable */ }
+    return blankState();
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+  }
+  const P = (seat) => state.players[seat - 1];
+  const B = () => BOARDS[state.board];
+  const N = () => state.players.length;
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const seatLabel = (seat) => {
+    const p = P(seat);
+    return p.name ? `${seat}號(${esc(p.name)})` : `${seat}號`;
+  };
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- seats ----------
+  // Table order: first half across the top left→right, the rest across the bottom right→left,
+  // so neighbours sit next to each other (12人: 1–6 / 12–7, 15人: 1–8 / 15–9).
+  function seatOrder() {
+    const n = N();
+    const cols = Math.ceil(n / 2);
+    const top = Array.from({ length: cols }, (_, i) => i + 1);
+    const bottom = Array.from({ length: n - cols }, (_, i) => n - i);
+    while (bottom.length < cols) bottom.unshift(0);
+    return { cols, order: top.concat(bottom) };
+  }
+
+  function renderSeats() {
+    const { cols, order } = seatOrder();
+    $('seats').style.setProperty('--cols', cols);
+    const html = order.map((seat, idx) => {
+      const mid = idx === cols ? '<div class="table-mid">桌子</div>' : '';
+      if (!seat) return `${mid}<div class="seat-gap"></div>`;
+      const p = P(seat);
+      const cls = ['seat', p.mark !== 'none' ? p.mark : '', p.alive ? '' : 'dead'].join(' ');
+      const badges = [];
+      if (p.claim) badges.push(`<span class="badge claim">跳${esc(p.claim)}</span>`);
+      const gold = state.checks.filter((c) => c.target === seat && c.result === 'good').length;
+      const kill = state.checks.filter((c) => c.target === seat && c.result === 'wolf').length;
+      if (gold) badges.push(`<span class="badge gold">金水${gold > 1 ? '×' + gold : ''}</span>`);
+      if (kill) badges.push(`<span class="badge kill">查殺${kill > 1 ? '×' + kill : ''}</span>`);
+      if (!p.alive && p.death) badges.push(`<span class="badge">D${p.death.day} ${esc(p.death.cause)}</span>`);
+      if (state.myRole === '野孩子' && state.mentor === seat) badges.push('<span class="badge mentor">我的榜樣</span>');
+      const mark = MARKS.find((m) => m.id === p.mark);
+      return `${mid}<div class="${cls}" data-seat="${seat}">
+        ${state.mySeat === seat ? '<span class="me">我</span>' : ''}
+        ${p.sheriff ? '<span class="sheriff">★</span>' : ''}
+        <div class="num">${seat}</div>
+        <div class="name">${esc(p.name)}</div>
+        <div class="mark-icon">${mark.icon}</div>
+        <div class="badges">${badges.join('')}</div>
+      </div>`;
+    }).join('');
+    $('seats').innerHTML = html;
+  }
+
+  $('seats').addEventListener('click', (e) => {
+    const el = e.target.closest('.seat');
+    if (!el) return;
+    const seat = Number(el.dataset.seat);
+    if (ui.mode === 'quick') {
+      const p = P(seat);
+      const i = MARKS.findIndex((m) => m.id === p.mark);
+      p.mark = MARKS[(i + 1) % MARKS.length].id;
+      commit();
+    } else {
+      openSheet(seat);
+    }
+  });
+
+  $('modeSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    ui.mode = b.dataset.mode;
+    [...$('modeSeg').children].forEach((x) => x.classList.toggle('on', x === b));
+    $('modeHint').textContent = ui.mode === 'quick'
+      ? '點座位循環切換：未定 → 好人 → 狼 → 存疑'
+      : '點座位打開詳細筆記';
+  });
+
+  // ---------- day ----------
+  function renderDay() {
+    $('dayLabel').textContent = `第 ${state.day} 天`;
+    $('boardLabel').textContent = B().name;
+  }
+  $('dayUp').addEventListener('click', () => { state.day++; commit(); });
+  $('dayDown').addEventListener('click', () => { if (state.day > 1) { state.day--; commit(); } });
+
+  // ---------- player sheet ----------
+  function openSheet(seat) {
+    ui.sheetSeat = seat;
+    renderSheet();
+    $('overlay').classList.add('open');
+  }
+  function closeSheet() {
+    ui.sheetSeat = null;
+    $('overlay').classList.remove('open');
+    render();
+  }
+  $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) closeSheet(); });
+
+  function voteHistoryFor(seat) {
+    const lines = [];
+    state.votes.forEach((v) => {
+      const t = v.ballots[seat];
+      if (t === undefined) return;
+      lines.push(`D${v.day} ${v.kind}：投 ${t === 0 ? '棄票' : t + '號'}`);
+    });
+    return lines;
+  }
+
+  function renderSheet() {
+    const seat = ui.sheetSeat;
+    if (!seat) return;
+    const p = P(seat);
+    const opt = (group, value, label, on, extra = '') =>
+      `<button data-group="${group}" data-value="${esc(value)}" class="${on ? 'on' : ''} ${extra}">${label}</button>`;
+
+    const pastNotes = Object.keys(p.notes)
+      .map(Number)
+      .filter((d) => d !== state.day && p.notes[d] && p.notes[d].trim())
+      .sort((a, b) => a - b)
+      .map((d) => `<div><b>第 ${d} 天：</b><span class="day-note">${esc(p.notes[d])}</span></div>`)
+      .join('');
+    const checksBy = state.checks.filter((c) => c.seer === seat)
+      .map((c) => `N${c.day} ${c.by && c.by !== '預言家' ? esc(c.by) + ' ' : ''}驗 ${c.target}號 → <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span>`);
+    const checksOn = state.checks.filter((c) => c.target === seat)
+      .map((c) => `${c.seer}號 在 N${c.day} 給 <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span>`);
+    const votes = voteHistoryFor(seat);
+
+    $('sheet').innerHTML = `
+      <div class="sheet-head">
+        <div class="big">${seat}號</div>
+        <input type="text" id="nameInput" placeholder="名字（選填）" value="${esc(p.name)}" maxlength="12">
+      </div>
+
+      <div class="field-label">我覺得他是</div>
+      <div class="opt-group">
+        ${MARKS.map((m) => opt('mark', m.id, m.label, p.mark === m.id, m.id)).join('')}
+      </div>
+
+      <div class="field-label">他跳的身分</div>
+      <div class="opt-group">
+        ${opt('claim', '', '沒跳', !p.claim)}
+        ${B().roles.map((r) => opt('claim', r, r, p.claim === r)).join('')}
+      </div>
+
+      <div class="field-label">狀態</div>
+      <div class="opt-group">
+        ${opt('alive', '1', '存活', p.alive)}
+        ${B().causes.map((c) => opt('death', c, c, !p.alive && p.death && p.death.cause === c)).join('')}
+      </div>
+      <div class="row" style="margin-top:8px">
+        ${opt('sheriff', '1', '★ 警長', p.sheriff)}
+        ${opt('me', '1', '這是我', state.mySeat === seat)}
+      </div>
+
+      <div class="field-label">第 ${state.day} 天發言筆記</div>
+      <div class="opt-group" style="margin-bottom:8px">
+        ${QUICK_TAGS.map((t) => `<button data-tag="${esc(t)}" class="chip">${t}</button>`).join('')}
+      </div>
+      <textarea id="noteInput" placeholder="例如：站邊 3 號、踩 8 號、說自己是平民…">${esc(p.notes[state.day] || '')}</textarea>
+
+      ${pastNotes ? `<div class="field-label">之前的筆記</div><div class="history">${pastNotes}</div>` : ''}
+      ${checksBy.length ? `<div class="field-label">他報的查驗</div><div class="history">${checksBy.join('<br>')}</div>` : ''}
+      ${checksOn.length ? `<div class="field-label">別人對他的查驗</div><div class="history">${checksOn.join('<br>')}</div>` : ''}
+      ${votes.length ? `<div class="field-label">投票紀錄</div><div class="history">${votes.join('<br>')}</div>` : ''}
+
+      <div class="sheet-foot"><button class="primary" id="sheetDone">完成</button></div>
+    `;
+  }
+
+  $('sheet').addEventListener('input', (e) => {
+    const p = P(ui.sheetSeat);
+    if (e.target.id === 'nameInput') p.name = e.target.value.trim();
+    if (e.target.id === 'noteInput') p.notes[state.day] = e.target.value;
+    save();
+  });
+
+  $('sheet').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.id === 'sheetDone') { closeSheet(); return; }
+    const p = P(ui.sheetSeat);
+    if (b.dataset.tag) {
+      const ta = $('noteInput');
+      const cur = ta.value;
+      ta.value = cur + (cur && !/[\s、，,]$/.test(cur) ? '、' : '') + b.dataset.tag;
+      p.notes[state.day] = ta.value;
+      save();
+      ta.focus();
+      return;
+    }
+    const v = b.dataset.value;
+    switch (b.dataset.group) {
+      case 'mark': p.mark = v; break;
+      case 'claim': p.claim = v; break;
+      case 'alive': p.alive = true; p.death = null; break;
+      case 'death': p.alive = false; p.death = { day: state.day, cause: v }; break;
+      case 'sheriff': {
+        const was = p.sheriff;
+        state.players.forEach((x) => { x.sheriff = false; });
+        p.sheriff = !was;
+        break;
+      }
+      case 'me': state.mySeat = state.mySeat === ui.sheetSeat ? null : ui.sheetSeat; break;
+      default: return;
+    }
+    save();
+    renderSheet();
+  });
+
+  // ---------- tabs ----------
+  $('tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    ui.tab = b.dataset.tab;
+    $('tabBody').scrollTop = 0;
+    [...$('tabs').children].forEach((x) => x.classList.toggle('on', x === b));
+    renderTab();
+  });
+
+  function seatOptions(selected, { allowNone = false } = {}) {
+    let html = allowNone ? '<option value="">—</option>' : '';
+    for (let s = 1; s <= N(); s++) {
+      html += `<option value="${s}" ${selected === s ? 'selected' : ''}>${seatLabel(s)}</option>`;
+    }
+    return html;
+  }
+
+  function renderTab() {
+    const body = $('tabBody');
+    if (ui.tab === 'checks') body.innerHTML = checksHTML();
+    else if (ui.tab === 'votes') body.innerHTML = votesHTML();
+    else if (ui.tab === 'memo') body.innerHTML = memoHTML();
+    else body.innerHTML = rulesHTML();
+  }
+
+  // ---------- checks ----------
+  let checkDraft = { seer: null, target: null, result: 'good', by: '預言家' };
+
+  function checksHTML() {
+    const seers = [...new Set(state.checks.map((c) => c.seer))];
+    const conflicts = [];
+    for (let t = 1; t <= N(); t++) {
+      const rs = state.checks.filter((c) => c.target === t);
+      if (rs.some((c) => c.result === 'good') && rs.some((c) => c.result === 'wolf')) {
+        const who = rs.map((c) => `${c.seer}號說${c.result === 'good' ? '金水' : '查殺'}`).join('、');
+        conflicts.push(`${t}號 結果矛盾：${who}`);
+      }
+    }
+    const cols = seers.map((s) => {
+      const items = state.checks.filter((c) => c.seer === s).sort((a, b) => a.day - b.day);
+      const roles = [...new Set(items.map((c) => c.by || '預言家'))].join('/');
+      return `<div class="seer-col">
+        <h4>${seatLabel(s)}（${esc(roles)}）${P(s).alive ? '' : '（已出局）'}</h4>
+        ${items.map((c) => `<div class="list-item">
+          <span class="grow">N${c.day} 驗 ${seatLabel(c.target)} →
+            <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span></span>
+          <button class="x-btn" data-del-check="${c.id}" aria-label="刪除">✕</button>
+        </div>`).join('')}
+      </div>`;
+    }).join('');
+
+    return `
+      <div class="card">
+        <h3>新增查驗（${B().checkers.join('／')}報的結果）</h3>
+        ${B().checkers.length > 1 ? `<div class="row"><div class="opt-group">
+          ${B().checkers.map((r) => `<button data-ck-by="${esc(r)}" class="${checkDraft.by === r ? 'on' : ''}">${r}</button>`).join('')}
+        </div></div>` : ''}
+        <div class="row">
+          <select id="ckSeer">${seatOptions(checkDraft.seer, { allowNone: true })}</select>
+          <span>驗</span>
+          <select id="ckTarget">${seatOptions(checkDraft.target, { allowNone: true })}</select>
+        </div>
+        <div class="row">
+          <div class="opt-group">
+            <button data-ck-result="good" class="${checkDraft.result === 'good' ? 'on good' : ''}">金水 (好人)</button>
+            <button data-ck-result="wolf" class="${checkDraft.result === 'wolf' ? 'on wolf' : ''}">查殺 (狼)</button>
+          </div>
+          <span class="hint">第 ${state.day} 晚</span>
+          <button class="primary" id="ckAdd">加入</button>
+        </div>
+      </div>
+      ${conflicts.map((c) => `<div class="warn">⚠️ ${c}</div>`).join('')}
+      ${seers.length > 1 ? '<div class="hint" style="margin-bottom:8px">有 ' + seers.length + ' 人報查驗，並排比較：</div>' : ''}
+      ${seers.length ? `<div class="seer-cols">${cols}</div>` : '<div class="empty">還沒有查驗紀錄</div>'}
+    `;
+  }
+
+  $('tabBody').addEventListener('change', (e) => {
+    if (e.target.id === 'ckSeer') checkDraft.seer = Number(e.target.value) || null;
+    if (e.target.id === 'ckTarget') checkDraft.target = Number(e.target.value) || null;
+    if (e.target.id === 'mentorInput') { state.mentor = Number(e.target.value) || null; commit(); }
+  });
+
+  // ---------- votes ----------
+  function tally(v) {
+    const counts = {};
+    Object.entries(v.ballots).forEach(([voter, target]) => {
+      if (!target) return;
+      const weight = v.kind === '放逐投票' && v.sheriff === Number(voter) ? 1.5 : 1;
+      if (!counts[target]) counts[target] = { n: 0, voters: [] };
+      counts[target].n += weight;
+      counts[target].voters.push(Number(voter));
+    });
+    return Object.entries(counts)
+      .map(([t, c]) => ({ target: Number(t), n: c.n, voters: c.voters.sort((a, b) => a - b) }))
+      .sort((a, b) => b.n - a.n);
+  }
+
+  function similarPairs() {
+    const pairs = [];
+    for (let a = 1; a <= N(); a++) {
+      for (let b = a + 1; b <= N(); b++) {
+        let same = 0;
+        let both = 0;
+        state.votes.forEach((v) => {
+          const ta = v.ballots[a];
+          const tb = v.ballots[b];
+          if (ta === undefined || tb === undefined) return;
+          both++;
+          if (ta && ta === tb) same++;
+        });
+        if (same >= 2) pairs.push({ a, b, same, both });
+      }
+    }
+    return pairs.sort((x, y) => y.same - x.same || x.both - y.both).slice(0, 10);
+  }
+
+  function votesHTML() {
+    const rounds = [...state.votes].reverse().map((v) => {
+      const open = ui.openVote === v.id;
+      const t = tally(v);
+      const max = t.length ? t[0].n : 1;
+      const abstain = Object.entries(v.ballots).filter(([, x]) => x === 0).map(([s]) => s);
+      const tallyHTML = t.map((r) => `<div class="tally-row">
+          <b>${r.target}號</b><span>${r.n} 票</span>
+          <span class="bar" style="width:${Math.round((r.n / max) * 80)}px"></span>
+          <span class="hint">← ${r.voters.join(', ')}</span>
+        </div>`).join('') + (abstain.length ? `<div class="tally-row hint">棄票：${abstain.join(', ')}</div>` : '');
+
+      let ballots = '';
+      if (open) {
+        ballots = state.players.map((p) => {
+          const cur = v.ballots[p.seat];
+          const chips = [`<button class="chip ${cur === 0 ? 'on' : ''}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="0">棄</button>`];
+          for (let s = 1; s <= N(); s++) {
+            if (s === p.seat) continue;
+            chips.push(`<button class="chip ${cur === s ? 'on' : ''} ${P(s).alive ? '' : 'dim'}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="${s}">${s}</button>`);
+          }
+          return `<div class="ballot" style="${p.alive ? '' : 'opacity:.45'}">
+            <div class="voter">${p.seat}</div><div class="chips" style="--cols:${N()}">${chips.join('')}</div></div>`;
+        }).join('');
+      }
+      return `<div class="card">
+        <div class="vote-head" data-toggle-vote="${v.id}">
+          <span class="grow">第 ${v.day} 天 · ${esc(v.kind)}</span>
+          <span class="hint">${open ? '收起' : '編輯'}</span>
+          <button class="x-btn" data-del-vote="${v.id}" aria-label="刪除">✕</button>
+        </div>
+        ${t.length || abstain.length ? `<div class="tally">${tallyHTML}</div>` : (open ? '' : '<div class="hint" style="margin-top:6px">還沒填票</div>')}
+        ${open ? `<div class="hint" style="margin:12px 0 6px">左邊是投票的人，點他投給誰（再點一次取消）</div>${ballots}` : ''}
+      </div>`;
+    }).join('');
+
+    const pairs = similarPairs();
+    const pairsHTML = pairs.length ? `<div class="card"><h3>票型分析：常投同一人</h3>
+      ${pairs.map((x) => `<div class="pair"><span>${seatLabel(x.a)} ＆ ${seatLabel(x.b)}</span><span class="hint">${x.same} / ${x.both} 輪相同</span></div>`).join('')}
+      <div class="hint" style="margin-top:8px">票型一致的人可能是同陣營，留意狼隊抱團。</div></div>` : '';
+
+    return `
+      <div class="card">
+        <h3>新增一輪投票（第 ${state.day} 天）</h3>
+        <div class="opt-group">
+          ${VOTE_KINDS.map((k) => `<button data-new-vote="${k}">${k}</button>`).join('')}
+        </div>
+      </div>
+      ${pairsHTML}
+      ${rounds || '<div class="empty">還沒有投票紀錄</div>'}
+    `;
+  }
+
+  // ---------- memo ----------
+  function memoHTML() {
+    const me = state.mySeat ? `${state.mySeat}號` : '（點座位 → 這是我）';
+    return `
+      <div class="card">
+        <h3>我的身分（只有你看得到）</h3>
+        <div class="row"><span>座位：${me}</span></div>
+        <div class="opt-group" style="margin-top:8px">
+          ${['', ...B().roles].map((r) => `<button data-my-role="${esc(r)}" class="${state.myRole === r ? 'on' : ''}">${r || '未設定'}</button>`).join('')}
+        </div>
+        ${state.myRole === '野孩子' ? `<div class="row" style="margin-top:10px">
+          <span>我的榜樣：</span>
+          <select id="mentorInput">${seatOptions(state.mentor, { allowNone: true })}</select>
+          <span class="hint">榜樣出局 → 你轉入狼陣營</span>
+        </div>` : ''}
+      </div>
+      <div class="card">
+        <h3>整體推理</h3>
+        <textarea id="memoInput" style="min-height:220px" placeholder="例如：狼坑猜 2、7、9、11；3 號像真預言家…">${esc(state.memo)}</textarea>
+      </div>
+      ${summaryHTML()}
+    `;
+  }
+
+  function summaryHTML() {
+    const group = (mark) => state.players.filter((p) => p.mark === mark).map((p) => p.seat);
+    const alive = state.players.filter((p) => p.alive).map((p) => p.seat);
+    const line = (label, arr) => `<div class="list-item"><span style="min-width:72px">${label}</span><span class="grow">${arr.length ? arr.join('、') : '—'}</span></div>`;
+    const wolves = group('wolf');
+    return `<div class="card"><h3>目前判斷</h3>
+      ${line('🔴 狼', wolves)}
+      <div class="hint" style="padding:2px 0 6px">狼坑：已標 ${wolves.length} / ${B().wolfSlots}（${esc(B().wolfCount)}）</div>
+      ${line('🟡 存疑', group('sus'))}
+      ${line('🟢 好人', group('good'))}
+      ${line('存活', alive)}
+    </div>`;
+  }
+
+  function rulesHTML() {
+    const b = B();
+    const list = (items) => items.map((x) => `<span class="badge" style="font-size:13px;padding:4px 8px">${esc(x)}</span>`).join(' ');
+    const info = (items) => `<dl>${items.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl>`;
+    return `
+      <div class="card rules">
+        <h3>${esc(b.name)}</h3>
+        <h4 class="wolf-side">狼人陣營</h4><div class="opt-group">${list(b.setup.wolf)}</div>
+        <h4 class="good-side">好人陣營</h4><div class="opt-group">${list(b.setup.good)}</div>
+        <div class="hint" style="margin-top:12px">要換板子：按上方「新的一局」。</div>
+      </div>
+      ${b.roleInfo ? `<div class="card rules"><h3>角色技能</h3>
+        <h4 class="wolf-side">狼人陣營</h4>${info(b.roleInfo.wolf)}
+        <h4 class="good-side">好人陣營</h4>${info(b.roleInfo.good)}
+      </div>` : ''}
+      ${b.night ? `<div class="card rules"><h3>夜晚睜眼順序</h3>
+        <h4>首夜</h4><div class="order">${esc(b.night.first)}</div>
+        <h4>次夜起</h4><div class="order">${esc(b.night.next)}</div>
+      </div>` : ''}
+      <div class="card rules"><h3>獲勝條件</h3>
+        <h4 class="wolf-side">狼人</h4><div class="order">${esc(b.win.wolf)}</div>
+        <h4 class="good-side">好人</h4><div class="order">${esc(b.win.good)}</div>
+      </div>`;
+  }
+
+  $('tabBody').addEventListener('input', (e) => {
+    if (e.target.id === 'memoInput') { state.memo = e.target.value; save(); }
+  });
+
+  $('tabBody').addEventListener('click', (e) => {
+    const b = e.target.closest('button, [data-toggle-vote]');
+    if (!b) return;
+    const d = b.dataset;
+
+    if (d.ckResult) { checkDraft.result = d.ckResult; renderTab(); return; }
+    if (d.ckBy) { checkDraft.by = d.ckBy; renderTab(); return; }
+    if (b.id === 'ckAdd') {
+      if (!checkDraft.seer || !checkDraft.target) { alert('請選擇查驗者和被驗的人'); return; }
+      if (checkDraft.seer === checkDraft.target) { alert('不能驗自己'); return; }
+      const by = B().checkers.includes(checkDraft.by) ? checkDraft.by : B().checkers[0];
+      state.checks.push({ id: uid(), day: state.day, seer: checkDraft.seer, target: checkDraft.target, result: checkDraft.result, by });
+      if (!P(checkDraft.seer).claim) P(checkDraft.seer).claim = by;
+      checkDraft.target = null;
+      commit();
+      return;
+    }
+    if (d.delCheck) {
+      e.stopPropagation();
+      if (!confirm('刪除這筆查驗？')) return;
+      state.checks = state.checks.filter((c) => c.id !== d.delCheck);
+      commit();
+      return;
+    }
+    if (d.newVote) {
+      const sheriff = state.players.find((p) => p.sheriff);
+      const v = { id: uid(), day: state.day, kind: d.newVote, sheriff: sheriff ? sheriff.seat : null, ballots: {} };
+      state.votes.push(v);
+      ui.openVote = v.id;
+      commit();
+      return;
+    }
+    if (d.delVote) {
+      e.stopPropagation();
+      if (!confirm('刪除這輪投票？')) return;
+      state.votes = state.votes.filter((v) => v.id !== d.delVote);
+      commit();
+      return;
+    }
+    if (d.toggleVote) { ui.openVote = ui.openVote === d.toggleVote ? null : d.toggleVote; renderTab(); return; }
+    if (d.ballot) {
+      const v = state.votes.find((x) => x.id === d.ballot);
+      const voter = Number(d.voter);
+      const target = Number(d.target);
+      if (v.ballots[voter] === target) delete v.ballots[voter];
+      else v.ballots[voter] = target;
+      commit();
+      return;
+    }
+    if (d.myRole !== undefined) { state.myRole = d.myRole; commit(); }
+  });
+
+  // ---------- new game ----------
+  $('newGameBtn').addEventListener('click', () => {
+    $('sheet').innerHTML = `
+      <h3 style="margin-top:0">開始新的一局？</h3>
+      <p class="hint">目前的標記、查驗、投票和筆記都會清空。</p>
+      <div class="field-label">板子</div>
+      <div class="opt-group" id="ngBoard">
+        ${Object.entries(BOARDS).map(([id, b]) => `<button data-board="${id}" class="${id === state.board ? 'on' : ''}">${esc(b.name)}</button>`).join('')}
+      </div>
+      <div class="sheet-foot">
+        <button id="ngCancel">取消</button>
+        <button id="ngKeep">清空，但保留名字</button>
+        <button class="primary danger" id="ngAll" style="color:#11131c;background:var(--wolf);border-color:var(--wolf)">全部清空</button>
+      </div>`;
+    ui.sheetSeat = null;
+    $('overlay').classList.add('open');
+    $('ngCancel').onclick = closeSheet;
+    let boardId = state.board;
+    $('ngBoard').onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      boardId = b.dataset.board;
+      [...$('ngBoard').children].forEach((x) => x.classList.toggle('on', x === b));
+    };
+    $('ngKeep').onclick = () => { state = blankState(boardId, state.players.map((p) => p.name)); save(); closeSheet(); };
+    $('ngAll').onclick = () => { state = blankState(boardId); save(); closeSheet(); };
+  });
+
+  // ---------- privacy cover ----------
+  $('hideBtn').addEventListener('click', () => $('cover').classList.add('open'));
+  let lastTap = 0;
+  $('cover').addEventListener('click', () => {
+    const now = Date.now();
+    if (now - lastTap < 400) $('cover').classList.remove('open');
+    lastTap = now;
+  });
+
+  // ---------- keep screen awake ----------
+  let wakeLock = null;
+  async function requestWake() {
+    try {
+      if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+        wakeLock = await navigator.wakeLock.request('screen');
+      }
+    } catch (e) { /* not supported or denied */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') requestWake(); });
+  document.addEventListener('click', function once() { requestWake(); document.removeEventListener('click', once); });
+
+  // ---------- render ----------
+  function render() { renderDay(); renderSeats(); renderTab(); }
+  function commit() { save(); render(); if (ui.sheetSeat) renderSheet(); }
+
+  render();
+})();
+</script>
+</body>
+</html>

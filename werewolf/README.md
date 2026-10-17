@@ -74,3 +74,8 @@ python3 -m unittest werewolf.tests.test_engine   # 執行測試
 
 `web/index.html` 是手機也能玩的單頁版本，規則和電腦策略與 Python 版相同。
 測驗題以 `guide.py` 為準，修改題目後執行 `python3 werewolf/web/sync_quiz.py` 同步到網頁版。
+
+`web/index.html` 是 Claude 網頁（Artifact）用的原始檔，沒有 doctype、viewport 等外層標籤。
+GitHub Pages 用的是 `play/index.html`，由 `python3 werewolf/web/build_pages.py` 產生；
+修改網頁版後記得重新產生，合併進 `main` 後會自動發佈到
+https://jackhsieh806.github.io/jackh_code/werewolf/play/
