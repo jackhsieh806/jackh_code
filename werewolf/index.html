@@ -530,7 +530,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         ${opt('alive', '1', '存活', p.alive)}
         ${B().causes.map((c) => opt('death', c, c, !p.alive && p.death && p.death.cause === c)).join('')}
       </div>
-      <div class="row" style="margin-top:8px">
+      <div class="opt-group" style="margin-top:8px">
         ${opt('sheriff', '1', '★ 警長', p.sheriff)}
         ${opt('me', '1', '這是我', state.mySeat === seat)}
       </div>
