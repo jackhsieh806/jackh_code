@@ -139,6 +139,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 .badge.mentor { background: rgba(255, 209, 102, .18); color: var(--gold); }
 .badge.claim { background: rgba(139, 156, 255, .2); color: #c5cdff; }
 .badge.gold { background: var(--good-bg); color: var(--good); }
+.badge.silver { background: rgba(201, 209, 227, .16); color: #c9d1e3; }
 .badge.kill { background: var(--wolf-bg); color: var(--wolf); }
 .seat.good { border-color: var(--good); background: linear-gradient(var(--good-bg), var(--good-bg)), var(--panel); }
 .seat.wolf { border-color: var(--wolf); background: linear-gradient(var(--wolf-bg), var(--wolf-bg)), var(--panel); }
@@ -170,6 +171,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 .seer-col h4 { margin: 0 0 6px; font-size: 14px; }
 .res-good { color: var(--good); font-weight: 600; }
 .res-wolf { color: var(--wolf); font-weight: 600; }
+.res-silver { color: #c9d1e3; font-weight: 600; }
 .warn { background: var(--wolf-bg); color: var(--wolf); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
 
 /* ---------- votes ---------- */
@@ -218,6 +220,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 .opt-group button.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
 .opt-group button.on.good { background: var(--good); border-color: var(--good); }
 .opt-group button.on.wolf { background: var(--wolf); border-color: var(--wolf); }
+.opt-group button.on.silver { background: #c9d1e3; border-color: #c9d1e3; }
 .opt-group button.on.sus { background: var(--sus); border-color: var(--sus); }
 .history { font-size: 14px; color: var(--muted); line-height: 1.6; }
 .history .day-note { white-space: pre-wrap; color: var(--text); }
@@ -261,6 +264,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         <span><i style="background:var(--wolf)"></i>狼</span>
         <span><i style="background:var(--sus)"></i>存疑</span>
         <span>★ 警長</span>
+        <span>銀水 = 被女巫救</span>
         <span>劃線 = 出局</span>
       </div>
     </section>
@@ -393,6 +397,16 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   };
   const $ = (id) => document.getElementById(id);
 
+  // Reports: 預言家/村姑 checks give 金水 or 查殺; a 女巫 reporting who she saved gives 銀水.
+  const RESULTS = {
+    good: { label: '金水', cls: 'res-good' },
+    wolf: { label: '查殺', cls: 'res-wolf' },
+    silver: { label: '銀水', cls: 'res-silver' },
+  };
+  const reporters = () => [...B().checkers, '女巫'];
+  const verb = (c) => (c.by === '女巫' ? '救' : '驗');
+  const resultSpan = (c) => `<span class="${RESULTS[c.result].cls}">${RESULTS[c.result].label}</span>`;
+
   // ---------- seats ----------
   // Table order: first half across the top left→right, the rest across the bottom right→left,
   // so neighbours sit next to each other (12人: 1–6 / 12–7, 15人: 1–8 / 15–9).
@@ -419,6 +433,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       const kill = state.checks.filter((c) => c.target === seat && c.result === 'wolf').length;
       if (gold) badges.push(`<span class="badge gold">金水${gold > 1 ? '×' + gold : ''}</span>`);
       if (kill) badges.push(`<span class="badge kill">查殺${kill > 1 ? '×' + kill : ''}</span>`);
+      const silver = state.checks.filter((c) => c.target === seat && c.result === 'silver').length;
+      if (silver) badges.push(`<span class="badge silver">銀水${silver > 1 ? '×' + silver : ''}</span>`);
       if (!p.alive && p.death) badges.push(`<span class="badge">D${p.death.day} ${esc(p.death.cause)}</span>`);
       if (state.myRole === '野孩子' && state.mentor === seat) badges.push('<span class="badge mentor">我的榜樣</span>');
       const mark = MARKS.find((m) => m.id === p.mark);
@@ -503,9 +519,9 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       .map((d) => `<div><b>第 ${d} 天：</b><span class="day-note">${esc(p.notes[d])}</span></div>`)
       .join('');
     const checksBy = state.checks.filter((c) => c.seer === seat)
-      .map((c) => `N${c.day} ${c.by && c.by !== '預言家' ? esc(c.by) + ' ' : ''}驗 ${c.target}號 → <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span>`);
+      .map((c) => `N${c.day} ${c.by && c.by !== '預言家' ? esc(c.by) + ' ' : ''}${verb(c)} ${c.target}號 → ${resultSpan(c)}`);
     const checksOn = state.checks.filter((c) => c.target === seat)
-      .map((c) => `${c.seer}號 在 N${c.day} 給 <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span>`);
+      .map((c) => `${c.seer}號 在 N${c.day} 給 ${resultSpan(c)}`);
     const votes = voteHistoryFor(seat);
 
     $('sheet').innerHTML = `
@@ -542,8 +558,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       <textarea id="noteInput" placeholder="例如：站邊 3 號、踩 8 號、說自己是平民…">${esc(p.notes[state.day] || '')}</textarea>
 
       ${pastNotes ? `<div class="field-label">之前的筆記</div><div class="history">${pastNotes}</div>` : ''}
-      ${checksBy.length ? `<div class="field-label">他報的查驗</div><div class="history">${checksBy.join('<br>')}</div>` : ''}
-      ${checksOn.length ? `<div class="field-label">別人對他的查驗</div><div class="history">${checksOn.join('<br>')}</div>` : ''}
+      ${checksBy.length ? `<div class="field-label">他報的查驗／銀水</div><div class="history">${checksBy.join('<br>')}</div>` : ''}
+      ${checksOn.length ? `<div class="field-label">別人給他的查驗／銀水</div><div class="history">${checksOn.join('<br>')}</div>` : ''}
       ${votes.length ? `<div class="field-label">投票紀錄</div><div class="history">${votes.join('<br>')}</div>` : ''}
 
       <div class="sheet-foot"><button class="primary" id="sheetDone">完成</button></div>
@@ -625,7 +641,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     for (let t = 1; t <= N(); t++) {
       const rs = state.checks.filter((c) => c.target === t);
       if (rs.some((c) => c.result === 'good') && rs.some((c) => c.result === 'wolf')) {
-        const who = rs.map((c) => `${c.seer}號說${c.result === 'good' ? '金水' : '查殺'}`).join('、');
+        const who = rs.filter((c) => c.result !== 'silver').map((c) => `${c.seer}號說${RESULTS[c.result].label}`).join('、');
         conflicts.push(`${t}號 結果矛盾：${who}`);
       }
     }
@@ -635,8 +651,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       return `<div class="seer-col">
         <h4>${seatLabel(s)}（${esc(roles)}）${P(s).alive ? '' : '（已出局）'}</h4>
         ${items.map((c) => `<div class="list-item">
-          <span class="grow">N${c.day} 驗 ${seatLabel(c.target)} →
-            <span class="${c.result === 'good' ? 'res-good' : 'res-wolf'}">${c.result === 'good' ? '金水' : '查殺'}</span></span>
+          <span class="grow">N${c.day} ${verb(c)} ${seatLabel(c.target)} → ${resultSpan(c)}</span>
           <button class="x-btn" data-del-check="${c.id}" aria-label="刪除">✕</button>
         </div>`).join('')}
       </div>`;
@@ -644,27 +659,30 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 
     return `
       <div class="card">
-        <h3>新增查驗（${B().checkers.join('／')}報的結果）</h3>
-        ${B().checkers.length > 1 ? `<div class="row"><div class="opt-group">
-          ${B().checkers.map((r) => `<button data-ck-by="${esc(r)}" class="${checkDraft.by === r ? 'on' : ''}">${r}</button>`).join('')}
-        </div></div>` : ''}
+        <h3>新增查驗／銀水（誰報的）</h3>
+        <div class="row"><div class="opt-group">
+          ${reporters().map((r) => `<button data-ck-by="${esc(r)}" class="${checkDraft.by === r ? 'on' : ''}">${r}</button>`).join('')}
+        </div></div>
         <div class="row">
           <select id="ckSeer">${seatOptions(checkDraft.seer, { allowNone: true })}</select>
-          <span>驗</span>
+          <span>${checkDraft.by === '女巫' ? '救' : '驗'}</span>
           <select id="ckTarget">${seatOptions(checkDraft.target, { allowNone: true })}</select>
         </div>
         <div class="row">
           <div class="opt-group">
-            <button data-ck-result="good" class="${checkDraft.result === 'good' ? 'on good' : ''}">金水 (好人)</button>
-            <button data-ck-result="wolf" class="${checkDraft.result === 'wolf' ? 'on wolf' : ''}">查殺 (狼)</button>
+            ${checkDraft.by === '女巫'
+              ? '<button class="on silver" disabled>銀水 (被女巫救)</button>'
+              : `<button data-ck-result="good" class="${checkDraft.result === 'good' ? 'on good' : ''}">金水 (好人)</button>
+            <button data-ck-result="wolf" class="${checkDraft.result === 'wolf' ? 'on wolf' : ''}">查殺 (狼)</button>`}
           </div>
           <span class="hint">第 ${state.day} 晚</span>
           <button class="primary" id="ckAdd">加入</button>
         </div>
+        ${checkDraft.by === '女巫' ? '<div class="hint" style="margin-top:8px">銀水＝女巫說她救了誰（那晚被狼刀、被救活的人）。女巫可能是假跳，銀水不一定是好人。</div>' : ''}
       </div>
       ${conflicts.map((c) => `<div class="warn">⚠️ ${c}</div>`).join('')}
       ${seers.length > 1 ? '<div class="hint" style="margin-bottom:8px">有 ' + seers.length + ' 人報查驗，並排比較：</div>' : ''}
-      ${seers.length ? `<div class="seer-cols">${cols}</div>` : '<div class="empty">還沒有查驗紀錄</div>'}
+      ${seers.length ? `<div class="seer-cols">${cols}</div>` : '<div class="empty">還沒有查驗或銀水紀錄</div>'}
     `;
   }
 
@@ -836,10 +854,11 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     if (d.ckResult) { checkDraft.result = d.ckResult; renderTab(); return; }
     if (d.ckBy) { checkDraft.by = d.ckBy; renderTab(); return; }
     if (b.id === 'ckAdd') {
-      if (!checkDraft.seer || !checkDraft.target) { alert('請選擇查驗者和被驗的人'); return; }
-      if (checkDraft.seer === checkDraft.target) { alert('不能驗自己'); return; }
-      const by = B().checkers.includes(checkDraft.by) ? checkDraft.by : B().checkers[0];
-      state.checks.push({ id: uid(), day: state.day, seer: checkDraft.seer, target: checkDraft.target, result: checkDraft.result, by });
+      if (!checkDraft.seer || !checkDraft.target) { alert('請選擇報結果的人和對象'); return; }
+      const by = reporters().includes(checkDraft.by) ? checkDraft.by : B().checkers[0];
+      if (by !== '女巫' && checkDraft.seer === checkDraft.target) { alert('不能驗自己'); return; }
+      const result = by === '女巫' ? 'silver' : (checkDraft.result === 'wolf' ? 'wolf' : 'good');
+      state.checks.push({ id: uid(), day: state.day, seer: checkDraft.seer, target: checkDraft.target, result, by });
       if (!P(checkDraft.seer).claim) P(checkDraft.seer).claim = by;
       checkDraft.target = null;
       commit();
