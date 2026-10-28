@@ -261,7 +261,7 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
 <script>
 "use strict";
 // ================================================================ 角色與板子
-const R = { WEREWOLF: "狼人", WOLF_KING: "狼王", AWAKENED: "覺醒狼王", WOLF_BEAUTY: "狼美人", TIGER: "虎姑婆", WILD_CHILD: "野孩子", SEER: "預言家", WITCH: "女巫", HUNTER: "獵人", GUARD: "守衛", IDIOT: "白痴", DREAMER: "攝夢人", MERCHANT: "奇蹟商人", KNIGHT: "騎士", VILLAGE_GIRL: "村姑", VILLAGER: "平民" };
+const R = { WEREWOLF: "狼人", WOLF_KING: "狼王", AWAKENED: "覺醒狼王", WOLF_BEAUTY: "狼美人", TIGER: "虎姑婆", WILD_CHILD: "野孩子", SEER: "預言家", LANTERN: "燈影預言家", WITCH: "女巫", HUNTER: "獵人", GUARD: "守衛", IDIOT: "白痴", DREAMER: "攝夢人", MERCHANT: "奇蹟商人", KNIGHT: "騎士", VILLAGE_GIRL: "村姑", VILLAGER: "平民" };
 const ROLE_ORDER = Object.keys(R);
 // 真狼：好人要全部放逐才算贏（轉狼的野孩子不用出局）
 const WOLVES = new Set(["WEREWOLF", "WOLF_KING", "AWAKENED", "WOLF_BEAUTY", "TIGER"]);
@@ -271,7 +271,8 @@ const ITEMS = { check: "查驗", poison: "毒藥", guard: "守護" };
 const TEAM_NAME = { GOOD: "好人陣營", WOLF: "狼人陣營" };
 const DESC = {
   WEREWOLF: "每晚和狼隊友殺一個人。白天要隱藏身份，可以假冒神職（悍跳）。",
-  SEER: "每晚查驗一名玩家是好人還是狼人，是好人陣營的資訊核心。",
+  SEER: "每晚查驗一名玩家是好人還是狼人，是好人陣營的資訊核心。（燈影預言家板：預言家牌站神坑，但查驗可能是反的。）",
+  LANTERN: "站民坑的另一位預言家，每晚也能查驗。開局時主持人決定預言家牌和燈影預言家牌哪張正確查驗、另一張反向，兩人都不知道自己是哪種。不能驗自己、翻牌騎士和騎金。",
   WITCH: "一瓶解藥、一瓶毒藥各用一次；同一晚只能用一瓶。解藥用掉後看不到刀口。",
   HUNTER: "被狼殺或被放逐時可以開槍帶走一人；被毒死不能開槍。",
   GUARD: "每晚守護一人不被狼殺，不能連續兩晚守同一人。同守同救仍會死。",
@@ -280,7 +281,7 @@ const DESC = {
   AWAKENED: "狼人的一員，有兩次狼王爪。晚上可親傳一爪給狼隊友（每晚一次、每人最多一次），剩下的出局時全部可用。被毒、夢遊出局不能發動。",
   DREAMER: "每晚必選一人夢遊（不能選自己），夢遊者當晚不怕狼刀和毒藥。連續兩晚同一人會讓他出局；你晚上死亡時夢遊者也一起出局。",
   MERCHANT: "整局一次：晚上把查驗、毒藥或守護交給一人（幸運兒），他當晚就能用一次。交給狼人的話對方拿不到，你天亮出局。",
-  WOLF_BEAUTY: "狼人的一員。每晚可迷魅一人（不能連續兩晚同一人）；你出局時，被迷魅的人一同出局。狼美人不能自爆。",
+  WOLF_BEAUTY: "狼人的一員。每晚可迷魅一人（不能連續兩晚同一人）；你出局時，被迷魅的人一同出局。不能自爆、不能被自刀；被騎士決鬥出局時技能被封。",
   TIGER: "狼人的一員。【誘導】第二晚起每隔一晚：選一個號碼，預言家和村姑當晚只能驗這個號碼和左右兩人，新範圍不能和上次重疊；野孩子入狼隊時整局只能用一次。【惡靈反傷】整局一次：被村姑驗、預言家驗或女巫毒時，使用技能的人出局（村姑 > 預言家 > 女巫）。",
   WILD_CHILD: "首夜選一人當榜樣。榜樣是狼你就屬於狼陣營（但不知道狼是誰），是好人你就是好人；榜樣出局後你轉入狼隊。榜樣是村姑則永遠是好人，是虎姑婆則立刻加入狼隊。被驗永遠是金水。",
   KNIGHT: "白天輪到你發言時可以翻牌決鬥一人（整局一次）：對方是狼就出局並立刻天黑；是好人你就出局。",
@@ -297,6 +298,7 @@ const PRESETS = [
   { name: "12 人 攝夢人", desc: "狼王 + 3 狼｜預、女、獵、攝夢人｜4 平民", roles: board(3, ["SEER", "WITCH", "HUNTER", "DREAMER"], 4, "WOLF_KING") },
   { name: "12 人 奇蹟商人", desc: "狼王 + 3 狼｜預、女、獵、奇蹟商人｜4 平民", roles: board(3, ["SEER", "WITCH", "HUNTER", "MERCHANT"], 4, "WOLF_KING") },
   { name: "12 人 覺醒狼王", desc: "覺醒狼王 + 3 狼｜預、女、守衛、攝夢人｜4 平民", roles: board(3, ["SEER", "WITCH", "GUARD", "DREAMER"], 4, "AWAKENED") },
+  { name: "15 人 燈影預言家", desc: "狼王、狼美人、3 小狼｜預、女、騎士、守衛、獵人｜燈影預 + 4 平民", roles: ["WOLF_KING", "WOLF_BEAUTY", "WEREWOLF", "WEREWOLF", "WEREWOLF", "SEER", "WITCH", "KNIGHT", "GUARD", "HUNTER", "LANTERN", ...Array(4).fill("VILLAGER")] },
   { name: "15 人 村姑與虎姑婆", desc: "狼美人、虎姑婆、2 小狼、野孩子｜預、女、騎士、守衛、村姑｜5 平民", roles: ["WOLF_BEAUTY", "TIGER", "WEREWOLF", "WEREWOLF", "WILD_CHILD", "SEER", "WITCH", "KNIGHT", "GUARD", "VILLAGE_GIRL", ...Array(5).fill("VILLAGER")] },
 ];
 // 以狼人身份行動（知道狼隊、參與夜晚殺人）：真狼與轉狼的野孩子
@@ -333,6 +335,10 @@ class Game {
     this.wildModel = null; this.wildFixedGood = false; this.charm = null; this.lastCharm = null;
     this.lureRange = null; this.lastLureRange = new Set(); this.lastLureNight = null; this.lureUses = 0;
     this.reflectUsed = false; this.girlUsed = false; this.sheriffVotes = new Map(); this.knightUsed = false;
+    this.knightGold = new Set();  // 騎士決鬥失敗而證實是好人的人（騎金）
+    // 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張反向
+    this.hasLantern = this.players.some(p => p.role === "LANTERN");
+    this.seerCardAccurate = this.hasLantern ? Math.random() < 0.5 : true;
     for (const p of this.players) if (p.role === "WOLF_KING" || p.role === "AWAKENED") this.claws[p.seat] = p.role === "AWAKENED" ? 2 : 1;
     this.claims = new Map(); this.nights = []; this.days = []; this.godLog = []; this.wolfPlan = {};
   }
@@ -363,8 +369,17 @@ class Game {
     return WOLVES.has(p.role) ? "WOLF" : "GOOD";
   }
   checkResult(s) { return WOLVES.has(this.p(s).role); }  // 野孩子永遠驗出好人
-  checkOptions(me) {  // 受虎姑婆誘導限制
-    const seats = this.aliveSeats().filter(s => s !== me.seat);
+  cardAccurate(role) { return role === "LANTERN" ? !this.seerCardAccurate : role === "SEER" ? this.seerCardAccurate : true; }
+  claimsOf(role) {
+    const m = new Map();
+    for (const [s, c] of this.claims) if (c.role === role) m.set(s, new Map(c.checks));
+    return m;
+  }
+  // 受虎姑婆誘導限制；燈影預言家板的兩位預言家不能驗翻牌騎士和騎金
+  checkOptions(me) {
+    let seats = this.aliveSeats().filter(s => s !== me.seat);
+    if (this.hasLantern && (me.role === "SEER" || me.role === "LANTERN"))
+      seats = seats.filter(s => !this.knightGold.has(s) && !(this.p(s).role === "KNIGHT" && this.p(s).revealed));
     return this.lureRange ? seats.filter(s => this.lureRange.has(s)) : seats;
   }
   ring(c) { const n = this.players.length; return new Set([((c - 2 + n) % n) + 1, c, (c % n) + 1]); }
@@ -391,9 +406,10 @@ class Game {
     const good = alive.filter(p => this.alignment(p) === "GOOD");
     if (this.rules.winMode === "all") return good.length ? null : "WOLF";
     const hasGods = this.players.some(p => GODS.has(p.role));
-    const hasVill = this.players.some(p => p.role === "VILLAGER");
+    const villSide = r => r === "VILLAGER" || r === "LANTERN";  // 燈影預言家站民坑
+    const hasVill = this.players.some(p => villSide(p.role));
     const godsDead = hasGods && !good.some(p => GODS.has(p.role));
-    const villDead = hasVill && !good.some(p => p.role === "VILLAGER");
+    const villDead = hasVill && !good.some(p => villSide(p.role));
     return (godsDead || villDead || !good.length) ? "WOLF" : null;
   }
   // 守衛擋不住毒藥；夢遊者免疫狼刀與毒藥，連續兩晚會出局；攝夢人晚上死亡則夢遊者一起出局
@@ -414,6 +430,7 @@ class Game {
   secret(msg) { this.godLog.push({ round: this.nightNo, msg }); this.io.secret(msg); }
 
   async play() {
+    if (this.hasLantern) this.secret("主持人決定：" + (this.seerCardAccurate ? "預言家牌正確查驗、燈影預言家牌反向查驗" : "預言家牌反向查驗、燈影預言家牌正確查驗"));
     for (const p of this.players) await this.ctrl[p.seat].setup(this, p);
     this.io.update(this);
     let w = null;
@@ -503,7 +520,8 @@ class Game {
     const wolves = this.alive().filter(isWolf);
     if (wolves.length) {
       const leader = wolves.find(w => this.ctrl[w.seat].isHuman) || wolves[0];
-      const t = await this.ctrl[leader.seat].chooseKill(this, leader);
+      let t = await this.ctrl[leader.seat].chooseKill(this, leader);
+      if (alive.has(t) && this.p(t).role === "WOLF_BEAUTY") t = null;  // 狼美人不能被自刀
       rec.kill = alive.has(t) ? t : null;
       this.secret(rec.kill != null ? `狼人（${wolves.map(w => w.seat).join("、")}號）殺 ${rec.kill}號` : "狼人空刀");
     }
@@ -567,10 +585,22 @@ class Game {
       const t = opts.length ? await this.ctrl[seer.seat].chooseCheck(this, seer) : null;
       if (opts.includes(t)) {
         seerTarget = t;
-        const res = this.checkResult(t);
+        const truth = this.checkResult(t);
+        const res = this.cardAccurate("SEER") ? truth : !truth;
         rec.check = [t, res];
         await this.ctrl[seer.seat].onCheckResult(this, seer, t, res);
-        this.secret(`預言家 ${seer.seat}號 查驗 ${t}號 → ${res ? "狼人" : "好人"}`);
+        this.secret(`預言家 ${seer.seat}號 查驗 ${t}號 → ${res ? "狼人" : "好人"}${res === truth ? "" : "（反向）"}`);
+      }
+    }
+    const lantern = this.aliveWithRole("LANTERN");
+    if (lantern) {
+      const opts = this.checkOptions(lantern);
+      const t = opts.length ? await this.ctrl[lantern.seat].chooseCheck(this, lantern) : null;
+      if (opts.includes(t)) {
+        const truth = this.checkResult(t);
+        const res = this.cardAccurate("LANTERN") ? truth : !truth;
+        await this.ctrl[lantern.seat].onCheckResult(this, lantern, t, res);
+        this.secret(`燈影預言家 ${lantern.seat}號 查驗 ${t}號 → ${res ? "狼人" : "好人"}${res === truth ? "" : "（反向）"}`);
       }
     }
     // 惡靈反傷（整局一次）：村姑查驗 > 預言家查驗 > 女巫毒；反彈女巫時虎姑婆不會被毒死
@@ -812,7 +842,7 @@ class Game {
   async kill(s, cause) {
     await this.markDead(s, cause);
     const c = this.charm;
-    if (this.p(s).role === "WOLF_BEAUTY" && c != null && this.p(c).alive) {
+    if (this.p(s).role === "WOLF_BEAUTY" && cause !== "duel" && c != null && this.p(c).alive) {  // 被騎士決鬥時技能被封
       this.say(`${c}號 被狼美人迷魅，一同出局。`, "event");
       await this.markDead(c, "charm");
       await this.deathTrigger(c, "charm");
@@ -839,6 +869,7 @@ class Game {
       await this.deathTrigger(t, "duel");
       return true;
     }
+    this.knightGold.add(t);
     this.say(`${knight.seat}號 翻牌【騎士】決鬥 ${t}號：${t}號 是好人，騎士以死謝罪。`, "event");
     await this.kill(knight.seat, "duel_fail");
     return false;
@@ -886,16 +917,17 @@ class Game {
       const checks = prev && prev.role === sp.claim ? new Map(prev.checks) : new Map();
       this.claims.set(s, { role: sp.claim, checks });
     }
-    if (sp.checks.size && this.claimedRole(s) === "SEER") for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
+    if (sp.checks.size && ["SEER", "LANTERN"].includes(this.claimedRole(s))) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
     if (this.today) this.today.speeches.push(sp);
   }
 }
 
 // ================================================================ 電腦玩家
 class Bot {
-  constructor() { this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; }
+  constructor() { this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); }
   setup(g, me) {
     for (const p of g.players) this.pref[p.seat] = Math.random();
+    this.guessSeerAccurate = Math.random() < 0.5;  // 推不出來時，猜哪張預言家牌是準的
     if (isWolf(me) && !("fakeSeer" in g.wolfPlan)) {
       const bots = g.players.filter(p => isWolf(p) && !g.ctrl[p.seat].isHuman).map(p => p.seat);
       g.wolfPlan.fakeSeer = bots.length && Math.random() < 0.6 ? choice(bots) : null;
@@ -908,8 +940,9 @@ class Bot {
       return { good: new Set(g.players.map(p => p.seat).filter(s => !wolf.has(s))), wolf, trusted: null, claims };
     }
     const revealed = g.players.filter(p => p.revealed);
-    const good = new Set([me.seat, ...revealed.filter(p => !isWolf(p)).map(p => p.seat)]);
+    const good = new Set([me.seat, ...revealed.filter(p => !isWolf(p)).map(p => p.seat), ...g.knightGold]);
     const wolf = new Set(revealed.filter(isWolf).map(p => p.seat));
+    if (g.hasLantern) return this.lanternAnalyze(g, me, good, wolf, claims);
     for (const [t, w] of this.checks) (w ? wolf : good).add(t);  // 預言家或拿到查驗的幸運兒
     if (me.role === "SEER") for (const c of claims.keys()) if (c !== me.seat) wolf.add(c);
     let changed = true;
@@ -927,6 +960,42 @@ class Bot {
     if (me.role !== "SEER" && cands.length) trusted = cands.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a);
     return { good, wolf, trusted, claims };
   }
+  // 燈影預言家板：兩張預言家牌一正一反，用確定的事實反推哪張準
+  lanternAnalyze(g, me, good, wolf, claims) {
+    const cards = ["SEER", "LANTERN"];
+    const mycard = cards.includes(me.role) ? me.role : null;
+    for (const [t, w] of this.checks) (w ? wolf : good).add(t);
+    if (mycard) for (const c of g.claimsOf(mycard).keys()) if (c !== me.seat) wolf.add(c);  // 跳我這張牌的是狼
+    const holder = {}, reports = {};
+    for (const card of cards) {
+      if (card === mycard) { holder[card] = me.seat; reports[card] = new Map(this.raw); continue; }
+      const cl = g.claimsOf(card);
+      const cands = [...cl.keys()].filter(c => !wolf.has(c) && c !== me.seat);
+      holder[card] = cands.length ? cands.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a) : null;
+      reports[card] = holder[card] != null ? cl.get(holder[card]) : new Map();
+    }
+    const acc = { SEER: null, LANTERN: null };
+    for (const card of cards) for (const [t, shown] of reports[card]) {
+      if (good.has(t)) acc[card] = !shown; else if (wolf.has(t)) acc[card] = shown;
+    }
+    if (acc.SEER == null && acc.LANTERN != null) acc.SEER = !acc.LANTERN;  // 一張準，另一張就是反的
+    if (acc.LANTERN == null && acc.SEER != null) acc.LANTERN = !acc.SEER;
+    if (mycard && acc[mycard] != null) for (const [t, shown] of this.raw) ((acc[mycard] ? shown : !shown) ? wolf : good).add(t);
+    const evidence = new Map();
+    for (const card of cards) {
+      if (card === mycard && acc[card] != null) continue;
+      let a = acc[card];
+      const weight = a != null ? 20 : 8;
+      if (a == null) a = card === "SEER" ? this.guessSeerAccurate : !this.guessSeerAccurate;
+      for (const [t, shown] of reports[card]) {
+        const truth = a ? shown : !shown;
+        evidence.set(t, (evidence.get(t) || 0) + (truth ? weight : -weight / 2));
+      }
+    }
+    const protectedSet = new Set(Object.values(holder).filter(h => h != null && h !== me.seat));
+    const trusted = holder.SEER !== me.seat ? holder.SEER : null;
+    return { good, wolf, trusted, claims, evidence, protected: protectedSet, cardAcc: acc };
+  }
   suspicion(g, me, k) {
     const today = g.today, base = new Map();
     for (const p of g.players) {
@@ -935,7 +1004,10 @@ class Bot {
       let v = this.pref[s] * 2;
       if (k.wolf.has(s)) v += 100;
       if (k.good.has(s)) v -= 100;
-      if (k.trusted != null) {
+      if (k.evidence) {  // 燈影預言家板
+        v += k.evidence.get(s) || 0;
+        if (k.protected.has(s)) v -= 15; else if (["SEER", "LANTERN"].includes(g.claimedRole(s))) v += 10;
+      } else if (k.trusted != null) {
         const checks = k.claims.get(k.trusted) || new Map();
         if (checks.has(s)) v += checks.get(s) ? 20 : -8;
         if (s === k.trusted) v -= 15; else if (k.claims.has(s)) v += 10;
@@ -980,9 +1052,9 @@ class Bot {
     if (!good.length) return null;
     const hunters = new Set(good.filter(s => g.claimedRole(s) === "HUNTER"));
     const claims = g.seerClaims();
-    const real = [...claims.keys()].filter(c => good.includes(c));
+    const real = [...[...claims.keys()].filter(c => good.includes(c)), ...[...g.claimsOf("LANTERN").keys()].filter(c => good.includes(c))];
     const witches = good.filter(s => g.claimedRole(s) === "WITCH");
-    const golds = real.flatMap(c => [...claims.get(c)].filter(([t, w]) => !w && good.includes(t)).map(([t]) => t));
+    const golds = real.flatMap(c => [...(g.claims.get(c)?.checks || new Map())].filter(([t, w]) => !w && good.includes(t)).map(([t]) => t));
     for (let grp of [real, witches, golds]) {
       grp = grp.filter(s => !hunters.has(s));
       if (grp.length && Math.random() < 0.85) return choice(grp);
@@ -1006,13 +1078,16 @@ class Bot {
   }
   chooseCheck(g, me) {
     const opts = g.checkOptions(me);  // 可能被虎姑婆誘導限制
-    let pool = opts.filter(s => !this.checks.has(s));
+    let pool = opts.filter(s => !this.checks.has(s) && !this.raw.has(s));
     if (!pool.length) pool = opts;
     if (!pool.length) return null;
     if (g.nightNo > 1 && Math.random() < 0.6) return this.top(this.suspicion(g, me, this.analyze(g, me)), pool);
     return choice(pool);
   }
-  onCheckResult(g, me, t, w) { this.checks.set(t, w); }
+  onCheckResult(g, me, t, w) {
+    if (g.hasLantern && (me.role === "SEER" || me.role === "LANTERN")) this.raw.set(t, w);  // 不知道自己準不準
+    else this.checks.set(t, w);
+  }
   speak(g, me) { return this.speech(g, me, false); }
   lastWords(g, me) { return this.speech(g, me, true); }
   accusedToday(g, me) { return !!g.today && g.today.speeches.some(sp => sp.accuse === me.seat); }
@@ -1020,6 +1095,12 @@ class Bot {
     const k = this.analyze(g, me);
     if (isWolf(me)) return this.wolfSpeech(g, me, k, last);
     const score = this.suspicion(g, me, k), top = this.top(score);
+    if (g.hasLantern && (me.role === "SEER" || me.role === "LANTERN") && this.raw.size) {
+      const acc = k.cardAcc[me.role];
+      const aliveWolves = [...k.wolf].filter(t => g.p(t).alive && t !== me.seat);
+      const text = acc == null ? "我不知道自己是正確還是反向查驗，大家一起對資訊" : acc ? "我確定我是正確查驗" : "我是反向查驗，結果要反過來看";
+      return mkSpeech(me.seat, { claim: me.role, checks: new Map(this.raw), accuse: [...aliveWolves, top][0], text });
+    }
     if (me.role === "SEER") {
       const already = g.claimedRole(me.seat) === "SEER";
       if (this.checks.size && (last || already || [...this.checks.values()].some(Boolean) || k.claims.size || Math.random() < 0.8)) {
@@ -1208,7 +1289,10 @@ class Bot {
     const alive = g.aliveSeats().filter(s => s !== me.seat);
     const certain = [...k.wolf].filter(s => alive.includes(s));
     if (certain.length) return certain[0];
-    if (g.nightNo >= 2 && k.trusted != null) {
+    if (g.nightNo >= 2 && k.evidence) {
+      const strong = [...k.evidence].filter(([t, v]) => v >= 20 && alive.includes(t)).map(([t]) => t);
+      if (strong.length && Math.random() < 0.5) return strong[0];
+    } else if (g.nightNo >= 2 && k.trusted != null) {
       const checked = [...(k.claims.get(k.trusted) || new Map())].filter(([t, w]) => w && alive.includes(t)).map(([t]) => t);
       if (checked.length && Math.random() < 0.5) return checked[0];
     }
@@ -1301,9 +1385,14 @@ class Human {
     if (g.lureRange) note += `。虎姑婆的誘導生效：今晚只能查驗 ${[...g.lureRange].sort(bySeat).join("、")}號`;
     let seats = g.checkOptions(me).filter(s => !this.checks.has(s));
     if (!seats.length) seats = g.checkOptions(me);
-    return this.ui.pickSeat({ title: "預言家：今晚要查驗誰？", note, seats });
+    if (g.hasLantern) note += "。不能驗自己、翻牌騎士和騎金";
+    return this.ui.pickSeat({ title: `${R[me.role]}：今晚要查驗誰？`, note, seats });
   }
-  onCheckResult(g, me, t, w) { this.checks.set(t, w); this.ui.say(`查驗結果：${t}號 是${w ? "狼人" : "好人"}`, "private"); }
+  onCheckResult(g, me, t, w) {
+    this.checks.set(t, w);
+    const note = g.hasLantern && (me.role === "SEER" || me.role === "LANTERN") ? "（你不知道自己是正確還是反向查驗，結果可能是反的）" : "";
+    this.ui.say(`查驗結果：${t}號 是${w ? "狼人" : "好人"}${note}`, "private");
+  }
   speak(g, me) { return this.ui.compose(g, me, false); }
   lastWords(g, me) { return this.ui.compose(g, me, true); }
   vote(g, me, cands) {
@@ -1378,7 +1467,7 @@ class Human {
 const $ = id => document.getElementById(id);
 const S = { mode: "play", preset: 0, role: "RANDOM", game: null, human: null, ui: null,
   custom: { WEREWOLF: 3, WOLF_KING: 1, SEER: 1, WITCH: 1, HUNTER: 1, DREAMER: 1, VILLAGER: 4 } };
-const MAX_ONE = new Set(["WOLF_KING", "AWAKENED", "WOLF_BEAUTY", "TIGER", "WILD_CHILD", "VILLAGE_GIRL", ...GODS]);
+const MAX_ONE = new Set(["WOLF_KING", "AWAKENED", "WOLF_BEAUTY", "TIGER", "WILD_CHILD", "VILLAGE_GIRL", "LANTERN", ...GODS]);
 function currentRoles() {
   if (S.preset >= 0) return [...PRESETS[S.preset].roles];
   return ROLE_ORDER.flatMap(r => Array(S.custom[r] || 0).fill(r));
@@ -1693,7 +1782,8 @@ function showResult(g, winner, humanSeat) {
         <thead><tr><th>座位</th><th>身份</th><th>結果</th></tr></thead>
         <tbody>${g.players.map(p => `<tr><td>${p.seat}號${p.seat === humanSeat ? "（你）" : ""}</td><td class="${g.alignment(p) === "WOLF" ? "w" : "g"}">${R[p.role]}${p.role === "WILD_CHILD" ? (p.turned ? "（轉狼）" : `（${g.alignment(p) === "WOLF" ? "狼陣營" : "好人陣營"}）`) : ""}</td><td>${p.alive ? "存活" : CAUSE[p.deathCause]}</td></tr>`).join("")}</tbody>
       </table></div></div>
-      <div class="field"><h3>夜晚行動</h3><ol class="godlog">${g.godLog.map(l => `<li>第 ${l.round} 夜：${esc(l.msg)}</li>`).join("")}</ol></div>
+      ${g.hasLantern ? `<div class="field"><h3>燈影預言家</h3><p>本局查驗正確的是<b>${g.seerCardAccurate ? "預言家" : "燈影預言家"}</b>牌，另一張是反向查驗。</p></div>` : ""}
+      <div class="field"><h3>夜晚行動</h3><ol class="godlog">${g.godLog.map(l => `<li>${l.round ? `第 ${l.round} 夜` : "開局"}：${esc(l.msg)}</li>`).join("")}</ol></div>
       ${voteRows ? `<div class="field"><h3>票型</h3><div class="votes">${voteRows}</div></div>` : ""}
       ${g.sheriffLog.length ? `<div class="field"><h3>警長</h3><ul class="godlog">${g.sheriffLog.map(l => `<li>${esc(l)}</li>`).join("")}</ul></div>` : ""}
       ${claims ? `<div class="field"><h3>預言家宣稱</h3><ul class="godlog">${claims}</ul></div>` : ""}
@@ -2583,7 +2673,7 @@ const QUIZ_TOPICS = [
 "變成狼人"
 ],
 0,
-"所以狼美人常迷魅神職。投出狼美人時要想到可能連帶犧牲一個好人。"
+"所以狼美人常迷魅神職。投出狼美人時要想到可能連帶犧牲一個好人（被騎士決鬥出局除外）。"
 ],
 [
 "狼美人可以連續兩晚迷魅同一個人嗎？",
@@ -2834,8 +2924,8 @@ const QUIZ_TOPICS = [
 "一同出局",
 "沒事"
 ],
-0,
-"不管狼美人怎麼出局，被迷魅的人都會跟著出局。"
+1,
+"狼美人被騎士決鬥時技能被封，被迷魅的人不會出局。其他出局方式（放逐、毒、獵人槍）都會連帶。"
 ],
 [
 "狼美人第一晚迷魅 5 號、第二晚迷魅 7 號，第三晚可以再迷魅 5 號嗎？",
@@ -2869,11 +2959,11 @@ const QUIZ_TOPICS = [
 "騎士決鬥狼美人成功，會發生什麼事？",
 [
 "狼美人和被她迷魅的人一起出局，立刻天黑",
-"只有狼美人出局，繼續投票",
+"只有狼美人出局（迷魅失效），立刻天黑",
 "騎士出局"
 ],
-0,
-"決鬥成功直接天黑，迷魅的連帶出局也會發生。"
+1,
+"決鬥成功直接天黑；狼美人被騎士決鬥時技能被封，迷魅的人不會跟著出局。"
 ],
 [
 "野孩子第一晚選了小狼當榜樣，他屬於哪個陣營？",
@@ -2997,6 +3087,232 @@ const QUIZ_TOPICS = [
 "預言家、女巫、騎士、守衛、村姑加 5 個平民，共 10 人。"
 ]
 ]
+},
+{
+"name": "燈影預言家（15 人）",
+"qs": [
+[
+"燈影預言家板裡，預言家牌和燈影預言家牌的查驗是？",
+[
+"兩張都正確",
+"一張正確、一張反向，由主持人開局決定",
+"兩張都反向"
+],
+1,
+"主持人開局就決定好，整局不會變。"
+],
+[
+"拿到預言家牌的人，知道自己是正確還是反向查驗嗎？",
+[
+"知道",
+"不知道"
+],
+1,
+"兩位預言家都不知道，要靠場上的資訊自己推。"
+],
+[
+"預言家牌站哪個坑？",
+[
+"神坑",
+"民坑"
+],
+0,
+"預言家算在五神裡。"
+],
+[
+"燈影預言家站哪個坑？",
+[
+"神坑",
+"民坑"
+],
+1,
+"燈影預言家算在民那一邊，狼人要殺光「四民 + 燈影預」才算屠民。"
+],
+[
+"如果預言家牌是反向查驗，燈影預言家牌是？",
+[
+"正確查驗",
+"也是反向",
+"不能查驗"
+],
+0,
+"兩張一定一正一反。"
+],
+[
+"預言家和燈影預言家都驗了 5 號，兩人都說 5 號是好人，代表什麼？",
+[
+"5 號一定是好人",
+"其中一人說謊（可能是悍跳的狼）",
+"兩個都是反向查驗"
+],
+1,
+"真的兩張牌一正一反，驗同一個人結果一定相反；說法一樣就有人在說謊。"
+],
+[
+"預言家驗 5 號是狼，燈影預言家驗 5 號是好人，可以確定 5 號的身份嗎？",
+[
+"可以，是狼",
+"可以，是好人",
+"不能，要先知道哪張牌是準的"
+],
+2,
+"這正是兩張牌應有的結果，只靠這兩個查驗分不出誰準。"
+],
+[
+"你是平民，預言家說你是狼，你可以推出什麼？",
+[
+"如果他真的拿預言家牌，預言家牌就是反向、燈影預言家牌是正確",
+"你其實是狼",
+"什麼都推不出來"
+],
+0,
+"你知道自己是好人，這是最直接的校準資訊。也要考慮他可能是悍跳的狼。"
+],
+[
+"預言家查殺了 3 號，之後 3 號自爆翻牌是狼，代表什麼？",
+[
+"預言家牌正確，燈影預言家牌反向",
+"預言家牌反向",
+"無法判斷"
+],
+0,
+"查殺的對象真的是狼，代表查驗正確；另一張就是反的。"
+],
+[
+"燈影預言家驗 8 號是好人，後來 8 號翻牌是狼王，代表什麼？",
+[
+"燈影預言家是反向查驗，預言家是正確查驗",
+"燈影預言家是正確查驗",
+"無法判斷"
+],
+0,
+"驗到狼卻看到好人，就是反向查驗。"
+],
+[
+"兩位預言家可以驗已經翻牌的騎士嗎？",
+[
+"可以",
+"不可以"
+],
+1,
+"也不能驗自己和騎金。"
+],
+[
+"「騎金」是什麼？",
+[
+"騎士決鬥失敗而證實是好人的人",
+"騎士自己",
+"騎士決鬥出局的狼"
+],
+0,
+"騎士決鬥到好人，騎士出局，被決鬥的人就被證實是好人。"
+],
+[
+"為什麼規定兩位預言家不能驗翻牌的騎士和騎金？",
+[
+"避免直接驗確定的好人來確認自己是不是反向查驗",
+"因為騎士免疫查驗",
+"沒有原因"
+],
+0,
+"這個板子的樂趣就是要靠推理找出誰準，不能用確定答案來校準。"
+],
+[
+"燈影預言家板的狼人怎樣獲勝？",
+[
+"五神全部出局，或「四民 + 燈影預言家」全部出局",
+"殺光所有好人",
+"五神或五民出局"
+],
+0,
+"燈影預言家站民坑，算在民那一邊。"
+],
+[
+"燈影預言家板的「五神」是哪些？",
+[
+"預言家、女巫、騎士、守衛、獵人",
+"預言家、燈影預言家、女巫、騎士、守衛",
+"女巫、騎士、守衛、獵人、燈影預言家"
+],
+0,
+"燈影預言家不是神。"
+],
+[
+"四個平民都出局了，但燈影預言家還活著，狼人贏了嗎？",
+[
+"還沒有",
+"已經贏了"
+],
+0,
+"要連燈影預言家也出局，才算屠民。"
+],
+[
+"燈影預言家板的好人怎樣獲勝？",
+[
+"五狼（狼王、狼美人、3 小狼）全部出局",
+"找出燈影預言家",
+"預言家活到最後"
+],
+0,
+"和一般板子一樣，把狼全部找出來。"
+],
+[
+"燈影預言家板，狼人晚上可以殺狼美人（自刀）嗎？",
+[
+"可以",
+"不可以"
+],
+1,
+"海報寫明狼美人不可自刀。"
+],
+[
+"狼美人被騎士決鬥出局，被她迷魅的人會怎樣？",
+[
+"一同出局",
+"技能被封，不會出局"
+],
+1,
+"騎士撞封狼美人的技能。"
+],
+[
+"狼美人白天被投票放逐，被她迷魅的人會怎樣？",
+[
+"一同出局",
+"不會出局"
+],
+0,
+"只有被騎士決鬥時技能才會失效。"
+],
+[
+"狼王白天被投票放逐，可以發動狼爪嗎？",
+[
+"可以帶走一人",
+"不可以"
+],
+0,
+"狼王只有被毒時技能被封。"
+],
+[
+"燈影預言家板的夜晚，預言家和燈影預言家誰先睜眼？",
+[
+"預言家",
+"燈影預言家",
+"同時睜眼"
+],
+0,
+"順序：守衛 → 狼人 → 狼美人 → 女巫 → 騎士 → 獵人 → 預言家 → 燈影預言家。"
+],
+[
+"兩位預言家要怎麼找出誰的查驗是準的？",
+[
+"對照確定的資訊：自己被查殺的好人、翻牌或自爆的狼、騎士決鬥的結果",
+"去驗騎士",
+"看誰發言比較好聽"
+],
+0,
+"只要確定其中一張準不準，另一張就一定相反。"
+]
+]
 }
 ];
 const QUIZ = QUIZ_TOPICS.flatMap(t => t.qs);
@@ -3067,12 +3383,21 @@ $("sheet").innerHTML = `
   <h2>村姑與虎姑婆（15 人）</h2>
   <p class="hint">狼美人、虎姑婆、2 小狼、野孩子｜預言家、女巫、騎士、守衛、村姑｜5 平民。夜晚順序：野孩子（首夜）→ 狼人（狼美人迷魅、虎姑婆誘導）→ 守衛 → 女巫 → 村姑 → 預言家。</p>
   <dl class="terms">
-    <dt>狼美人</dt><dd>每晚可迷魅一人，不能連續兩晚同一人。狼美人出局時，被迷魅的人一同出局。不能自爆。</dd>
+    <dt>狼美人</dt><dd>每晚可迷魅一人，不能連續兩晚同一人。狼美人出局時，被迷魅的人一同出局。不能自爆、不能被自刀；被騎士決鬥出局時技能被封。</dd>
     <dt>虎姑婆</dt><dd>【誘導】第二晚起每隔一晚：選一個號碼，預言家和村姑當晚只能驗它和左右兩人；新範圍不能和上次重疊（上次 3 → 2、3、4，下次最近只能 6 或 12）。野孩子入狼隊時整局只能用一次。【惡靈反傷】整局一次：被查驗或被毒時，使用技能的人出局，順序是村姑 > 預言家 > 女巫。</dd>
     <dt>野孩子</dt><dd>首夜選榜樣。榜樣是狼就屬於狼陣營（不知道狼是誰），是好人就是好人；榜樣出局後轉入狼隊。榜樣是村姑永遠是好人，是虎姑婆立刻知道狼隊。被驗永遠是金水；轉狼後好人不用放逐他也能贏。</dd>
     <dt>騎士</dt><dd>白天發言時可以翻牌決鬥一人（整局一次）：是狼就出局並立刻天黑；是好人騎士出局。</dd>
     <dt>村姑</dt><dd>整局一次查驗，投過票後的夜晚才能用。準不準看她的票，優先看警長票：警長票投狼 → 正確，投好人 → 相反；放逐票投狼 → 相反，投好人 → 正確。</dd>
     <dt>勝利條件</dt><dd>狼人：四神（預、女、騎、守）或五民全部出局，村姑和野孩子不算。好人：四狼（狼美人、虎姑婆、2 小狼）出局。</dd>
+  </dl>
+  <h2>燈影預言家（15 人）</h2>
+  <p class="hint">狼王、狼美人、3 小狼｜預言家、女巫、騎士、守衛、獵人｜燈影預言家 + 4 平民。夜晚順序：守衛 → 狼人 → 狼美人 → 女巫 → 騎士 → 獵人 → 預言家 → 燈影預言家。</p>
+  <dl class="terms">
+    <dt>兩張預言家牌</dt><dd>開局主持人決定一張正確查驗、另一張反向查驗，兩人都不知道自己是哪種。預言家牌站神坑，燈影預言家牌站民坑。</dd>
+    <dt>查驗限制</dt><dd>兩位預言家都不能驗自己、翻牌的騎士和騎金（騎士決鬥失敗證實的好人），不能用確定的好人校準。</dd>
+    <dt>怎麼推</dt><dd>真的兩張牌驗同一個人，結果一定相反。用確定的事實反推哪張準：被查殺的人就是你自己、翻牌或自爆的狼、騎士決鬥的結果。確定一張，另一張就一定相反。</dd>
+    <dt>狼美人、狼王</dt><dd>狼美人不能被自刀，被騎士決鬥時技能被封；狼王被毒時不能帶人。</dd>
+    <dt>勝利條件</dt><dd>狼人：五神（預、女、騎、守、獵）或「四民 + 燈影預言家」全部出局。好人：五狼出局。</dd>
   </dl>
   <h2>勝利條件</h2>
   <ul><li>好人：所有狼人出局。</li><li>狼人（屠邊，最常見）：殺光所有平民，或殺光所有神職。</li><li>狼人（屠城）：殺光所有好人。</li></ul>

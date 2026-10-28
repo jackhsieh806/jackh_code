@@ -85,7 +85,8 @@ class HumanController(Controller):
         return None, None
 
     def choose_check(self, game: Game, me: Player) -> int | None:
-        print("\n🔮 預言家請睜眼。", end="")
+        label = "燈影預言家" if me.role is Role.LANTERN_SEER else "預言家"
+        print(f"\n🔮 {label}請睜眼。", end="")
         if self.checks:
             print("你之前的查驗：" + "、".join(
                 f"{t}號={'狼' if w else '好'}" for t, w in self.checks.items()))
@@ -94,6 +95,8 @@ class HumanController(Controller):
         options = game.check_options(me)
         if game.lure_range is not None:
             print(f"  ⚠️ 虎姑婆的誘導生效：今晚只能查驗 {'、'.join(map(str, sorted(game.lure_range)))}號")
+        if game.has_lantern:
+            print("  （不能驗自己、翻牌的騎士和騎金）")
         if not options:
             print("  今晚沒有可以查驗的人。")
             return None
@@ -101,7 +104,10 @@ class HumanController(Controller):
 
     def on_check_result(self, game: Game, me: Player, target: int, is_wolf: bool) -> None:
         self.checks[target] = is_wolf
-        print(f"  👉 {target}號 是 {'🐺 狼人' if is_wolf else '😇 好人'}")
+        note = ""
+        if game.has_lantern and me.role in (Role.SEER, Role.LANTERN_SEER):
+            note = "（你不知道自己是正確還是反向查驗，結果可能是反的）"
+        print(f"  👉 {target}號 是 {'🐺 狼人' if is_wolf else '😇 好人'}{note}")
 
     # ------------------------------------------------------------ 白天
     def speak(self, game: Game, me: Player) -> Speech:

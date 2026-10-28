@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .engine import ITEMS, Controller, Game, Player, Speech
 from .roles import Role
@@ -23,6 +23,10 @@ class Knowledge:
     wolf: set[int]                     # 確定是狼人
     trusted: int | None                # 選擇相信的預言家
     claims: dict[int, dict[int, bool]]  # 所有跳預言家的人與其查驗
+    # 燈影預言家板：兩張預言家牌的查驗都不確定，改用加權的線索
+    evidence: dict[int, float] | None = None
+    protected: set[int] = field(default_factory=set)   # 看起來是真的兩位預言家
+    card_acc: dict = field(default_factory=dict)        # {Role.SEER / Role.LANTERN_SEER: 是否正確查驗}
 
 
 class BotController(Controller):
@@ -36,11 +40,13 @@ class BotController(Controller):
         self.traded: tuple[int, str] | None = None  # 奇蹟商人交易紀錄
         self.girl_seen: tuple[int, bool, bool] | None = None  # 村姑：(目標, 看到狼?, 確定準確?)
         self.soft: dict[int, float] = {}        # 不確定的線索（村姑猜測的結果）
+        self.raw: dict[int, bool] = {}          # 燈影預言家板：自己看到的查驗（可能是反的）
 
     # ------------------------------------------------------------ 初始化與推理
     def setup(self, game: Game, me: Player) -> None:
         self.rng = game.rng
         self.pref = {s: self.rng.random() for s in game.players}
+        self.guess_seer_accurate = self.rng.random() < 0.5   # 推不出來時，猜哪張預言家牌是準的
         if me.is_wolf and "fake_seer" not in game.wolf_plan:
             bots = [p.seat for p in game.players.values()
                     if p.is_wolf and not game.controllers[p.seat].is_human]
@@ -55,8 +61,10 @@ class BotController(Controller):
             return Knowledge(set(game.players) - wolves, wolves, None, claims)
 
         revealed = [p for p in game.players.values() if p.revealed]
-        good = {me.seat} | {p.seat for p in revealed if not p.is_wolf}
+        good = {me.seat} | {p.seat for p in revealed if not p.is_wolf} | game.knight_gold
         wolf: set[int] = {p.seat for p in revealed if p.is_wolf}  # 翻牌的狼王
+        if game.has_lantern:
+            return self._lantern_analyze(game, me, good, wolf, claims)
         for t, is_wolf in self.checks.items():  # 預言家或拿到查驗的幸運兒
             (wolf if is_wolf else good).add(t)
         if me.role is Role.SEER:
@@ -76,6 +84,52 @@ class BotController(Controller):
             trusted = max(candidates, key=lambda c: self.pref[c])
         return Knowledge(good, wolf, trusted, claims)
 
+    def _lantern_analyze(self, game: Game, me: Player, good: set[int], wolf: set[int],
+                         claims: dict[int, dict[int, bool]]) -> Knowledge:
+        """燈影預言家板：兩張預言家牌一張正確、一張反向，用確定的事實反推哪張是準的。"""
+        cards = (Role.SEER, Role.LANTERN_SEER)
+        mycard = me.role if me.role in cards else None
+        for t, w in self.checks.items():          # 幸運兒等其他確定查驗（本板沒有，保留通用性）
+            (wolf if w else good).add(t)
+        if mycard:                                 # 跳我這張牌的其他人一定是狼
+            wolf |= {c for c in game.claims_of(mycard) if c != me.seat}
+        holder: dict[Role, int | None] = {}
+        reports: dict[Role, dict[int, bool]] = {}
+        for card in cards:
+            if card is mycard:
+                holder[card], reports[card] = me.seat, dict(self.raw)
+                continue
+            cands = [c for c in game.claims_of(card) if c not in wolf and c != me.seat]
+            holder[card] = max(cands, key=lambda c: self.pref[c]) if cands else None
+            reports[card] = game.claims_of(card).get(holder[card], {}) if holder[card] else {}
+        acc: dict[Role, bool | None] = {c: None for c in cards}
+        for card in cards:                         # 報出的結果和確定的事實比對
+            for t, shown in reports[card].items():
+                if t in good:
+                    acc[card] = not shown
+                elif t in wolf:
+                    acc[card] = shown
+        for a, b in (cards, cards[::-1]):          # 一張準，另一張就一定是反的
+            if acc[a] is None and acc[b] is not None:
+                acc[a] = not acc[b]
+        if mycard and acc[mycard] is not None:     # 知道自己準不準 → 自己的查驗變成確定資訊
+            for t, shown in self.raw.items():
+                (wolf if (shown if acc[mycard] else not shown) else good).add(t)
+        evidence: dict[int, float] = {}
+        for card in cards:
+            if card is mycard and acc[card] is not None:
+                continue
+            a = acc[card]
+            weight = 20 if a is not None else 8
+            if a is None:
+                a = self.guess_seer_accurate if card is Role.SEER else not self.guess_seer_accurate
+            for t, shown in reports[card].items():
+                truth = shown if a else not shown
+                evidence[t] = evidence.get(t, 0) + (weight if truth else -weight / 2)
+        protected = {h for h in holder.values() if h is not None and h != me.seat}
+        trusted = holder[Role.SEER] if holder[Role.SEER] != me.seat else None
+        return Knowledge(good, wolf, trusted, claims, evidence, protected, acc)
+
     def suspicion(self, game: Game, me: Player, k: Knowledge) -> dict[int, float]:
         today = game.today
         base: dict[int, float] = {}
@@ -88,7 +142,13 @@ class BotController(Controller):
                 v += 100
             if s in k.good:
                 v -= 100
-            if k.trusted is not None:
+            if k.evidence is not None:            # 燈影預言家板
+                v += k.evidence.get(s, 0)
+                if s in k.protected:
+                    v -= 15
+                elif game.claimed_role(s) in (Role.SEER, Role.LANTERN_SEER):
+                    v += 10                       # 和看起來是真的預言家對跳
+            elif k.trusted is not None:
                 checks = k.claims.get(k.trusted, {})
                 if s in checks:
                     v += 20 if checks[s] else -8
@@ -147,9 +207,11 @@ class BotController(Controller):
             return None
         hunters = {s for s in good if game.claimed_role(s) is Role.HUNTER}
         claims = game.seer_claims()
-        real_seers = [c for c in claims if c in good]
+        real_seers = [c for c in claims if c in good] + \
+                     [c for c in game.claims_of(Role.LANTERN_SEER) if c in good]
         witches = [s for s in good if game.claimed_role(s) is Role.WITCH]
-        golds = [t for c in real_seers for t, w in claims[c].items() if not w and t in good]
+        golds = [t for c in real_seers for t, w in game.claims.get(c, {}).get("checks", {}).items()
+                 if not w and t in good]
         for group in (real_seers, witches, golds):
             group = [s for s in group if s not in hunters]
             if group and self.rng.random() < 0.85:
@@ -177,7 +239,7 @@ class BotController(Controller):
 
     def choose_check(self, game: Game, me: Player) -> int | None:
         options = game.check_options(me)   # 可能被虎姑婆誘導限制
-        pool = [s for s in options if s not in self.checks] or options
+        pool = [s for s in options if s not in self.checks and s not in self.raw] or options
         if not pool:
             return None
         if game.night_no > 1 and self.rng.random() < 0.6:
@@ -186,7 +248,10 @@ class BotController(Controller):
         return self.rng.choice(pool)
 
     def on_check_result(self, game: Game, me: Player, target: int, is_wolf: bool) -> None:
-        self.checks[target] = is_wolf
+        if game.has_lantern and me.role in (Role.SEER, Role.LANTERN_SEER):
+            self.raw[target] = is_wolf     # 不知道自己準不準，先記下看到的結果
+        else:
+            self.checks[target] = is_wolf
 
     # ------------------------------------------------------------ 白天
     def speak(self, game: Game, me: Player) -> Speech:
@@ -205,6 +270,14 @@ class BotController(Controller):
         score = self.suspicion(game, me, k)
         top = self._top(score)
 
+        if game.has_lantern and me.role in (Role.SEER, Role.LANTERN_SEER) and self.raw:
+            acc = k.card_acc.get(me.role)
+            alive_wolves = [t for t in k.wolf if game.players[t].alive and t != me.seat]
+            if acc is None:
+                text = "我不知道自己是正確還是反向查驗，大家一起對資訊"
+            else:
+                text = "我確定我是正確查驗" if acc else "我是反向查驗，結果要反過來看"
+            return Speech(me.seat, me.role, dict(self.raw), (alive_wolves or [top])[0], text)
         if me.role is Role.SEER:
             already = game.claimed_role(me.seat) is Role.SEER
             if self.checks and (last or already or any(self.checks.values())
@@ -505,7 +578,11 @@ class BotController(Controller):
         certain = [s for s in k.wolf if s in alive]
         if certain:
             return certain[0]
-        if game.night_no >= 2 and k.trusted is not None:
+        if game.night_no >= 2 and k.evidence is not None:
+            strong = [t for t, v in k.evidence.items() if v >= 20 and t in alive]
+            if strong and self.rng.random() < 0.5:
+                return strong[0]
+        elif game.night_no >= 2 and k.trusted is not None:
             checked = [t for t, w in k.claims.get(k.trusted, {}).items() if w and t in alive]
             if checked and self.rng.random() < 0.5:
                 return checked[0]

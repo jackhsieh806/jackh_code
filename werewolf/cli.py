@@ -28,11 +28,8 @@ def custom_board() -> list[Role]:
         for r in Role:
             raw = ask(f"  {r.value} × ")
             n = int(raw) if raw.isdigit() else 0
-            if r in (Role.WOLF_KING, Role.AWAKENED_WOLF_KING) and n > 1:
-                print("  （狼王類角色最多 1 張）")
-                n = 1
-            if r.is_god and n > 1:
-                print("  （神職每種最多 1 張）")
+            if r not in (Role.WEREWOLF, Role.VILLAGER) and n > 1:
+                print("  （這個角色最多 1 張）")
                 n = 1
             roles += [r] * n
         wolves = sum(r.team is Team.WOLF for r in roles)
@@ -53,6 +50,10 @@ def review(game: Game, human_seat: int | None = None) -> None:
         if p.role is Role.WILD_CHILD:
             role += "（轉狼）" if p.turned else f"（{game.alignment(p).value}）"
         print(f"  {p.seat:>2}號 {role:<4} {status}{me}")
+
+    if game.has_lantern:
+        right = Role.SEER if game.seer_card_accurate else Role.LANTERN_SEER
+        print(f"\n🏮 本局查驗正確的是【{right.value}】牌，另一張是反向查驗。")
 
     print("\n上帝視角（夜晚行動）：")
     for line in game.god_log:
