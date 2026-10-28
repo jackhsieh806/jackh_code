@@ -210,6 +210,10 @@ class Game:
         self.girl_used = False
         self.sheriff_votes: dict[int, int | None] = {}
         self.knight_used = False
+        self.knight_gold: set[int] = set()   # 騎士決鬥失敗而證實是好人的人（騎金）
+        # 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張是反向查驗
+        self.has_lantern = any(p.role is Role.LANTERN_SEER for p in self.players.values())
+        self.seer_card_accurate = self.rng.random() < 0.5 if self.has_lantern else True
         self.claims: dict[int, dict] = {}   # 公開宣稱：seat -> {"role": Role, "checks": {t: is_wolf}}
         self.nights: list[NightRecord] = []
         self.days: list[DayRecord] = []
@@ -262,9 +266,23 @@ class Game:
         """查驗結果是否為狼。野孩子永遠驗出好人（金水）。"""
         return self.players[seat].role.team is Team.WOLF
 
+    def card_accurate(self, role: Role) -> bool:
+        """這張預言家牌的查驗是否正確（只有燈影預言家板會有反向查驗）。"""
+        if role is Role.LANTERN_SEER:
+            return not self.seer_card_accurate
+        return self.seer_card_accurate if role is Role.SEER else True
+
+    def claims_of(self, role: Role) -> dict[int, dict[int, bool]]:
+        return {s: dict(c["checks"]) for s, c in self.claims.items() if c["role"] is role}
+
     def check_options(self, me: Player) -> list[int]:
-        """預言家／村姑今晚可以查驗的人（受虎姑婆誘導限制）。"""
+        """預言家／村姑今晚可以查驗的人（受虎姑婆誘導限制）。
+
+        燈影預言家板：兩位預言家都不能驗翻牌的騎士和騎金，避免用來確認自己是不是反向查驗。"""
         seats = [s for s in self.alive_seats() if s != me.seat]
+        if self.has_lantern and me.role in (Role.SEER, Role.LANTERN_SEER):
+            seats = [s for s in seats if s not in self.knight_gold
+                     and not (self.players[s].role is Role.KNIGHT and self.players[s].revealed)]
         if self.lure_range is not None:
             seats = [s for s in seats if s in self.lure_range]
         return seats
@@ -278,9 +296,10 @@ class Game:
             return Team.WOLF if not good else None
         everyone = self.players.values()
         board_has_gods = any(p.role.is_god for p in everyone)
-        board_has_villagers = any(p.role is Role.VILLAGER for p in everyone)
+        villager_side = (Role.VILLAGER, Role.LANTERN_SEER)   # 燈影預言家站民坑
+        board_has_villagers = any(p.role in villager_side for p in everyone)
         gods_dead = board_has_gods and not any(p.role.is_god for p in good)
-        villagers_dead = board_has_villagers and not any(p.role is Role.VILLAGER for p in good)
+        villagers_dead = board_has_villagers and not any(p.role in villager_side for p in good)
         return Team.WOLF if (gods_dead or villagers_dead or not good) else None
 
     @staticmethod
@@ -328,6 +347,9 @@ class Game:
         if self._setup_done:
             return
         self._setup_done = True
+        if self.has_lantern:
+            self.secret("主持人決定：" + ("預言家牌正確查驗、燈影預言家牌反向查驗" if self.seer_card_accurate
+                                          else "預言家牌反向查驗、燈影預言家牌正確查驗"))
         for seat, p in self.players.items():
             self.controllers[seat].setup(self, p)
 
@@ -434,6 +456,8 @@ class Game:
         if wolves:
             leader = next((w for w in wolves if self.controllers[w.seat].is_human), wolves[0])
             t = self.controllers[leader.seat].choose_kill(self, leader)
+            if t in alive and self.players[t].role is Role.WOLF_BEAUTY:
+                t = None   # 狼美人不能被自刀
             rec.kill = t if t in alive else None
             self.secret(f"狼人({'、'.join(str(w.seat) for w in wolves)}號) 殺 {rec.kill}號"
                         if rec.kill else "狼人空刀")
@@ -505,10 +529,23 @@ class Game:
             t = self.controllers[seer.seat].choose_check(self, seer) if options else None
             if t in options:
                 seer_target = t
-                result = self.check_result(t)
+                truth = self.check_result(t)
+                result = truth if self.card_accurate(Role.SEER) else not truth
                 rec.check = (t, result)
                 self.controllers[seer.seat].on_check_result(self, seer, t, result)
-                self.secret(f"預言家({seer.seat}號) 查驗 {t}號 → {'狼人' if result else '好人'}")
+                note = "" if result == truth else "（反向）"
+                self.secret(f"預言家({seer.seat}號) 查驗 {t}號 → {'狼人' if result else '好人'}{note}")
+
+        lantern = self.alive_with_role(Role.LANTERN_SEER)
+        if lantern:
+            options = self.check_options(lantern)
+            t = self.controllers[lantern.seat].choose_check(self, lantern) if options else None
+            if t in options:
+                truth = self.check_result(t)
+                result = truth if self.card_accurate(Role.LANTERN_SEER) else not truth
+                self.controllers[lantern.seat].on_check_result(self, lantern, t, result)
+                note = "" if result == truth else "（反向）"
+                self.secret(f"燈影預言家({lantern.seat}號) 查驗 {t}號 → {'狼人' if result else '好人'}{note}")
 
         reflect_death = None
         tiger = self.alive_with_role(Role.TIGER_GRANDMA)
@@ -778,7 +815,8 @@ class Game:
         self._mark_dead(seat, cause)
         p = self.players[seat]
         c = self.charm
-        if p.role is Role.WOLF_BEAUTY and c is not None and self.players[c].alive:
+        # 狼美人被騎士決鬥出局時技能失效
+        if p.role is Role.WOLF_BEAUTY and cause != "duel" and c is not None and self.players[c].alive:
             self.say(f"💔 {c}號 被狼美人迷魅，一同出局。")
             self._mark_dead(c, "charm")
             self._death_trigger(c, "charm")
@@ -832,6 +870,7 @@ class Game:
             self._kill(t, "duel")
             self._death_trigger(t, "duel")
             return True
+        self.knight_gold.add(t)
         self.say(f"⚔️  {knight.seat}號 翻牌【騎士】決鬥 {t}號：{t}號 是好人，騎士以死謝罪。")
         self._kill(knight.seat, "duel_fail")
         return False
@@ -889,7 +928,7 @@ class Game:
             prev = self.claims.get(seat)
             checks = dict(prev["checks"]) if prev and prev["role"] is speech.claim else {}
             self.claims[seat] = {"role": speech.claim, "checks": checks}
-        if speech.checks and self.claimed_role(seat) is Role.SEER:
+        if speech.checks and self.claimed_role(seat) in (Role.SEER, Role.LANTERN_SEER):
             self.claims[seat]["checks"].update(speech.checks)
         if self.today is not None:
             self.today.speeches.append(speech)

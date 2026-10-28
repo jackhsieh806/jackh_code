@@ -602,6 +602,101 @@ class KnightAndGirlTest(unittest.TestCase):
         self.assertIs(g.check_winner(), Team.WOLF)      # 五民全滅，村姑還活著也一樣
 
 
+LS = Role.LANTERN_SEER
+# 座位：1 狼王、2 狼美人、3-5 小狼、6 預言家、7 女巫、8 騎士、9 守衛、10 獵人、11 燈影預言家、12-15 平民
+LANTERN_BOARD = [WK, WB, W, W, W, S, WI, KN, G, H, LS, V, V, V, V]
+
+
+def lantern_game(overrides=None, seer_accurate=True):
+    base = lambda: dict(choose_charm=lambda g, m: None, knight_duel=lambda g, m: None,
+                        self_explode=lambda g, m: False)
+    ctrls = {}
+    for seat in range(1, 16):
+        b = base()
+        b.update((overrides or {}).get(seat, {}))
+        ctrls[seat] = Scripted(**idle(**b))
+    g = quiet_game(LANTERN_BOARD, ctrls)
+    g.seer_card_accurate = seer_accurate
+    g.setup()
+    return g
+
+
+class LanternSeerTest(unittest.TestCase):
+    def test_exactly_one_card_is_accurate(self):
+        for accurate in (True, False):
+            seen = {}
+            g = lantern_game({6: {"choose_check": lambda g, m: 3,
+                                  "on_check_result": lambda g, m, t, w: seen.__setitem__("seer", w)},
+                              11: {"choose_check": lambda g, m: 3,
+                                   "on_check_result": lambda g, m, t, w: seen.__setitem__("lantern", w)}},
+                             seer_accurate=accurate)
+            g.run_night()
+            self.assertEqual(seen, {"seer": accurate, "lantern": not accurate})  # 3 號是狼
+
+    def test_cannot_check_revealed_knight_or_knight_gold(self):
+        g = lantern_game()
+        g.players[8].revealed = True
+        g.knight_gold.add(12)
+        options = g.check_options(g.players[6])
+        self.assertNotIn(8, options)
+        self.assertNotIn(12, options)
+        self.assertNotIn(6, options)
+        self.assertIn(13, options)
+
+    def test_lantern_counts_with_villagers(self):
+        g = lantern_game()
+        for s in (12, 13, 14, 15):
+            g.players[s].alive = False
+        self.assertIsNone(g.check_winner())       # 四民出局，燈影預還活著
+        g.players[11].alive = False
+        self.assertIs(g.check_winner(), Team.WOLF)
+
+    def test_lantern_is_not_a_god(self):
+        g = lantern_game()
+        for s in (6, 7, 8, 9, 10):
+            g.players[s].alive = False
+        self.assertIs(g.check_winner(), Team.WOLF)   # 五神出局
+
+    def test_beauty_cannot_be_self_knifed(self):
+        g = lantern_game({1: {"choose_kill": lambda g, m: 2}})
+        self.assertIsNone(g.run_night().kill)
+
+    def test_duel_seals_beauty_charm(self):
+        ctrls = {s: {"vote": lambda g, m, c: never()} for s in range(1, 16)}
+        ctrls[2] = {"choose_charm": lambda g, m: 13, "vote": lambda g, m, c: never()}
+        ctrls[8] = {"knight_duel": lambda g, m: 2, "vote": lambda g, m, c: never()}
+        g = lantern_game(ctrls)
+        g.run_dawn(g.run_night())
+        g.run_day()
+        self.assertEqual(g.players[2].death_cause, "duel")
+        self.assertTrue(g.players[13].alive)      # 被騎士決鬥，迷魅失效
+
+    def test_failed_duel_makes_knight_gold(self):
+        ctrls = {s: {"vote": lambda g, m, c: None} for s in range(1, 16)}
+        ctrls[8] = {"knight_duel": lambda g, m: 12, "vote": lambda g, m, c: None}
+        g = lantern_game(ctrls)
+        g.run_dawn(g.run_night())
+        g.run_day()
+        self.assertIn(12, g.knight_gold)
+
+    def test_bot_deduces_card_accuracy_from_known_wolf(self):
+        g = lantern_game()
+        bot = g.controllers[6]
+        bot.raw = {1: True}                       # 預言家看到 1 號是狼
+        g.players[1].revealed = True              # 1 號狼王翻牌，確定是狼
+        k = bot.analyze(g, g.players[6])
+        self.assertTrue(k.card_acc[Role.SEER])
+        self.assertFalse(k.card_acc[Role.LANTERN_SEER])
+
+    def test_bot_uses_self_knowledge(self):
+        g = lantern_game()
+        g.days.append(DayRecord(1))
+        g._register_speech(Speech(11, Role.LANTERN_SEER, {13: True}))   # 說 13 號是狼
+        k = g.controllers[13].analyze(g, g.players[13])
+        self.assertFalse(k.card_acc[Role.LANTERN_SEER])   # 13 號知道自己是好人 → 燈影預是反的
+        self.assertTrue(k.card_acc[Role.SEER])
+
+
 class SimulationTest(unittest.TestCase):
     def test_many_bot_games_finish(self):
         rng = random.Random(42)
