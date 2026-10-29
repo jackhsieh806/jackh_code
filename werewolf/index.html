@@ -183,6 +183,19 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 .chips .chip { min-width: 0; padding: 4px 0; }
 .chip.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 700; }
 .chip.dim { opacity: .35; }
+.chip.out { opacity: .6; border-style: dashed; text-decoration: line-through; }
+.el-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.el-row:first-child { border-top: none; }
+.el-row b { min-width: 74px; }
+.el-row input { flex: 1; min-width: 0; min-height: 38px; padding: 6px 10px; }
+.lt { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lt th, .lt td { padding: 6px 4px; border-top: 1px solid var(--line); text-align: center; }
+.lt th { color: var(--muted); font-weight: 500; border-top: none; }
+.lt td:first-child { font-weight: 700; }
+.lt .both { font-weight: 700; }
+.world { padding: 8px 10px; border-radius: 10px; background: var(--panel-2); margin-top: 8px; font-size: 14px; line-height: 1.5; }
+.world.bad { box-shadow: inset 3px 0 0 var(--wolf); }
+.world.ok { box-shadow: inset 3px 0 0 var(--good); }
 .tally { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
 .tally-row { display: flex; gap: 8px; font-size: 14px; align-items: baseline; }
 .tally-row b { min-width: 46px; }
@@ -312,6 +325,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       roles: ['預言家', '女巫', '騎士', '守衛', '村姑', '平民', '狼美人', '虎姑婆', '小狼', '野孩子'],
       causes: ['被刀', '被毒', '被投出', '被騎士決鬥', '被狼美人帶走', '被反傷', '自爆', '其他'],
       checkers: ['預言家', '村姑'],
+      knight: true,
       wolfCount: '4 狼 + 野孩子',
       wolfSlots: 5,
       setup: {
@@ -341,6 +355,40 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       },
       win: { wolf: '四神（預、女、騎、守）全部出局，或五平民＋村姑全部出局。', good: '四狼出局（野孩子若已入狼隊，不需要出局）。' },
     },
+    lamp15: {
+      name: '15人 燈影預言家',
+      seats: 15,
+      roles: ['預言家', '燈影預言家', '女巫', '騎士', '守衛', '獵人', '平民', '狼王', '狼美人', '小狼'],
+      causes: ['被刀', '被毒', '被投出', '被騎士決鬥', '被狼美人帶走', '被獵人帶走', '被狼王帶走', '自爆', '其他'],
+      checkers: ['預言家', '燈影預言家'],
+      knight: true,
+      lantern: true,
+      wolfCount: '5 狼',
+      wolfSlots: 5,
+      setup: {
+        wolf: ['狼王', '狼美人', '小狼 ×3'],
+        good: ['預言家', '女巫', '騎士', '守衛', '獵人', '燈影預言家', '平民 ×4'],
+      },
+      roleInfo: {
+        wolf: [
+          ['狼王【狼爪】', '出局時可發動技能，帶走一名玩家。\n被女巫毒死則技能被封。'],
+          ['狼美人【迷魅】', '每晚可迷魅一個玩家，不可連續（ABA）。狼美人出局時，被迷魅的玩家一同出局。\n不可自刀。被騎士決鬥出局時技能被封（被迷魅的人不會出局）。'],
+          ['小狼 ×3', '一般狼人。'],
+        ],
+        good: [
+          ['預言家（站神坑）', '每晚查驗一人。開局前上帝決定「預言家牌」和「燈影預言家牌」哪一張是正確查驗，另一張就是反向查驗。拿到牌的人不知道自己是哪一種。'],
+          ['燈影預言家（站民坑）', '每晚查驗一人，查驗可能正確也可能反向（和預言家牌相反）。屠民時算在民那一邊。'],
+          ['查驗限制', '兩位預言家都不能驗自己、翻牌的騎士和騎金（騎士決鬥失敗而證實的好人），以免直接確認自己是不是反向。'],
+          ['女巫', '一瓶毒藥、一瓶解藥。'],
+          ['騎士', '白天可翻牌決鬥一人：對方是狼則狼出局；是好人則騎士出局，對方成為「騎金」。'],
+          ['守衛', '每晚守護一人，使他不被狼刀。'],
+          ['獵人', '出局時可開槍帶走一人（被毒死則不能）。'],
+          ['平民 ×4', '沒有技能，靠推理投票。'],
+        ],
+      },
+      night: { all: '守衛 → 狼人 → 狼美人（迷魅） → 女巫 → 騎士 → 獵人 → 預言家 → 燈影預言家' },
+      win: { wolf: '五神（預、女、騎、守、獵）全部出局，或「四民＋燈影預言家」全部出局。', good: '五狼全部出局。' },
+    },
   };
   const MARKS = [
     { id: 'none', label: '未定', icon: '' },
@@ -353,7 +401,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 
   // ---------- state ----------
   const blankPlayer = (seat, name = '') => ({
-    seat, name, mark: 'none', alive: true, death: null, sheriff: false, claim: '', notes: {},
+    seat, name, mark: 'none', alive: true, death: null, sheriff: false, claim: '', notes: {}, kgold: false,
   });
   const blankState = (boardId = 'std12', names) => ({
     board: boardId,
@@ -365,6 +413,10 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     checks: [],
     votes: [],
     memo: '',
+    // 上警紀錄：up[seat] = 'up'（上警）或 'out'（退水）；flows[seat] = 他報的警徽流
+    election: { up: {}, flows: {} },
+    // 燈影分析：哪兩位拿「預言家牌」和「燈影預言家牌」（null = 依查驗紀錄自動判斷）
+    lamp: { seer: null, lantern: null },
   });
 
   let state = load();
@@ -436,6 +488,9 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       const silver = state.checks.filter((c) => c.target === seat && c.result === 'silver').length;
       if (silver) badges.push(`<span class="badge silver">銀水${silver > 1 ? '×' + silver : ''}</span>`);
       if (!p.alive && p.death) badges.push(`<span class="badge">D${p.death.day} ${esc(p.death.cause)}</span>`);
+      if (p.kgold) badges.push('<span class="badge gold">騎金</span>');
+      const up = state.election.up[seat];
+      if (up) badges.push(`<span class="badge">${up === 'up' ? '上警' : '退水'}</span>`);
       if (state.myRole === '野孩子' && state.mentor === seat) badges.push('<span class="badge mentor">我的榜樣</span>');
       const mark = MARKS.find((m) => m.id === p.mark);
       return `${mid}<div class="${cls}" data-seat="${seat}">
@@ -549,7 +604,9 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       <div class="opt-group" style="margin-top:8px">
         ${opt('sheriff', '1', '★ 警長', p.sheriff)}
         ${opt('me', '1', '這是我', state.mySeat === seat)}
+        ${B().knight ? opt('kgold', '1', '騎金', p.kgold) : ''}
       </div>
+      ${B().knight ? '<div class="hint" style="margin-top:6px">騎金＝騎士決鬥他之後騎士出局，證實他是好人。</div>' : ''}
 
       <div class="field-label">第 ${state.day} 天發言筆記</div>
       <div class="opt-group" style="margin-bottom:8px">
@@ -560,6 +617,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       ${pastNotes ? `<div class="field-label">之前的筆記</div><div class="history">${pastNotes}</div>` : ''}
       ${checksBy.length ? `<div class="field-label">他報的查驗／銀水</div><div class="history">${checksBy.join('<br>')}</div>` : ''}
       ${checksOn.length ? `<div class="field-label">別人給他的查驗／銀水</div><div class="history">${checksOn.join('<br>')}</div>` : ''}
+      ${state.election.up[seat] ? `<div class="field-label">上警</div><div class="history">${state.election.up[seat] === 'up' ? '上警' : '上警後退水'}${state.election.flows[seat] ? `：<span class="day-note">${esc(state.election.flows[seat])}</span>` : ''}</div>` : ''}
       ${votes.length ? `<div class="field-label">投票紀錄</div><div class="history">${votes.join('<br>')}</div>` : ''}
 
       <div class="sheet-foot"><button class="primary" id="sheetDone">完成</button></div>
@@ -600,6 +658,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         break;
       }
       case 'me': state.mySeat = state.mySeat === ui.sheetSeat ? null : ui.sheetSeat; break;
+      case 'kgold': p.kgold = !p.kgold; if (p.kgold) p.mark = 'good'; break;
       default: return;
     }
     save();
@@ -642,8 +701,15 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       const rs = state.checks.filter((c) => c.target === t);
       if (rs.some((c) => c.result === 'good') && rs.some((c) => c.result === 'wolf')) {
         const who = rs.filter((c) => c.result !== 'silver').map((c) => `${c.seer}號說${RESULTS[c.result].label}`).join('、');
-        conflicts.push(`${t}號 結果矛盾：${who}`);
+        conflicts.push(`${t}號 結果矛盾：${who}${B().lantern ? '（燈影板一正一反，矛盾是正常的，請看下方燈影分析）' : ''}`);
       }
+    }
+    if (B().lantern) {
+      state.checks.filter((c) => B().checkers.includes(c.by)).forEach((c) => {
+        const t = P(c.target);
+        const why = t.kgold ? '騎金' : (t.claim === '騎士' ? '翻牌騎士' : '');
+        if (why) conflicts.push(`${c.seer}號 報驗了 ${c.target}號（${why}）：規則不能驗${why}，這個查驗可疑`);
+      });
     }
     const cols = seers.map((s) => {
       const items = state.checks.filter((c) => c.seer === s).sort((a, b) => a.day - b.day);
@@ -683,13 +749,105 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       ${conflicts.map((c) => `<div class="warn">⚠️ ${c}</div>`).join('')}
       ${seers.length > 1 ? '<div class="hint" style="margin-bottom:8px">有 ' + seers.length + ' 人報查驗，並排比較：</div>' : ''}
       ${seers.length ? `<div class="seer-cols">${cols}</div>` : '<div class="empty">還沒有查驗或銀水紀錄</div>'}
+      ${B().lantern ? lanternHTML() : ''}
     `;
+  }
+
+  // 燈影預言家板：兩張預言家牌一張正確、一張反向。分別假設兩種情況（兩個世界），
+  // 推出每個被驗的人在各世界的身分，並和已知事實、你的標記比對。
+  const flip = (r) => (r === 'good' ? 'wolf' : 'good');
+  const lampPick = (role, key) => {
+    if (state.lamp[key]) return state.lamp[key];
+    const c = state.checks.find((x) => x.by === role);
+    return c ? c.seer : null;
+  };
+  // 已確定的身分：騎金是好人；自爆、被騎士決鬥出局的是狼
+  const knownFact = (seat) => {
+    const p = P(seat);
+    if (p.kgold) return 'good';
+    if (p.death && (p.death.cause === '自爆' || p.death.cause === '被騎士決鬥')) return 'wolf';
+    return null;
+  };
+
+  function lanternHTML() {
+    const sSeat = lampPick('預言家', 'seer');
+    const lSeat = lampPick('燈影預言家', 'lantern');
+    const pickers = `<div class="row">
+        <span>預言家牌</span><select id="lampSeer">${seatOptions(sSeat, { allowNone: true })}</select>
+        <span>燈影牌</span><select id="lampLantern">${seatOptions(lSeat, { allowNone: true })}</select>
+      </div>`;
+    const head = `<div class="card"><h3>燈影分析：兩個世界</h3>
+      <div class="hint" style="margin-bottom:8px">兩張預言家牌一張正確、一張反向。選出跳這兩張牌的人，看每個被驗的人在兩種情況下各是什麼身分。</div>
+      ${pickers}`;
+    if (!sSeat || !lSeat || sSeat === lSeat) {
+      return `${head}<div class="empty">選好兩位不同的人（或先用「預言家」「燈影預言家」記錄查驗），就會出現分析。</div></div>`;
+    }
+    const reports = (seat) => {
+      const m = {};
+      state.checks.filter((c) => c.seer === seat && c.result !== 'silver').forEach((c) => { (m[c.target] = m[c.target] || []).push(c.result); });
+      return m;
+    };
+    const rS = reports(sSeat);
+    const rL = reports(lSeat);
+    const targets = [...new Set([...Object.keys(rS), ...Object.keys(rL)].map(Number))].sort((a, b) => a - b);
+    const label = (r) => (r === 'good' ? '<span class="res-good">好人</span>' : r === 'wolf' ? '<span class="res-wolf">狼</span>' : '<span class="res-wolf">矛盾</span>');
+    const reportLabel = (arr) => (arr ? arr.map((r) => RESULTS[r].label).join('、') : '—');
+    // 世界 A：預言家牌正確、燈影牌反向；世界 B：反過來
+    const identity = (t, worldA) => {
+      const ids = [
+        ...(rS[t] || []).map((r) => (worldA ? r : flip(r))),
+        ...(rL[t] || []).map((r) => (worldA ? flip(r) : r)),
+      ];
+      return ids.every((x) => x === ids[0]) ? ids[0] : 'conflict';
+    };
+    const stats = { A: { hard: [], soft: [] }, B: { hard: [], soft: [] } };
+    const rows = targets.map((t) => {
+      const cells = ['A', 'B'].map((w) => {
+        const id = identity(t, w === 'A');
+        const fact = knownFact(t);
+        const mark = P(t).mark === 'good' || P(t).mark === 'wolf' ? P(t).mark : null;
+        let extra = '';
+        if (id === 'conflict') stats[w].hard.push(`${t}號 兩人結果對不上`);
+        else if (fact && fact !== id) { stats[w].hard.push(`${t}號 已確定是${fact === 'good' ? '好人' : '狼'}`); extra = ' ⚠️'; }
+        else if (mark && mark !== id) { stats[w].soft.push(t); extra = ' <span class="hint">≠標記</span>'; }
+        return { id, html: label(id) + extra };
+      });
+      const both = cells[0].id === cells[1].id && cells[0].id !== 'conflict'
+        ? `<span class="both">都是${label(cells[0].id)}</span>` : '<span class="hint">看哪個世界</span>';
+      return `<tr><td>${t}</td><td>${reportLabel(rS[t])}</td><td>${reportLabel(rL[t])}</td><td>${cells[0].html}</td><td>${cells[1].html}</td><td>${both}</td></tr>`;
+    }).join('');
+    const sameBoth = targets.filter((t) => identity(t, true) === 'conflict' && identity(t, false) === 'conflict');
+    const world = (w, title) => {
+      const st = stats[w];
+      const cls = st.hard.length ? 'bad' : 'ok';
+      return `<div class="world ${cls}"><b>${title}</b><br>
+        ${st.hard.length ? `❌ 不可能的地方：${st.hard.map(esc).join('；')}` : '✅ 和已確定的事實沒有衝突'}
+        ${st.soft.length ? `<br><span class="hint">和你的標記不同：${st.soft.map((x) => x + '號').join('、')}</span>` : ''}</div>`;
+    };
+    return `${head}
+      ${sameBoth.length ? `<div class="warn" style="margin-top:10px">⚠️ ${sameBoth.map((t) => t + '號').join('、')} 兩人報了一樣的結果。兩張牌一正一反，真的查驗應該相反，所以其中一人可能是悍跳狼。</div>` : ''}
+      ${targets.length ? `<table class="lt" style="margin-top:10px">
+        <tr><th>號碼</th><th>${sSeat}號報</th><th>${lSeat}號報</th><th>世界A</th><th>世界B</th><th>結論</th></tr>
+        ${rows}
+      </table>
+      ${world('A', `世界A：${sSeat}號（預言家牌）正確，${lSeat}號（燈影牌）反向`)}
+      ${world('B', `世界B：${lSeat}號（燈影牌）正確，${sSeat}號（預言家牌）反向`)}
+      <div class="hint" style="margin-top:8px">已確定的身分：騎金＝好人；自爆、被騎士決鬥出局＝狼。這個分析假設兩人都真的拿到預言家牌；如果有狼悍跳，結果會亂掉。</div>`
+      : '<div class="empty">這兩位還沒有報查驗。</div>'}
+    </div>`;
   }
 
   $('tabBody').addEventListener('change', (e) => {
     if (e.target.id === 'ckSeer') checkDraft.seer = Number(e.target.value) || null;
     if (e.target.id === 'ckTarget') checkDraft.target = Number(e.target.value) || null;
     if (e.target.id === 'mentorInput') { state.mentor = Number(e.target.value) || null; commit(); }
+    if (e.target.id === 'lampSeer') { state.lamp.seer = Number(e.target.value) || null; commit(); }
+    if (e.target.id === 'lampLantern') { state.lamp.lantern = Number(e.target.value) || null; commit(); }
+    if (e.target.id === 'elSheriff') {
+      const seat = Number(e.target.value) || null;
+      state.players.forEach((x) => { x.sheriff = x.seat === seat; });
+      commit();
+    }
   });
 
   // ---------- votes ----------
@@ -738,17 +896,24 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
           <span class="hint">← ${r.voters.join(', ')}</span>
         </div>`).join('') + (abstain.length ? `<div class="tally-row hint">棄票：${abstain.join(', ')}</div>` : '');
 
+      // 警長競選：只有警下能投，只能投給還在警上的人
+      const ups = state.election.up;
+      const isElection = v.kind === '警長競選' && Object.keys(ups).length > 0;
       let ballots = '';
       if (open) {
         ballots = state.players.map((p) => {
+          if (isElection && ups[p.seat]) {
+            return `<div class="ballot" style="opacity:.55"><div class="voter">${p.seat}</div><div class="hint">${ups[p.seat] === 'up' ? '警上（不能投票）' : '退水（不能投票）'}</div></div>`;
+          }
           const cur = v.ballots[p.seat];
           const chips = [`<button class="chip ${cur === 0 ? 'on' : ''}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="0">棄</button>`];
           for (let s = 1; s <= N(); s++) {
             if (s === p.seat) continue;
+            if (isElection && ups[s] !== 'up') continue;
             chips.push(`<button class="chip ${cur === s ? 'on' : ''} ${P(s).alive ? '' : 'dim'}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="${s}">${s}</button>`);
           }
           return `<div class="ballot" style="${p.alive ? '' : 'opacity:.45'}">
-            <div class="voter">${p.seat}</div><div class="chips" style="--cols:${N()}">${chips.join('')}</div></div>`;
+            <div class="voter">${p.seat}</div><div class="chips" style="--cols:${Math.max(chips.length, 6)}">${chips.join('')}</div></div>`;
         }).join('');
       }
       return `<div class="card">
@@ -758,7 +923,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
           <button class="x-btn" data-del-vote="${v.id}" aria-label="刪除">✕</button>
         </div>
         ${t.length || abstain.length ? `<div class="tally">${tallyHTML}</div>` : (open ? '' : '<div class="hint" style="margin-top:6px">還沒填票</div>')}
-        ${open ? `<div class="hint" style="margin:12px 0 6px">左邊是投票的人，點他投給誰（再點一次取消）</div>${ballots}` : ''}
+        ${open ? `<div class="hint" style="margin:12px 0 6px">左邊是投票的人，點他投給誰（再點一次取消）${isElection ? '。依上警紀錄，只有警下能投、只能投給警上的人' : ''}</div>${ballots}` : ''}
       </div>`;
     }).join('');
 
@@ -768,6 +933,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       <div class="hint" style="margin-top:8px">票型一致的人可能是同陣營，留意狼隊抱團。</div></div>` : '';
 
     return `
+      ${electionHTML()}
       <div class="card">
         <h3>新增一輪投票（第 ${state.day} 天）</h3>
         <div class="opt-group">
@@ -777,6 +943,32 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       ${pairsHTML}
       ${rounds || '<div class="empty">還沒有投票紀錄</div>'}
     `;
+  }
+
+  function electionHTML() {
+    const el = state.election;
+    const chips = state.players.map((p) => {
+      const st = el.up[p.seat];
+      return `<button class="chip ${st === 'up' ? 'on' : st === 'out' ? 'out' : ''}" data-el-seat="${p.seat}">${p.seat}</button>`;
+    }).join('');
+    const cands = state.players.filter((p) => el.up[p.seat]);
+    const rows = cands.map((p) => `<div class="el-row">
+        <b>${seatLabel(p.seat)}${el.up[p.seat] === 'out' ? ' <span class="hint">退水</span>' : ''}</b>
+        <input type="text" data-flow="${p.seat}" value="${esc(el.flows[p.seat] || '')}" placeholder="警徽流／跳什麼，例：跳預言家，先驗 5 再驗 9">
+      </div>`).join('');
+    const sheriff = state.players.find((p) => p.sheriff);
+    return `<div class="card">
+      <h3>警長競選（上警紀錄）</h3>
+      <div class="hint" style="margin-bottom:8px">點號碼切換：警下 → 上警 → 退水 → 警下</div>
+      <div class="chips" style="--cols:${Math.ceil(N() / 2)}">${chips}</div>
+      ${rows ? `<div style="margin-top:10px">${rows}</div>` : ''}
+      <div class="row" style="margin-top:10px">
+        <span>當選警長</span>
+        <select id="elSheriff">${seatOptions(sheriff ? sheriff.seat : null, { allowNone: true })}</select>
+        <button data-new-vote="警長競選">記錄警下投票</button>
+      </div>
+      <div class="hint" style="margin-top:6px">警上：${cands.filter((p) => el.up[p.seat] === 'up').map((p) => p.seat).join('、') || '—'}　退水：${cands.filter((p) => el.up[p.seat] === 'out').map((p) => p.seat).join('、') || '—'}</div>
+    </div>`;
   }
 
   // ---------- memo ----------
@@ -833,8 +1025,9 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         <h4 class="good-side">好人陣營</h4>${info(b.roleInfo.good)}
       </div>` : ''}
       ${b.night ? `<div class="card rules"><h3>夜晚睜眼順序</h3>
+        ${b.night.all ? `<h4>每晚</h4><div class="order">${esc(b.night.all)}</div>` : `
         <h4>首夜</h4><div class="order">${esc(b.night.first)}</div>
-        <h4>次夜起</h4><div class="order">${esc(b.night.next)}</div>
+        <h4>次夜起</h4><div class="order">${esc(b.night.next)}</div>`}
       </div>` : ''}
       <div class="card rules"><h3>獲勝條件</h3>
         <h4 class="wolf-side">狼人</h4><div class="order">${esc(b.win.wolf)}</div>
@@ -843,6 +1036,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   }
 
   $('tabBody').addEventListener('input', (e) => {
+    if (e.target.dataset.flow) { state.election.flows[e.target.dataset.flow] = e.target.value; save(); }
     if (e.target.id === 'memoInput') { state.memo = e.target.value; save(); }
   });
 
@@ -853,6 +1047,13 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 
     if (d.ckResult) { checkDraft.result = d.ckResult; renderTab(); return; }
     if (d.ckBy) { checkDraft.by = d.ckBy; renderTab(); return; }
+    if (d.elSeat) {
+      const up = state.election.up;
+      const next = { undefined: 'up', up: 'out', out: undefined }[up[d.elSeat]];
+      if (next) up[d.elSeat] = next; else delete up[d.elSeat];
+      commit();
+      return;
+    }
     if (b.id === 'ckAdd') {
       if (!checkDraft.seer || !checkDraft.target) { alert('請選擇報結果的人和對象'); return; }
       const by = reporters().includes(checkDraft.by) ? checkDraft.by : B().checkers[0];
