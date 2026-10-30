@@ -203,6 +203,7 @@ class Game:
         self.claw_given: set[int] = set()  # 曾被親傳狼王爪的狼
         self.sheriff: int | None = None    # 現任警長
         self.sheriff_log: list[str] = []
+        self.badge_from: dict[int, int] = {}   # 新警長 -> 把警徽交給他的前任警長
         self.phase = "night"               # night / election / day
         # 村姑與虎姑婆
         self.wild_model: int | None = None   # 野孩子的榜樣
@@ -679,6 +680,7 @@ class Game:
         t = self.controllers[s].pass_badge(self, p)
         if t is not None and t != s and t in self.alive_seats():
             self.sheriff = t
+            self.badge_from[t] = s
             self.sheriff_log.append(f"第{self.night_no}天 {s}號 把警徽移交給 {t}號")
             self.say(f"🎖  警長 {s}號 把警徽移交給 {t}號。")
         else:
@@ -951,7 +953,8 @@ class Game:
         if speech.claim is not None:
             prev = self.claims.get(seat)
             checks = dict(prev["checks"]) if prev and prev["role"] is speech.claim else {}
-            self.claims[seat] = {"role": speech.claim, "checks": checks}
+            day = prev["day"] if prev and prev["role"] is speech.claim else self.night_no
+            self.claims[seat] = {"role": speech.claim, "checks": checks, "day": day}   # day：第一次跳這個身份是第幾天
         if speech.checks and self.claimed_role(seat) in (Role.SEER, Role.LANTERN_SEER):
             self.claims[seat]["checks"].update(speech.checks)
         if self.today is not None:

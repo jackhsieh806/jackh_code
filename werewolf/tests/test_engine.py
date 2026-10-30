@@ -756,6 +756,65 @@ class PersonalityTest(unittest.TestCase):
         self.assertEqual(g.controllers[9].vote(g, g.players[9], list(range(1, 11))), 2)
 
 
+class SheriffDoubtTest(unittest.TestCase):
+    """好人電腦會獨立評估警長是不是假的。座位：1-3 狼、4 預言家、5 女巫、6 獵人、7 守衛、8 白痴、9-10 平民。"""
+
+    def game(self, key="logical"):
+        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, bot_personality=key))
+        g.setup()
+        g.night_no = 2
+        g.days.append(DayRecord(1))
+        return g
+
+    def test_fake_seer_sheriff_is_doubted(self):
+        g = self.game()
+        g.sheriff = 1                                      # 1 號是狼，當上警長
+        g._register_speech(Speech(1, Role.SEER, {9: True}, accuse=9))   # 查殺 9 號（好人）
+        g._register_speech(Speech(4, Role.SEER, {1: True}))             # 真預言家對跳
+        k = g.controllers[10].analyze(g, g.players[10])
+        self.assertGreaterEqual(k.sheriff_doubt, 0.3)      # 旁觀者只看到對跳：開始懷疑、還在觀察
+        k9 = g.controllers[9].analyze(g, g.players[9])
+        self.assertEqual(k9.sheriff_doubt, 1.0)            # 9 號知道自己是好人 → 警長的查殺是假的
+        self.assertIn("他已經確定是狼", k9.sheriff_why)
+        self.assertEqual(k9.trusted, 4)                    # 改站真預言家的邊
+
+    def test_confirmed_good_sheriff_is_trusted(self):
+        g = self.game()
+        g.sheriff = 8
+        g.players[8].revealed = True                       # 白痴翻牌，確定是好人
+        self.assertEqual(g.controllers[10].analyze(g, g.players[10]).sheriff_doubt, 0.0)
+
+    def test_badge_from_revealed_wolf(self):
+        g = self.game()
+        g.players[2].revealed = True
+        g.players[2].alive = False
+        g.sheriff, g.badge_from = 3, {3: 2}               # 警徽是翻牌的狼交給 3 號的
+        k = g.controllers[10].analyze(g, g.players[10])
+        self.assertGreaterEqual(k.sheriff_doubt, 0.5)
+        self.assertTrue(any("警徽" in w for w in k.sheriff_why))
+
+    def test_conservative_trusts_sheriff_more_than_logical(self):
+        doubts = {}
+        for key in ("logical", "conservative"):
+            g = self.game(key)
+            g.sheriff = 1
+            g._register_speech(Speech(1, Role.SEER, {4: True}))
+            g._register_speech(Speech(4, Role.SEER, {2: True}))
+            ctrl = g.controllers[10]
+            ctrl.pref[1] = 0.0                             # 拿掉直覺，只比較證據
+            doubts[key] = ctrl.analyze(g, g.players[10]).sheriff_doubt
+        self.assertGreater(doubts["logical"], doubts["conservative"])
+
+    def test_speech_explains_reasons(self):
+        g = self.game()
+        g.sheriff = 1
+        g._register_speech(Speech(1, Role.SEER, {10: True}, accuse=10))
+        g._register_speech(Speech(4, Role.SEER, {1: True}))
+        sp = g.controllers[10].speak(g, g.players[10])
+        self.assertIn("我懷疑", sp.text)
+        self.assertEqual(sp.accuse, 1)
+
+
 class SimulationTest(unittest.TestCase):
     def test_many_bot_games_finish(self):
         rng = random.Random(42)
