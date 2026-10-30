@@ -697,6 +697,65 @@ class LanternSeerTest(unittest.TestCase):
         self.assertTrue(k.card_acc[Role.SEER])
 
 
+from werewolf.personality import PERSONALITIES  # noqa: E402
+
+
+class PersonalityTest(unittest.TestCase):
+    def test_mixed_mode_gives_every_bot_a_personality(self):
+        from werewolf.human import HumanController
+        g = Game(BOARD, {4: HumanController()}, seed=1, out=lambda _: None,
+                 rules=Rules(sheriff=False, self_explode=False, bot_personality="mixed"))
+        g.controllers[4].setup = lambda game, me: None
+        g.setup()
+        self.assertIsNone(g.personality_of(4))
+        keys = {g.personality_of(s).key for s in g.players if s != 4}
+        self.assertTrue(keys <= set(PERSONALITIES))
+        self.assertGreater(len(keys), 1)
+
+    def test_single_mode_and_explicit_personality(self):
+        g = quiet_game(BOARD, {2: BotController(PERSONALITIES["logical"])},
+                       rules=Rules(sheriff=False, self_explode=False, bot_personality="safe"))
+        g.setup()
+        self.assertEqual(g.personality_of(2).key, "logical")      # 個別指定優先
+        self.assertTrue(all(g.personality_of(s).key == "safe" for s in g.players if s != 2))
+
+    def _hunter_game(self, key):
+        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, bot_personality=key))
+        g.setup()
+        g.days.append(DayRecord(1))
+        g.players[6].alive = False                 # 獵人出局，場上沒有確定的狼
+        return g, g.controllers[6]
+
+    def test_safe_hunter_never_shoots_blind(self):
+        for seed in range(20):
+            g, hunter = self._hunter_game("safe")
+            hunter.rng = random.Random(seed)
+            self.assertIsNone(hunter.hunter_shoot(g, g.players[6]))
+
+    def test_aggressive_hunter_always_shoots(self):
+        g, hunter = self._hunter_game("aggressive")
+        self.assertIsNotNone(hunter.hunter_shoot(g, g.players[6]))
+
+    def test_safe_witch_only_poisons_certain_wolves(self):
+        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, bot_personality="safe"))
+        g.setup()
+        g.night_no = 2
+        g.days.append(DayRecord(1))
+        witch = g.controllers[5]
+        witch.soft = {1: 60}                       # 非常懷疑 1 號，但不確定
+        self.assertEqual(witch.witch_action(g, g.players[5], None), (None, None))
+        g._register_speech(Speech(10, Role.SEER, {5: True}))  # 10 號查殺女巫自己 → 10 號必定是假的
+        self.assertEqual(witch.witch_action(g, g.players[5], None), ("poison", 10))
+
+    def test_safe_voter_abstains_without_strong_suspicion(self):
+        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, bot_personality="safe"))
+        g.setup()
+        g.days.append(DayRecord(1))
+        self.assertIsNone(g.controllers[9].vote(g, g.players[9], list(range(1, 11))))
+        g.controllers[9].soft = {2: 40}
+        self.assertEqual(g.controllers[9].vote(g, g.players[9], list(range(1, 11))), 2)
+
+
 class SimulationTest(unittest.TestCase):
     def test_many_bot_games_finish(self):
         rng = random.Random(42)

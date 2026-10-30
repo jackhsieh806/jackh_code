@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .engine import ITEMS, Controller, Game, Player, Speech
+from .personality import DEFAULT, Personality
 from .roles import Role
 
 
@@ -30,7 +31,8 @@ class Knowledge:
 
 
 class BotController(Controller):
-    def __init__(self) -> None:
+    def __init__(self, personality: Personality | None = None) -> None:
+        self.personality = personality          # 沒指定時由 Game 開局分配
         self.checks: dict[int, bool] = {}       # 真預言家的查驗
         self.fake_checks: dict[int, bool] = {}  # 悍跳狼編的查驗
         self.fake_days: set[int] = set()
@@ -45,14 +47,19 @@ class BotController(Controller):
     # ------------------------------------------------------------ 初始化與推理
     def setup(self, game: Game, me: Player) -> None:
         self.rng = game.rng
+        self.P = self.personality or DEFAULT
         self.pref = {s: self.rng.random() for s in game.players}
         self.guess_seer_accurate = self.rng.random() < 0.5   # 推不出來時，猜哪張預言家牌是準的
         if me.is_wolf and "fake_seer" not in game.wolf_plan:
             bots = [p.seat for p in game.players.values()
                     if p.is_wolf and not game.controllers[p.seat].is_human]
-            # 狼隊開局決定要不要派一隻狼悍跳預言家
+            # 狼隊開局決定要不要派一隻狼悍跳預言家：越愛詐唬的狼越可能被派出去
+            weights = [getattr(game.controllers[b], "personality", None) or DEFAULT for b in bots]
+            weights = [w.bluff for w in weights]
+            chance = min(0.95, 0.6 * (sum(weights) / len(weights))) if bots else 0
             game.wolf_plan["fake_seer"] = (
-                self.rng.choice(bots) if bots and self.rng.random() < 0.6 else None)
+                self.rng.choices(bots, weights=[w + 0.01 for w in weights])[0]
+                if bots and self.rng.random() < chance else None)
 
     def analyze(self, game: Game, me: Player) -> Knowledge:
         claims = game.seer_claims()
@@ -137,13 +144,13 @@ class BotController(Controller):
             s = p.seat
             if s == me.seat:
                 continue
-            v = self.pref[s] * 2
+            v = self.pref[s] * self.P.intuition
             if s in k.wolf:
                 v += 100
             if s in k.good:
                 v -= 100
             if k.evidence is not None:            # 燈影預言家板
-                v += k.evidence.get(s, 0)
+                v += k.evidence.get(s, 0) * self.P.evidence
                 if s in k.protected:
                     v -= 15
                 elif game.claimed_role(s) in (Role.SEER, Role.LANTERN_SEER):
@@ -151,28 +158,29 @@ class BotController(Controller):
             elif k.trusted is not None:
                 checks = k.claims.get(k.trusted, {})
                 if s in checks:
-                    v += 20 if checks[s] else -8
+                    v += (20 if checks[s] else -8) * self.P.evidence
                 if s == k.trusted:
                     v -= 15
                 elif s in k.claims:
                     v += 10  # 和我相信的預言家對跳
             if game.claimed_role(s) in CLAIMABLE:
                 v -= 3
-            for d in game.days:  # 看票型與發言：攻擊可信的人很可疑
+            ev = self.P.evidence
+            for d in game.days:  # 看票型與發言：攻擊可信的人很可疑（越重證據的個性越看重）
                 for sp in d.speeches:
                     if sp.seat == s and sp.accuse is not None:
                         if sp.accuse in k.good or sp.accuse == k.trusted:
-                            v += 5
+                            v += 5 * ev
                         elif sp.accuse in k.wolf:
-                            v -= 2
+                            v -= 2 * ev
                 if d is today:
                     continue
                 for votes in (d.votes, d.pk_votes):
                     tgt = votes.get(s)
                     if tgt in k.good or (tgt is not None and tgt == k.trusted):
-                        v += 5
+                        v += 5 * ev
                     elif tgt in k.wolf:
-                        v -= 3
+                        v -= 3 * ev
             v += self.soft.get(s, 0)
             base[s] = v
 
@@ -181,7 +189,7 @@ class BotController(Controller):
         if today:
             for sp in today.speeches:
                 if sp.accuse in score and sp.seat != me.seat and base.get(sp.seat, -99) < 8:
-                    score[sp.accuse] += 3 if sp.seat == k.trusted else 1.5
+                    score[sp.accuse] += (3 if sp.seat == k.trusted else 1.5) * self.P.follow / 1.5
         return score
 
     def _top(self, score: dict[int, float], pool=None) -> int | None:
@@ -233,7 +241,7 @@ class BotController(Controller):
                 return "poison", self.rng.choice(certain)
             score = self.suspicion(game, me, k)
             top = self._top(score)
-            if top is not None and score[top] >= 20 and self.rng.random() < 0.5:
+            if top is not None and score[top] >= self.P.poison_bar and self.rng.random() < self.P.poison_prob:
                 return "poison", top
         return None, None
 
@@ -281,7 +289,7 @@ class BotController(Controller):
         if me.role is Role.SEER:
             already = game.claimed_role(me.seat) is Role.SEER
             if self.checks and (last or already or any(self.checks.values())
-                                or k.claims or self.rng.random() < 0.8):
+                                or k.claims or self.rng.random() < self.P.claim):
                 alive_wolves = [t for t, w in self.checks.items() if w and game.players[t].alive]
                 rivals = [c for c in k.claims if c != me.seat and game.players[c].alive]
                 accuse = (alive_wolves or rivals or [top])[0]
@@ -323,7 +331,9 @@ class BotController(Controller):
             text = "預言家對跳，我還在聽"
         else:
             text = "目前資訊不多"
-        return Speech(me.seat, accuse=top, text=text)
+        if top is not None and score[top] < self.P.accuse_bar:
+            top = None                           # 沒把握就不點名
+        return Speech(me.seat, accuse=top, text=f"{self.P.opener}，{text}")
 
     # ------------------------------------------------------------ 狼人白天策略
     def _wolf_speech(self, game: Game, me: Player, k: Knowledge, last: bool) -> Speech:
@@ -341,11 +351,11 @@ class BotController(Controller):
         target = self.wolf_target(game, k)
         if last:
             return Speech(me.seat, Role.VILLAGER, accuse=target, text="你們出錯人了")
-        if self._accused_today(game, me) and self.rng.random() < 0.25:
+        if self._accused_today(game, me) and self.rng.random() < min(1, 0.25 * self.P.bluff):
             return Speech(me.seat, Role.HUNTER, accuse=target, text="出我的話我會開槍")  # 假跳獵人
         fake = game.wolf_plan.get("fake_seer")
         text = f"我站 {fake}號 預言家" if fake and game.players[fake].alive else "我是平民"
-        return Speech(me.seat, accuse=target, text=text)
+        return Speech(me.seat, accuse=target, text=f"{self.P.opener}，{text}")
 
     def _invent_check(self, game: Game, me: Player, k: Knowledge, good_alive: list[int]) -> None:
         unused = [s for s in good_alive if s not in self.fake_checks and not game.players[s].revealed]
@@ -391,7 +401,10 @@ class BotController(Controller):
             good = [c for c in candidates if c not in k.wolf]
             return self.rng.choice(good) if good else None
         score = self.suspicion(game, me, k)
-        return self._top(score, [c for c in candidates if c != me.seat])
+        top = self._top(score, [c for c in candidates if c != me.seat])
+        if top is not None and score[top] < self.P.vote_bar:
+            return None                          # 沒有夠可疑的人：保守的玩家會棄票
+        return top
 
     def hunter_shoot(self, game: Game, me: Player) -> int | None:
         k = self.analyze(game, me)
@@ -407,9 +420,9 @@ class BotController(Controller):
             return certain[0]
         score = self.suspicion(game, me, k)
         top = self._top(score)
-        if top is not None and score[top] >= 10:
+        if top is not None and score[top] >= self.P.shoot_bar:
             return top
-        return top if self.rng.random() < 0.4 else None
+        return top if self.rng.random() < self.P.blind_shoot else None
 
     # ------------------------------------------------------------ 新角色
     def choose_dream(self, game: Game, me: Player) -> int | None:
@@ -474,7 +487,7 @@ class BotController(Controller):
             return self.rng.random() < 0.9          # 真預言家上警拿警徽
         if me.is_wolf and game.wolf_plan.get("fake_seer") == me.seat:
             return True                             # 悍跳狼一定上警搶警徽
-        return self.rng.random() < (0.35 if me.is_wolf else 0.3)
+        return self.rng.random() < self.P.run_sheriff + (0.05 if me.is_wolf else 0)
 
     def sheriff_vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
         k = self.analyze(game, me)
@@ -506,7 +519,7 @@ class BotController(Controller):
             return good[0]
         score = self.suspicion(game, me, k)
         best = min(alive, key=lambda s: score.get(s, 0))
-        return best if score.get(best, 0) < 5 else None   # 沒把握就撕警徽
+        return best if score.get(best, 0) < self.P.tear_bar else None   # 沒把握就撕警徽
 
     def choose_direction(self, game: Game, me: Player) -> str:
         return self.rng.choice(["left", "right"])
@@ -520,10 +533,10 @@ class BotController(Controller):
         if game.phase == "election":
             # 真預言家已經在警上報出查驗，自爆打斷，不讓他拿到警徽
             spoke = {sp.seat for sp in game.today.speeches}
-            return any(c in spoke for c in real) and self.rng.random() < 0.2
+            return any(c in spoke for c in real) and self.rng.random() < 0.2 * self.P.explode
         # 被真預言家查殺、今天很可能被投出去 → 自爆跳過投票，保留隊友
         exposed = any(claims[c].get(me.seat) for c in real if game.players[c].alive)
-        return exposed and self.rng.random() < 0.3
+        return exposed and self.rng.random() < 0.3 * self.P.explode
 
     # ------------------------------------------------------------ 村姑與虎姑婆
     def choose_model(self, game: Game, me: Player) -> int | None:
@@ -580,10 +593,15 @@ class BotController(Controller):
             return certain[0]
         if game.night_no >= 2 and k.evidence is not None:
             strong = [t for t, v in k.evidence.items() if v >= 20 and t in alive]
-            if strong and self.rng.random() < 0.5:
+            if strong and self.rng.random() < self.P.duel_prob:
                 return strong[0]
         elif game.night_no >= 2 and k.trusted is not None:
             checked = [t for t, w in k.claims.get(k.trusted, {}).items() if w and t in alive]
-            if checked and self.rng.random() < 0.5:
+            if checked and self.rng.random() < self.P.duel_prob:
                 return checked[0]
+        if game.night_no >= 2 and self.P.duel_guess and self.rng.random() < self.P.duel_guess:
+            score = self.suspicion(game, me, k)
+            top = self._top(score, list(alive))
+            if top is not None and score[top] >= 12:
+                return top                       # 積極型：只憑懷疑也敢決鬥
         return None

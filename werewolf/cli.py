@@ -6,6 +6,7 @@ import random
 from .engine import DEATH_CAUSES, Game, Rules, deal
 from .guide import CHEATSHEET, run_quiz
 from .human import HumanController, ask, ask_yes
+from .personality import PERSONALITIES
 from .roles import PRESETS, Role, Team
 
 
@@ -49,7 +50,9 @@ def review(game: Game, human_seat: int | None = None) -> None:
         role = p.role.value
         if p.role is Role.WILD_CHILD:
             role += "（轉狼）" if p.turned else f"（{game.alignment(p).value}）"
-        print(f"  {p.seat:>2}號 {role:<4} {status}{me}")
+        pers = game.personality_of(p.seat)
+        pers = f"［{pers.name}］" if pers else ""
+        print(f"  {p.seat:>2}號 {role:<4} {status}{me} {pers}")
 
     if game.has_lantern:
         right = Role.SEER if game.seer_card_accurate else Role.LANTERN_SEER
@@ -154,6 +157,17 @@ def settings(rules: Rules) -> None:
     raw = ask("狼人自爆：1=可以 2=不可以（Enter 不變）> ")
     if raw in ("1", "2"):
         rules.self_explode = raw == "1"
+    keys = ["mixed", *PERSONALITIES]
+    print("電腦個性：" + "  ".join(
+        f"{i}={'隨機混合' if k == 'mixed' else PERSONALITIES[k].name}" for i, k in enumerate(keys, 1)))
+    for k, p in PERSONALITIES.items():
+        print(f"   {p.name}：{p.desc}")
+    raw = ask(f"（目前：{'隨機混合' if rules.bot_personality == 'mixed' else PERSONALITIES[rules.bot_personality].name}，Enter 不變）> ")
+    if raw.isdigit() and 1 <= int(raw) <= len(keys):
+        rules.bot_personality = keys[int(raw) - 1]
+    raw = ask("開局就公開每個電腦的個性：1=公開 2=不公開，復盤時才看（Enter 不變）> ")
+    if raw in ("1", "2"):
+        rules.show_personality = raw == "1"
     print("✅ 設定已更新。")
 
 

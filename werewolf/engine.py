@@ -43,6 +43,10 @@ class Rules:
     sheriff: bool = True
     # 狼人可否在白天（含警長競選）自爆
     self_explode: bool = True
+    # 電腦個性："mixed" 每個電腦隨機分配，或 personality.py 裡的某個 key 讓全部電腦相同
+    bot_personality: str = "mixed"
+    # 對局一開始就公開每個電腦的個性（練習看懂不同風格的玩家）
+    show_personality: bool = False
     # 防止無限循環的回合上限
     max_rounds: int = 30
 
@@ -169,8 +173,11 @@ class Game:
     def __init__(self, roles: list[Role], controllers: dict[int, Controller] | None = None,
                  rules: Rules | None = None, seed: int | None = None,
                  out: Callable[[str], None] = print, god_view: bool = False,
-                 pause: Callable[[], None] | None = None):
-        """roles 依座位順序排列（roles[0] 是 1 號）。沒指定 controller 的座位由電腦操作。"""
+                 pause: Callable[[], None] | None = None, personality_mode: str | None = None):
+        """roles 依座位順序排列（roles[0] 是 1 號）。沒指定 controller 的座位由電腦操作。
+
+        personality_mode："mixed" 每個電腦隨機分配五種個性之一，或指定某個個性的 key 讓全部電腦相同。"""
+        self.personality_mode = personality_mode or (rules.bot_personality if rules else "mixed")
         from .bots import BotController
 
         self.rng = random.Random(seed)
@@ -350,8 +357,25 @@ class Game:
         if self.has_lantern:
             self.secret("主持人決定：" + ("預言家牌正確查驗、燈影預言家牌反向查驗" if self.seer_card_accurate
                                           else "預言家牌反向查驗、燈影預言家牌正確查驗"))
+        from .personality import PERSONALITIES
+        keys = list(PERSONALITIES)
+        for seat in self.players:   # 先分配個性，狼隊決定誰悍跳時會參考隊友的個性
+            ctrl = self.controllers[seat]
+            if hasattr(ctrl, "personality") and ctrl.personality is None:
+                key = self.personality_mode if self.personality_mode in PERSONALITIES else self.rng.choice(keys)
+                ctrl.personality = PERSONALITIES[key]
+        for seat in self.players:
+            if (pers := self.personality_of(seat)) is not None:
+                self.secret(f"{seat}號 電腦個性：{pers.name}")
+        if self.rules.show_personality:
+            shown = [f"{s}號 {p.name}" for s in self.players if (p := self.personality_of(s))]
+            self.say("🎭 電腦個性：" + "、".join(shown))
         for seat, p in self.players.items():
             self.controllers[seat].setup(self, p)
+
+    def personality_of(self, seat: int):
+        """電腦玩家的個性；真人回傳 None。"""
+        return getattr(self.controllers[seat], "personality", None)
 
     def play(self) -> Team | None:
         self.setup()
