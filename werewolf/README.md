@@ -64,11 +64,26 @@ python3 -m unittest werewolf.tests.test_engine   # 執行測試
 - 好人會**找矛盾**：「有人查殺我，但我是好人 → 他是假預言家」、「有人說翻牌白痴是狼 → 他說謊」；並參考票型（投給可信者的人可疑），只採信自己不懷疑的人的指認。
 - 預言家通常第一天起跳報查驗；女巫首夜大多會救人；守衛會守自己相信的預言家。
 
+## 電腦個性
+
+每個電腦玩家有五種個性之一（`personality.py`），用同一套推理但參數不同：
+
+| 個性 | 打法 |
+| --- | --- |
+| 理智型 | 直覺、證據、別人的意見都平均參考 |
+| 邏輯型 | 只看查驗、矛盾和票型，幾乎不靠直覺也不跟風；沒有理由就不點名 |
+| 保守型 | 跟著多數人和警長走，神職晚跳，技能能省就省 |
+| 安全保守型 | 不確定就棄票、不點名；毒藥、獵槍、決鬥只用在確定的狼；當狼絕不自爆 |
+| 積極猜測型 | 很靠直覺，敢點名、開槍、毒人、決鬥；當狼最愛悍跳和自爆 |
+
+在「規則設定」可以選隨機混合或全部同一種，也可以選擇開局就公開個性（預設復盤時才公開）。
+
 ## 檔案
 
 - `roles.py`：角色、陣營、板子
 - `engine.py`：規則與流程（不含輸入輸出，方便測試）
 - `bots.py`：電腦玩家策略
+- `personality.py`：五種電腦個性的參數（網頁版由 `web/sync_quiz.py` 同步）
 - `human.py`：真人輸入
 - `guide.py`：規則速查、術語、測驗題
 - `cli.py`：主選單與復盤
@@ -76,7 +91,7 @@ python3 -m unittest werewolf.tests.test_engine   # 執行測試
 ## 網頁版
 
 `web/index.html` 是手機也能玩的單頁版本，規則和電腦策略與 Python 版相同。
-測驗題以 `guide.py` 為準，修改題目後執行 `python3 werewolf/web/sync_quiz.py` 同步到網頁版。
+測驗題以 `guide.py`、電腦個性以 `personality.py` 為準，修改後執行 `python3 werewolf/web/sync_quiz.py` 同步到網頁版。
 
 `web/index.html` 是 Claude 網頁（Artifact）用的原始檔，沒有 doctype、viewport 等外層標籤。
 GitHub Pages 用的是 `play/index.html`，由 `python3 werewolf/web/build_pages.py` 產生；
