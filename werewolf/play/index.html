@@ -240,6 +240,13 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
               <option value="1">可以自爆</option>
               <option value="0">不可以</option>
             </select></label>
+          <label class="field"><span class="hint">電腦個性</span>
+            <select id="rule-personality"></select></label>
+          <label class="field"><span class="hint">公開電腦個性</span>
+            <select id="rule-show-personality">
+              <option value="0">復盤時才公開</option>
+              <option value="1">開局就公開</option>
+            </select></label>
           <label class="field"><span class="hint">勝利條件</span>
             <select id="rule-win">
               <option value="side">屠邊（殺光平民或神職）</option>
@@ -249,6 +256,7 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
       </div>
       <button class="primary" id="start">開始對局</button>
       <p class="hint">電腦狼人會悍跳預言家、發假查殺、統一投票；好人電腦會找矛盾、看票型。警長競選與狼人自爆可以在上面關掉。</p>
+      <details class="hint" id="personality-help"><summary>五種電腦個性有什麼不同？</summary><dl class="terms" id="personality-list"></dl></details>
     </div>
 
     <div id="arena" hidden>
@@ -445,6 +453,12 @@ class Game {
 
   async play() {
     if (this.hasLantern) this.secret("主持人決定：" + (this.seerCardAccurate ? "預言家牌正確查驗、燈影預言家牌反向查驗" : "預言家牌反向查驗、燈影預言家牌正確查驗"));
+    for (const p of this.players) {  // 先分配個性，狼隊決定誰悍跳時會參考隊友的個性
+      const c = this.ctrl[p.seat];
+      if (!c.isHuman && !c.personality) c.personality = PERSONALITIES[this.rules.botPersonality] || PERSONALITIES[choice(PERSONALITY_KEYS)];
+    }
+    for (const p of this.players) if (!this.ctrl[p.seat].isHuman) this.secret(`${p.seat}號 電腦個性：${this.ctrl[p.seat].personality.name}`);
+    if (this.rules.showPersonality) this.say("電腦個性：" + this.players.filter(p => !this.ctrl[p.seat].isHuman).map(p => `${p.seat}號 ${this.ctrl[p.seat].personality.name}`).join("、"), "event");
     for (const p of this.players) await this.ctrl[p.seat].setup(this, p);
     this.io.update(this);
     let w = null;
@@ -936,15 +950,29 @@ class Game {
   }
 }
 
+// ================================================================ 電腦個性
+// 由 werewolf/personality.py 產生（python3 werewolf/web/sync_quiz.py），兩邊保持一致
+const PERSONALITIES = {"rational": {"key": "rational", "name": "理智型", "desc": "綜合直覺、證據和大家的意見，每一項都不偏廢，是最平均的玩家。", "opener": "綜合來看", "intuition": 3.0, "follow": 1.5, "evidence": 1.0, "voteBar": -1000000000.0, "accuseBar": -1000000000.0, "claim": 0.8, "poisonBar": 20, "poisonProb": 0.5, "shootBar": 10, "blindShoot": 0.4, "duelProb": 0.5, "duelGuess": 0.0, "explode": 1.0, "bluff": 1.0, "runSheriff": 0.3, "tearBar": 5}, "logical": {"key": "logical", "name": "邏輯型", "desc": "只看查驗、矛盾和票型，幾乎不靠直覺，也不太跟風；沒有理由就不點名。", "opener": "從邏輯上推", "intuition": 0.3, "follow": 0.3, "evidence": 1.6, "voteBar": -1000000000.0, "accuseBar": 4, "claim": 0.9, "poisonBar": 25, "poisonProb": 0.7, "shootBar": 15, "blindShoot": 0.1, "duelProb": 0.7, "duelGuess": 0.0, "explode": 0.8, "bluff": 0.8, "runSheriff": 0.35, "tearBar": 3}, "conservative": {"key": "conservative", "name": "保守型", "desc": "習慣跟著多數人和警長的方向走，神職晚一點才跳，技能能省就省。", "opener": "我先跟著大家的方向", "intuition": 1.5, "follow": 4.0, "evidence": 0.9, "voteBar": 10, "accuseBar": 8, "claim": 0.6, "poisonBar": 35, "poisonProb": 0.3, "shootBar": 20, "blindShoot": 0.15, "duelProb": 0.3, "duelGuess": 0.0, "explode": 0.5, "bluff": 0.5, "runSheriff": 0.2, "tearBar": 8}, "safe": {"key": "safe", "name": "安全保守型", "desc": "不確定就棄票、不點名；毒藥、獵槍、決鬥只用在確定的狼身上；當狼也絕不自爆。", "opener": "資訊不夠，我先不表態", "intuition": 1.0, "follow": 2.0, "evidence": 0.8, "voteBar": 20, "accuseBar": 18, "claim": 0.4, "poisonBar": 1000000000.0, "poisonProb": 0.0, "shootBar": 1000000000.0, "blindShoot": 0.0, "duelProb": 0.0, "duelGuess": 0.0, "explode": 0.0, "bluff": 0.2, "runSheriff": 0.1, "tearBar": 0}, "aggressive": {"key": "aggressive", "name": "積極猜測型", "desc": "很靠直覺，第一天就敢點名、敢開槍、敢毒人、敢決鬥；當狼最愛悍跳和自爆。", "opener": "我直覺", "intuition": 14.0, "follow": 1.0, "evidence": 0.8, "voteBar": -1000000000.0, "accuseBar": -1000000000.0, "claim": 1.0, "poisonBar": 10, "poisonProb": 0.9, "shootBar": 0, "blindShoot": 1.0, "duelProb": 0.9, "duelGuess": 0.4, "explode": 2.0, "bluff": 2.0, "runSheriff": 0.6, "tearBar": 20}};
+const PERSONALITY_KEYS = Object.keys(PERSONALITIES);
+
 // ================================================================ 電腦玩家
 class Bot {
-  constructor() { this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); }
+  constructor(personality = null) { this.personality = personality; this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); }
   setup(g, me) {
+    this.P = this.personality || PERSONALITIES.rational;
     for (const p of g.players) this.pref[p.seat] = Math.random();
     this.guessSeerAccurate = Math.random() < 0.5;  // 推不出來時，猜哪張預言家牌是準的
     if (isWolf(me) && !("fakeSeer" in g.wolfPlan)) {
       const bots = g.players.filter(p => isWolf(p) && !g.ctrl[p.seat].isHuman).map(p => p.seat);
-      g.wolfPlan.fakeSeer = bots.length && Math.random() < 0.6 ? choice(bots) : null;
+      // 越愛詐唬的狼越可能被派去悍跳
+      const w = bots.map(b => (g.ctrl[b].personality || PERSONALITIES.rational).bluff + 0.01);
+      const chance = bots.length ? Math.min(0.95, 0.6 * w.reduce((a, b) => a + b, 0) / w.length) : 0;
+      let pickFake = null;
+      if (bots.length && Math.random() < chance) {
+        let r = Math.random() * w.reduce((a, b) => a + b, 0);
+        pickFake = bots.find((b, i) => (r -= w[i]) <= 0) ?? bots[bots.length - 1];
+      }
+      g.wolfPlan.fakeSeer = pickFake;
     }
   }
   analyze(g, me) {
@@ -1015,28 +1043,29 @@ class Bot {
     for (const p of g.players) {
       const s = p.seat;
       if (s === me.seat) continue;
-      let v = this.pref[s] * 2;
+      let v = this.pref[s] * this.P.intuition;
+      const ev = this.P.evidence;
       if (k.wolf.has(s)) v += 100;
       if (k.good.has(s)) v -= 100;
       if (k.evidence) {  // 燈影預言家板
-        v += k.evidence.get(s) || 0;
+        v += (k.evidence.get(s) || 0) * ev;
         if (k.protected.has(s)) v -= 15; else if (["SEER", "LANTERN"].includes(g.claimedRole(s))) v += 10;
       } else if (k.trusted != null) {
         const checks = k.claims.get(k.trusted) || new Map();
-        if (checks.has(s)) v += checks.get(s) ? 20 : -8;
+        if (checks.has(s)) v += (checks.get(s) ? 20 : -8) * ev;
         if (s === k.trusted) v -= 15; else if (k.claims.has(s)) v += 10;
       }
       if (["HUNTER", "WITCH", "IDIOT", "DREAMER", "MERCHANT", "KNIGHT", "VILLAGE_GIRL"].includes(g.claimedRole(s))) v -= 3;
       v += this.soft[s] || 0;
       for (const d of g.days) {
         for (const sp of d.speeches) if (sp.seat === s && sp.accuse != null) {
-          if (k.good.has(sp.accuse) || sp.accuse === k.trusted) v += 5; else if (k.wolf.has(sp.accuse)) v -= 2;
+          if (k.good.has(sp.accuse) || sp.accuse === k.trusted) v += 5 * ev; else if (k.wolf.has(sp.accuse)) v -= 2 * ev;
         }
         if (d === today) continue;
         for (const votes of [d.votes, d.pkVotes]) {
           const t = votes.get(s);
           if (t == null) continue;
-          if (k.good.has(t) || t === k.trusted) v += 5; else if (k.wolf.has(t)) v -= 3;
+          if (k.good.has(t) || t === k.trusted) v += 5 * ev; else if (k.wolf.has(t)) v -= 3 * ev;
         }
       }
       base.set(s, v);
@@ -1044,7 +1073,7 @@ class Bot {
     const score = new Map([...base].filter(([s]) => g.p(s).alive));
     if (today) for (const sp of today.speeches) {
       if (score.has(sp.accuse) && sp.seat !== me.seat && (base.has(sp.seat) ? base.get(sp.seat) : -99) < 8)
-        score.set(sp.accuse, score.get(sp.accuse) + (sp.seat === k.trusted ? 3 : 1.5));
+        score.set(sp.accuse, score.get(sp.accuse) + (sp.seat === k.trusted ? 3 : 1.5) * this.P.follow / 1.5);
     }
     return score;
   }
@@ -1086,7 +1115,7 @@ class Bot {
       const certain = [...k.wolf].filter(s => g.p(s).alive);
       if (certain.length) return ["poison", choice(certain)];
       const score = this.suspicion(g, me, k), t = this.top(score);
-      if (t != null && score.get(t) >= 20 && Math.random() < 0.5) return ["poison", t];
+      if (t != null && score.get(t) >= this.P.poisonBar && Math.random() < this.P.poisonProb) return ["poison", t];
     }
     return [null, null];
   }
@@ -1117,7 +1146,7 @@ class Bot {
     }
     if (me.role === "SEER") {
       const already = g.claimedRole(me.seat) === "SEER";
-      if (this.checks.size && (last || already || [...this.checks.values()].some(Boolean) || k.claims.size || Math.random() < 0.8)) {
+      if (this.checks.size && (last || already || [...this.checks.values()].some(Boolean) || k.claims.size || Math.random() < this.P.claim)) {
         const aliveWolves = [...this.checks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
         const rivals = [...k.claims.keys()].filter(c => c !== me.seat && g.p(c).alive);
         const accuse = [...aliveWolves, ...rivals, top][0];
@@ -1147,7 +1176,8 @@ class Bot {
       return mkSpeech(me.seat, { claim: me.role, accuse: top, text });
     }
     const text = k.trusted != null ? `我站 ${k.trusted}號 預言家的邊` : (k.claims.size >= 2 ? "預言家對跳，我還在聽" : "目前資訊不多");
-    return mkSpeech(me.seat, { accuse: top, text });
+    const sure = top != null && score.get(top) >= this.P.accuseBar;  // 沒把握就不點名
+    return mkSpeech(me.seat, { accuse: sure ? top : null, text: `${this.P.opener}，${text}` });
   }
   wolfSpeech(g, me, k, last) {
     const goodAlive = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
@@ -1160,9 +1190,9 @@ class Bot {
     }
     const target = this.wolfTarget(g);
     if (last) return mkSpeech(me.seat, { claim: "VILLAGER", accuse: target, text: "你們出錯人了" });
-    if (this.accusedToday(g, me) && Math.random() < 0.25) return mkSpeech(me.seat, { claim: "HUNTER", accuse: target, text: "出我的話我會開槍" });
+    if (this.accusedToday(g, me) && Math.random() < Math.min(1, 0.25 * this.P.bluff)) return mkSpeech(me.seat, { claim: "HUNTER", accuse: target, text: "出我的話我會開槍" });
     const fake = g.wolfPlan.fakeSeer;
-    return mkSpeech(me.seat, { accuse: target, text: fake != null && g.p(fake).alive ? `我站 ${fake}號 預言家` : "我是平民" });
+    return mkSpeech(me.seat, { accuse: target, text: `${this.P.opener}，${fake != null && g.p(fake).alive ? `我站 ${fake}號 預言家` : "我是平民"}` });
   }
   inventCheck(g, me, k, goodAlive) {
     const unused = goodAlive.filter(s => !this.fakeChecks.has(s) && !g.p(s).revealed);
@@ -1198,7 +1228,9 @@ class Bot {
       const good = cands.filter(c => !k.wolf.has(c));
       return good.length ? choice(good) : null;
     }
-    return this.top(this.suspicion(g, me, k), cands.filter(c => c !== me.seat));
+    const score = this.suspicion(g, me, k);
+    const top = this.top(score, cands.filter(c => c !== me.seat));
+    return top != null && score.get(top) < this.P.voteBar ? null : top;  // 不夠可疑就棄票
   }
   hunterShoot(g, me) {
     const k = this.analyze(g, me);
@@ -1211,8 +1243,8 @@ class Bot {
     const certain = [...k.wolf].filter(s => g.p(s).alive);
     if (certain.length) return certain[0];
     const score = this.suspicion(g, me, k), t = this.top(score);
-    if (t != null && score.get(t) >= 10) return t;
-    return Math.random() < 0.4 ? t : null;
+    if (t != null && score.get(t) >= this.P.shootBar) return t;
+    return Math.random() < this.P.blindShoot ? t : null;
   }
   chooseDream(g, me) {
     const opts = g.aliveSeats().filter(s => s !== me.seat);
@@ -1305,17 +1337,21 @@ class Bot {
     if (certain.length) return certain[0];
     if (g.nightNo >= 2 && k.evidence) {
       const strong = [...k.evidence].filter(([t, v]) => v >= 20 && alive.includes(t)).map(([t]) => t);
-      if (strong.length && Math.random() < 0.5) return strong[0];
+      if (strong.length && Math.random() < this.P.duelProb) return strong[0];
     } else if (g.nightNo >= 2 && k.trusted != null) {
       const checked = [...(k.claims.get(k.trusted) || new Map())].filter(([t, w]) => w && alive.includes(t)).map(([t]) => t);
-      if (checked.length && Math.random() < 0.5) return checked[0];
+      if (checked.length && Math.random() < this.P.duelProb) return checked[0];
+    }
+    if (g.nightNo >= 2 && this.P.duelGuess && Math.random() < this.P.duelGuess) {  // 積極型：只憑懷疑也敢決鬥
+      const score = this.suspicion(g, me, k), t = this.top(score, alive);
+      if (t != null && score.get(t) >= 12) return t;
     }
     return null;
   }
   runForSheriff(g, me) {
     if (me.role === "SEER" && this.checks.size) return Math.random() < 0.9;  // 真預言家上警
     if (isWolf(me) && g.wolfPlan.fakeSeer === me.seat) return true;      // 悍跳狼搶警徽
-    return Math.random() < (isWolf(me) ? 0.35 : 0.3);
+    return Math.random() < this.P.runSheriff + (isWolf(me) ? 0.05 : 0);
   }
   sheriffVote(g, me, cands) {
     const k = this.analyze(g, me);
@@ -1346,7 +1382,7 @@ class Bot {
     const score = this.suspicion(g, me, k);
     const val = s => score.get(s) ?? 0;
     const best = alive.reduce((a, b) => val(b) < val(a) ? b : a);
-    return val(best) < 5 ? best : null;  // 沒把握就撕警徽
+    return val(best) < this.P.tearBar ? best : null;  // 沒把握就撕警徽
   }
   chooseDirection() { return Math.random() < 0.5 ? "left" : "right"; }
   selfExplode(g, me) {
@@ -1356,10 +1392,10 @@ class Bot {
     const real = [...claims.keys()].filter(c => !isWolf(g.p(c)));
     if (g.phase === "election") {  // 真預言家已在警上報查驗 → 自爆打斷，不讓他拿警徽
       const spoke = new Set(g.today.speeches.map(sp => sp.seat));
-      return real.some(c => spoke.has(c)) && Math.random() < 0.2;
+      return real.some(c => spoke.has(c)) && Math.random() < 0.2 * this.P.explode;
     }
     const exposed = real.some(c => g.p(c).alive && claims.get(c).get(me.seat));  // 被真預言家查殺
-    return exposed && Math.random() < 0.3;
+    return exposed && Math.random() < 0.3 * this.P.explode;
   }
   hunterPoisoned() {}
 }
@@ -1526,6 +1562,8 @@ class UI {
     $("seats").innerHTML = g.players.map(p => {
       const tags = [];
       if (p.seat === this.humanSeat) tags.push(`<span class="tag">你</span>`);
+      const pers = g.ctrl[p.seat].personality;
+      if (pers && (reveal || g.rules.showPersonality)) tags.push(`<span class="tag">${pers.name}</span>`);
       if (p.seat === g.sheriff) tags.push(`<span class="tag claim">警長</span>`);
       if (reveal || p.revealed || p.seat === this.humanSeat) tags.push(`<span class="tag ${isWolf(p) ? "wolf" : "good"}">${R[p.role]}${p.turned ? "（轉狼）" : ""}</span>`);
       else if (h && isWolf(h) && isWolf(p)) tags.push(`<span class="tag wolf">${p.role === "WEREWOLF" ? "狼隊友" : R[p.role]}</span>`);
@@ -1740,7 +1778,7 @@ for (const b of $("mode-chips").children) b.onclick = () => { S.mode = b.dataset
 async function startGame() {
   const roles = shuffle(currentRoles());
   if (customProblem(roles)) return;
-  const rules = { witchSelfSave: $("rule-self-save").value, sameGuardSaveDies: $("rule-sgs").value === "1", winMode: $("rule-win").value, sheriff: $("rule-sheriff").value === "1", selfExplode: $("rule-explode").value === "1", maxRounds: 30 };
+  const rules = { witchSelfSave: $("rule-self-save").value, sameGuardSaveDies: $("rule-sgs").value === "1", winMode: $("rule-win").value, sheriff: $("rule-sheriff").value === "1", selfExplode: $("rule-explode").value === "1", botPersonality: $("rule-personality").value, showPersonality: $("rule-show-personality").value === "1", maxRounds: 30 };
   let humanSeat = null;
   const controllers = {};
   if (S.mode === "play") {
@@ -1793,8 +1831,8 @@ function showResult(g, winner, humanSeat) {
       <div class="banner ${kind}"><h2>${head}</h2>${sub ? `<p>${sub}</p>` : ""}</div>
       <h2>復盤</h2>
       <div class="field"><h3>身份</h3><div class="tablewrap"><table>
-        <thead><tr><th>座位</th><th>身份</th><th>結果</th></tr></thead>
-        <tbody>${g.players.map(p => `<tr><td>${p.seat}號${p.seat === humanSeat ? "（你）" : ""}</td><td class="${g.alignment(p) === "WOLF" ? "w" : "g"}">${R[p.role]}${p.role === "WILD_CHILD" ? (p.turned ? "（轉狼）" : `（${g.alignment(p) === "WOLF" ? "狼陣營" : "好人陣營"}）`) : ""}</td><td>${p.alive ? "存活" : CAUSE[p.deathCause]}</td></tr>`).join("")}</tbody>
+        <thead><tr><th>座位</th><th>身份</th><th>結果</th><th>電腦個性</th></tr></thead>
+        <tbody>${g.players.map(p => `<tr><td>${p.seat}號${p.seat === humanSeat ? "（你）" : ""}</td><td class="${g.alignment(p) === "WOLF" ? "w" : "g"}">${R[p.role]}${p.role === "WILD_CHILD" ? (p.turned ? "（轉狼）" : `（${g.alignment(p) === "WOLF" ? "狼陣營" : "好人陣營"}）`) : ""}</td><td>${p.alive ? "存活" : CAUSE[p.deathCause]}</td><td>${g.ctrl[p.seat].personality?.name ?? "—"}</td></tr>`).join("")}</tbody>
       </table></div></div>
       ${g.hasLantern ? `<div class="field"><h3>燈影預言家</h3><p>本局查驗正確的是<b>${g.seerCardAccurate ? "預言家" : "燈影預言家"}</b>牌，另一張是反向查驗。</p></div>` : ""}
       <div class="field"><h3>夜晚行動</h3><ol class="godlog">${g.godLog.map(l => `<li>${l.round ? `第 ${l.round} 夜` : "開局"}：${esc(l.msg)}</li>`).join("")}</ol></div>
@@ -3455,6 +3493,8 @@ for (const b of document.querySelectorAll(".tabs button")) {
     if (b.dataset.tab === "quiz" && Q.picking) renderQuiz();
   };
 }
+$("rule-personality").innerHTML = `<option value="mixed">隨機混合</option>` + PERSONALITY_KEYS.map(k => `<option value="${k}">全部${PERSONALITIES[k].name}</option>`).join("");
+$("personality-list").innerHTML = PERSONALITY_KEYS.map(k => `<dt>${PERSONALITIES[k].name}</dt><dd>${esc(PERSONALITIES[k].desc)}</dd>`).join("");
 renderSetup();
 </script>
 </body>
