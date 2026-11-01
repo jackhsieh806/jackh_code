@@ -43,6 +43,8 @@ class Rules:
     sheriff: bool = True
     # 狼人可否在白天（含警長競選）自爆
     self_explode: bool = True
+    # 燈影預言家板：兩位真預言家都報「預言家」，狼隊派兩隻狼悍跳，四人一起上警
+    lantern_claim_race: bool = True
     # 電腦個性："mixed" 每個電腦隨機分配，或 personality.py 裡的某個 key 讓全部電腦相同
     bot_personality: str = "mixed"
     # 對局一開始就公開每個電腦的個性（練習看懂不同風格的玩家）
@@ -222,6 +224,7 @@ class Game:
         # 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張是反向查驗
         self.has_lantern = any(p.role is Role.LANTERN_SEER for p in self.players.values())
         self.seer_card_accurate = self.rng.random() < 0.5 if self.has_lantern else True
+        self.claim_race = self.has_lantern and self.rules.lantern_claim_race
         self.claims: dict[int, dict] = {}   # 公開宣稱：seat -> {"role": Role, "checks": {t: is_wolf}}
         self.nights: list[NightRecord] = []
         self.days: list[DayRecord] = []

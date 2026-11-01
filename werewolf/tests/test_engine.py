@@ -607,7 +607,7 @@ LS = Role.LANTERN_SEER
 LANTERN_BOARD = [WK, WB, W, W, W, S, WI, KN, G, H, LS, V, V, V, V]
 
 
-def lantern_game(overrides=None, seer_accurate=True):
+def lantern_game(overrides=None, seer_accurate=True, race=False):
     base = lambda: dict(choose_charm=lambda g, m: None, knight_duel=lambda g, m: None,
                         self_explode=lambda g, m: False)
     ctrls = {}
@@ -615,7 +615,8 @@ def lantern_game(overrides=None, seer_accurate=True):
         b = base()
         b.update((overrides or {}).get(seat, {}))
         ctrls[seat] = Scripted(**idle(**b))
-    g = quiet_game(LANTERN_BOARD, ctrls)
+    g = quiet_game(LANTERN_BOARD, ctrls,
+                   rules=Rules(sheriff=False, self_explode=False, lantern_claim_race=race))
     g.seer_card_accurate = seer_accurate
     g.setup()
     return g
@@ -813,6 +814,54 @@ class SheriffDoubtTest(unittest.TestCase):
         sp = g.controllers[10].speak(g, g.players[10])
         self.assertIn("我懷疑", sp.text)
         self.assertEqual(sp.accuse, 1)
+
+
+class ClaimRaceTest(unittest.TestCase):
+    """燈影板四人搶警：兩位真預言家 + 兩隻悍跳狼，全部報「預言家」。
+    座位：1 狼王、2 狼美人、3-5 小狼、6 預言家、7 女巫、8 騎士、9 守衛、10 獵人、11 燈影預言家、12-15 平民。"""
+
+    def test_wolves_send_two_fake_seers_and_all_four_run(self):
+        g = Game(LANTERN_BOARD, seed=3, out=lambda _: None,
+                 rules=Rules(self_explode=False, lantern_claim_race=True))
+        g.setup()
+        fakes = g.wolf_plan["fake_seers"]
+        self.assertEqual(len(fakes), 2)
+        self.assertTrue(all(g.players[f].is_wolf for f in fakes))
+        g.run_dawn(g.run_night())
+        speeches = {sp.seat: sp for sp in g.days[0].speeches}
+        for seat in (6, 11, *fakes):                       # 四人都上警、都報預言家
+            self.assertIn(seat, speeches)
+            self.assertIs(speeches[seat].claim, Role.SEER)
+
+    def test_same_result_on_same_target_cannot_both_be_real(self):
+        g = lantern_game(race=True)
+        g.days.append(DayRecord(1))
+        g._register_speech(Speech(6, Role.SEER, {12: True}))
+        g._register_speech(Speech(11, Role.SEER, {12: False}))
+        g._register_speech(Speech(3, Role.SEER, {12: False}))   # 和 11 號說法一樣
+        k = g.controllers[14].analyze(g, g.players[14])
+        self.assertNotIn(frozenset({11, 3}), [frozenset(k.protected)])
+
+    def test_mixed_accuracy_reveals_a_liar(self):
+        g = lantern_game(race=True)
+        g.days.append(DayRecord(1))
+        g._register_speech(Speech(4, Role.SEER, {14: True, 13: False}))  # 說我（14）是狼、13 是好人
+        g.players[1].revealed = True
+        g._register_speech(Speech(4, Role.SEER, {1: True}))    # 又說翻牌的狼王是狼
+        k = g.controllers[14].analyze(g, g.players[14])
+        self.assertIn(4, k.wolf)                               # 有時準有時反 → 一定是假的
+
+    def test_card_holder_knows_it_is_one_of_the_real_pair(self):
+        g = lantern_game(race=True)
+        g.days.append(DayRecord(1))
+        seer = g.controllers[6]
+        seer.raw = {1: True}
+        g.players[1].revealed = True                           # 我驗 1 號是狼，1 號真的是狼 → 我準
+        for c, rep in ((11, {12: True}), (3, {12: False}), (4, {13: True})):
+            g._register_speech(Speech(c, Role.SEER, rep))
+        k = seer.analyze(g, g.players[6])
+        self.assertTrue(k.card_acc[Role.SEER])
+        self.assertEqual(len(k.protected), 1)                  # 另一位真預言家只會有一個
 
 
 class SimulationTest(unittest.TestCase):

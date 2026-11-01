@@ -142,7 +142,8 @@ def settings(rules: Rules) -> None:
     print(f"\n目前設定：女巫 {names[rules.witch_self_save]}、"
           f"同守同救{'會死' if rules.same_guard_save_dies else '不會死'}、"
           f"{'屠邊' if rules.win_mode == 'side' else '屠城'}、"
-          f"{'有' if rules.sheriff else '無'}警長、{'可' if rules.self_explode else '不可'}自爆")
+          f"{'有' if rules.sheriff else '無'}警長、{'可' if rules.self_explode else '不可'}自爆、"
+          f"燈影板{'四人搶警' if rules.lantern_claim_race else '各報各的牌'}")
     raw = ask("女巫自救：1=全程不可 2=僅首夜 3=隨時（Enter 不變）> ")
     rules.witch_self_save = modes.get(raw, rules.witch_self_save)
     raw = ask("同守同救：1=會死 2=不會死（Enter 不變）> ")
@@ -157,6 +158,9 @@ def settings(rules: Rules) -> None:
     raw = ask("狼人自爆：1=可以 2=不可以（Enter 不變）> ")
     if raw in ("1", "2"):
         rules.self_explode = raw == "1"
+    raw = ask("燈影預言家板：1=四人搶警（兩真兩悍跳都報預言家） 2=各報各的牌（Enter 不變）> ")
+    if raw in ("1", "2"):
+        rules.lantern_claim_race = raw == "1"
     keys = ["mixed", *PERSONALITIES]
     print("電腦個性：" + "  ".join(
         f"{i}={'隨機混合' if k == 'mixed' else PERSONALITIES[k].name}" for i, k in enumerate(keys, 1)))
