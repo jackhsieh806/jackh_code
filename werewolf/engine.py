@@ -43,7 +43,7 @@ class Rules:
     sheriff: bool = True
     # 狼人可否在白天（含警長競選）自爆
     self_explode: bool = True
-    # 燈影預言家板：兩位真預言家都報「預言家」，狼隊派兩隻狼悍跳，四人一起上警
+    # 燈影預言家板四人搶警：狼隊派兩隻狼分別悍跳預言家和燈影預言家，和兩位真預言家一起上警
     lantern_claim_race: bool = True
     # 電腦個性："mixed" 每個電腦隨機分配，或 personality.py 裡的某個 key 讓全部電腦相同
     bot_personality: str = "mixed"

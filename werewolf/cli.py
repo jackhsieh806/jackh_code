@@ -158,7 +158,7 @@ def settings(rules: Rules) -> None:
     raw = ask("狼人自爆：1=可以 2=不可以（Enter 不變）> ")
     if raw in ("1", "2"):
         rules.self_explode = raw == "1"
-    raw = ask("燈影預言家板：1=四人搶警（兩真兩悍跳都報預言家） 2=各報各的牌（Enter 不變）> ")
+    raw = ask("燈影預言家板：1=四人搶警（預言家、燈影預言家各有一真一假對跳） 2=各報各的牌（Enter 不變）> ")
     if raw in ("1", "2"):
         rules.lantern_claim_race = raw == "1"
     keys = ["mixed", *PERSONALITIES]

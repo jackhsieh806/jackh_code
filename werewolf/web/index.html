@@ -228,7 +228,7 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
             </select></label>
           <label class="field"><span class="hint">燈影預言家板</span>
             <select id="rule-race">
-              <option value="1">四人搶警（兩真兩悍跳都報預言家）</option>
+              <option value="1">四人搶警（預言家、燈影預各一真一假）</option>
               <option value="0">各報各的牌</option>
             </select></label>
           <label class="field"><span class="hint">電腦個性</span>
@@ -1060,18 +1060,17 @@ class Bot {
   }
   // 燈影預言家板：兩張預言家牌一正一反，用確定的事實反推哪張準
   // 燈影預言家板：兩位真預言家一位正確、一位反向查驗，可能還有狼悍跳。
-  // 列舉「哪兩個人是真預言家、哪一位準」的組合，用確定的事實排除不可能的，再挑最可能的一組。
-  // 四人搶警模式下大家都報「預言家」，看不出誰拿哪張牌。
+  // 列舉「哪兩個人是真預言家（每張牌各一人）、哪一位準」的組合，用確定的事實排除不可能的，再挑最可能的一組。
+  // 四人搶警時每張牌都有一真一假。
   lanternAnalyze(g, me, good, wolf, claims) {
     const cards = ["SEER", "LANTERN"];
     const mycard = cards.includes(me.role) ? me.role : null;
-    const race = g.claimRace;
     for (const [t, w] of this.checks) (w ? wolf : good).add(t);
     const reports = new Map(), cardOf = new Map();
     for (const [c, cl] of g.claims) if (cards.includes(cl.role) && c !== me.seat) { reports.set(c, new Map(cl.checks)); cardOf.set(c, cl.role); }
     if (mycard) {
       reports.set(me.seat, new Map(this.raw)); cardOf.set(me.seat, mycard);
-      if (!race) for (const c of reports.keys()) if (c !== me.seat && cardOf.get(c) === mycard) wolf.add(c);  // 跳我這張牌的是狼
+      for (const c of reports.keys()) if (c !== me.seat && cardOf.get(c) === mycard) wolf.add(c);  // 跳我這張牌的是狼
     }
     const accP = new Map();  // 從事實推出某人「準 / 反」
     for (const [c, rep] of reports) {
@@ -1085,7 +1084,7 @@ class Bot {
     for (let i = 0; i < cands.length; i++) for (let j = i + 1; j < cands.length; j++) {
       const a = cands[i], b = cands[j];
       if (mycard && a !== me.seat && b !== me.seat) continue;  // 我自己一定是真預言家之一
-      if (!race && cardOf.get(a) === cardOf.get(b)) continue;   // 兩張牌各一人
+      if (cardOf.get(a) === cardOf.get(b)) continue;   // 兩張牌各一人
       if ([...reports.get(a)].some(([t, w]) => reports.get(b).has(t) && reports.get(b).get(t) === w)) continue;  // 驗同一人結果一定相反
       const implied = new Map([...reports.keys()].map(c => [c, c !== a && c !== b]));  // 假設 a、b 是真的：其他跳預言家的都是狼
       for (const accA of [true, false]) {
@@ -1126,7 +1125,7 @@ class Bot {
       }
     }
     const cardAcc = {};
-    for (const [c, acc] of holders) if (certain.get(c) && (c === me.seat || !race)) {  // 換算成「哪張牌準」
+    for (const [c, acc] of holders) if (certain.get(c)) {  // 換算成「哪張牌準」
       cardAcc[cardOf.get(c)] = acc; cardAcc[cardOf.get(c) === "SEER" ? "LANTERN" : "SEER"] = !acc;
     }
     const protectedSet = new Set([...holders.keys()].filter(c => c !== me.seat));
@@ -1274,8 +1273,7 @@ class Bot {
       const acc = k.cardAcc[me.role];
       const aliveWolves = [...k.wolf].filter(t => g.p(t).alive && t !== me.seat);
       const text = acc == null ? "我不知道自己是正確還是反向查驗，大家一起對資訊" : acc ? "我確定我是正確查驗" : "我是反向查驗，結果要反過來看";
-      const claim = g.claimRace ? "SEER" : me.role;  // 四人搶警：燈影預也報「預言家」
-      return mkSpeech(me.seat, { claim, checks: new Map(this.raw), accuse: [...aliveWolves, top][0], text });
+      return mkSpeech(me.seat, { claim: me.role, checks: new Map(this.raw), accuse: [...aliveWolves, top][0], text });
     }
     if (me.role === "SEER") {
       const already = g.claimedRole(me.seat) === "SEER";
@@ -1317,13 +1315,16 @@ class Bot {
   }
   wolfSpeech(g, me, k, last) {
     const goodAlive = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
-    if ((g.wolfPlan.fakeSeers || []).includes(me.seat)) {
-      if (!this.fakeDays.has(g.nightNo) && !(last && this.fakeChecks.size)) { this.fakeDays.add(g.nightNo); this.inventCheck(g, me, k, goodAlive); }
-      const rivals = [...g.seerClaims().keys()].filter(c => c !== me.seat && g.p(c).alive);
+    const fakes = g.wolfPlan.fakeSeers || [];
+    if (fakes.includes(me.seat)) {
+      // 四人搶警：第一隻悍跳預言家、第二隻悍跳燈影預言家，每張牌都有人對跳
+      const card = g.claimRace && fakes.indexOf(me.seat) === 1 ? "LANTERN" : "SEER";
+      if (!this.fakeDays.has(g.nightNo) && !(last && this.fakeChecks.size)) { this.fakeDays.add(g.nightNo); this.inventCheck(g, me, k, goodAlive, card); }
+      const rivals = [...g.claimsOf(card).keys()].filter(c => c !== me.seat && g.p(c).alive);
       const fw = [...this.fakeChecks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
       const others = goodAlive.filter(s => !this.fakeChecks.has(s));  // 不點自己發的金水
       const accuse = [...fw, ...rivals, ...others, null][0];
-      return mkSpeech(me.seat, { claim: "SEER", checks: new Map(this.fakeChecks), accuse, text: rivals.length ? "我才是真預言家，對跳的是狼" : "" });
+      return mkSpeech(me.seat, { claim: card, checks: new Map(this.fakeChecks), accuse, text: rivals.length ? `我才是真的${R[card]}，對跳的是狼` : "" });
     }
     const target = this.wolfTarget(g);
     if (last) return mkSpeech(me.seat, { claim: "VILLAGER", accuse: target, text: "你們出錯人了" });
@@ -1331,9 +1332,9 @@ class Bot {
     const fake = g.wolfPlan.fakeSeer;
     return mkSpeech(me.seat, { accuse: target, text: `${this.P.opener}，${fake != null && g.p(fake).alive ? `我站 ${fake}號 預言家` : "我是平民"}` });
   }
-  inventCheck(g, me, k, goodAlive) {
+  inventCheck(g, me, k, goodAlive, card = "SEER") {
     const unused = goodAlive.filter(s => !this.fakeChecks.has(s) && !g.p(s).revealed);
-    const rivals = [...g.seerClaims().keys()].filter(c => unused.includes(c));
+    const rivals = [...g.claimsOf(card).keys()].filter(c => unused.includes(c));  // 對同一張牌的真預言家發查殺
     const mates = g.aliveSeats().filter(s => k.wolf.has(s) && s !== me.seat && !this.fakeChecks.has(s));
     const roll = Math.random();
     if (rivals.length && roll < 0.8) this.fakeChecks.set(rivals[0], true);
@@ -3504,7 +3505,7 @@ const QUIZ_TOPICS = [
 "只要確定其中一張準不準，另一張就一定相反。"
 ],
 [
-"四人搶警時，兩位真預言家互相查驗對方，結果會是？",
+"四人搶警時，真的預言家和真的燈影預言家互相查驗對方，結果會是？",
 [
 "一個說好人、一個說狼",
 "兩個都說好人",
@@ -3514,7 +3515,7 @@ const QUIZ_TOPICS = [
 "對方是好人：準的那位看到好人，反的那位看到狼，所以一定相反。"
 ],
 [
-"A 和 B 都跳預言家，兩人互相給對方金水，他們可能都是真預言家嗎？",
+"A 跳預言家、B 跳燈影預言家，兩人互相給對方金水，他們可能都是真的嗎？",
 [
 "不可能",
 "有可能"
@@ -3523,14 +3524,24 @@ const QUIZ_TOPICS = [
 "真的兩位互驗結果一定相反；互給金水代表至少一個是假的，很可能是狼隊互保。"
 ],
 [
-"四人搶警，假設 A、B 是真預言家，那 C（也跳預言家）是？",
+"四人搶警，假設 A（預言家）、B（燈影預言家）是真的，那和 A 對跳預言家的 C 是？",
 [
 "一定是狼",
 "可能是好人",
 "一定是燈影預言家"
 ],
 0,
-"真預言家只有兩位，其他跳預言家的都是悍跳的狼。所以 A、B 中準的那位驗 C 一定看到狼，反的那位一定看到好人；對不上，這個假設就錯了。"
+"每張牌只有一個真的，對跳的就是悍跳狼。所以 A、B 中準的那位驗 C 一定看到狼，反的那位一定看到好人；對不上，這個假設就錯了。"
+],
+[
+"四人搶警時，警上會怎麼對跳？",
+[
+"預言家兩人對跳、燈影預言家兩人對跳，各一真一假",
+"四個人都說自己是預言家",
+"只有預言家有人對跳"
+],
+0,
+"狼隊派兩隻狼，一隻悍跳預言家、一隻悍跳燈影預言家。好人要先判斷每張牌誰是真的，再判斷哪張牌準。"
 ],
 [
 "四人搶警時，真預言家第二晚最該驗誰？",
@@ -3643,7 +3654,7 @@ $("sheet").innerHTML = `
   <p class="hint">狼王、狼美人、3 小狼｜預言家、女巫、騎士、守衛、獵人｜燈影預言家 + 4 平民。夜晚順序：守衛 → 狼人 → 狼美人 → 女巫 → 騎士 → 獵人 → 預言家 → 燈影預言家。</p>
   <dl class="terms">
     <dt>兩張預言家牌</dt><dd>開局主持人決定一張正確查驗、另一張反向查驗，兩人都不知道自己是哪種。預言家牌站神坑，燈影預言家牌站民坑。</dd>
-    <dt>四人搶警</dt><dd>（預設）兩位真預言家都報「預言家」，狼隊派兩隻狼悍跳，四人一起上警。先找出哪兩個是真的：假設 A、B 是真的，其他跳預言家的就是狼，準的那位驗他們一定看到狼、反的那位一定看到好人；兩位真預言家互驗結果一定相反；查驗時準時反的人一定是假的。</dd>
+    <dt>四人搶警</dt><dd>（預設）狼隊派兩隻狼，分別悍跳預言家和燈影預言家，四人一起上警，每張牌一真一假。先找出每張牌誰是真的：假設 A、B 是真的，和他們對跳的就是狼，準的那位驗狼一定看到狼、反的那位一定看到好人；兩位真預言家互驗結果一定相反；查驗時準時反的人一定是假的。</dd>
     <dt>查驗限制</dt><dd>兩位預言家都不能驗自己、翻牌的騎士和騎金（騎士決鬥失敗證實的好人），不能用確定的好人校準。</dd>
     <dt>怎麼推</dt><dd>真的兩張牌驗同一個人，結果一定相反。用確定的事實反推哪張準：被查殺的人就是你自己、翻牌或自爆的狼、騎士決鬥的結果。確定一張，另一張就一定相反。</dd>
     <dt>狼美人、狼王</dt><dd>狼美人不能被自刀，被騎士決鬥時技能被封；狼王被毒時不能帶人。</dd>

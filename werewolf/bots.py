@@ -174,11 +174,10 @@ class BotController(Controller):
                          claims: dict[int, dict[int, bool]]) -> Knowledge:
         """燈影預言家板：兩位真預言家一位正確、一位反向查驗，可能還有狼悍跳。
 
-        列舉「哪兩個人是真預言家、哪一位是準的」的所有組合，用確定的事實排除不可能的，
-        再挑最可能的一組。四人搶警模式下大家都報「預言家」，看不出誰拿哪張牌。"""
+        列舉「哪兩個人是真預言家（每張牌各一人）、哪一位是準的」的所有組合，
+        用確定的事實排除不可能的，再挑最可能的一組。四人搶警時每張牌都有一真一假。"""
         cards = (Role.SEER, Role.LANTERN_SEER)
         mycard = me.role if me.role in cards else None
-        race = game.claim_race
         for t, w in self.checks.items():          # 幸運兒等其他確定查驗（本板沒有，保留通用性）
             (wolf if w else good).add(t)
         reports = {c: dict(cl["checks"]) for c, cl in game.claims.items()
@@ -186,8 +185,7 @@ class BotController(Controller):
         card_of = {c: game.claims[c]["role"] for c in reports}
         if mycard:
             reports[me.seat], card_of[me.seat] = dict(self.raw), mycard
-            if not race:                           # 跳我這張牌的其他人一定是狼
-                wolf |= {c for c in reports if c != me.seat and card_of[c] is mycard}
+            wolf |= {c for c in reports if c != me.seat and card_of[c] is mycard}   # 跳我這張牌的一定是狼
         acc_p: dict[int, bool] = {}                # 從事實推出某人「準 / 反」
         for c, rep in reports.items():
             flags = {(not shown) if t in good else shown for t, shown in rep.items() if t in good or t in wolf}
@@ -202,7 +200,7 @@ class BotController(Controller):
             for b in cands[i + 1:]:
                 if mycard and me.seat not in (a, b):
                     continue                       # 我自己一定是真預言家之一
-                if not race and card_of[a] is card_of[b]:
+                if card_of[a] is card_of[b]:
                     continue                       # 兩張牌各一人
                 if any(t in reports[b] and reports[b][t] == w for t, w in reports[a].items()):
                     continue                       # 真的兩位驗同一個人，結果一定相反
@@ -252,7 +250,7 @@ class BotController(Controller):
                 evidence[t] = evidence.get(t, 0) + (weight if truth else -weight / 2)
         acc_card: dict = {}
         for c, acc in holders.items():             # 換算成「哪張牌準」：自己的牌一定知道是哪張
-            if certain.get(c) and (c == me.seat or not race):
+            if certain.get(c):
                 acc_card[card_of[c]] = acc
                 acc_card[cards[1] if card_of[c] is cards[0] else cards[0]] = not acc
         protected = {c for c in holders if c != me.seat}
@@ -437,8 +435,7 @@ class BotController(Controller):
                 text = "我不知道自己是正確還是反向查驗，大家一起對資訊"
             else:
                 text = "我確定我是正確查驗" if acc else "我是反向查驗，結果要反過來看"
-            claim = Role.SEER if game.claim_race else me.role   # 四人搶警：燈影預也報「預言家」
-            return Speech(me.seat, claim, dict(self.raw), (alive_wolves or [top])[0], text)
+            return Speech(me.seat, me.role, dict(self.raw), (alive_wolves or [top])[0], text)
         if me.role is Role.SEER:
             already = game.claimed_role(me.seat) is Role.SEER
             if self.checks and (last or already or any(self.checks.values())
@@ -511,16 +508,19 @@ class BotController(Controller):
     # ------------------------------------------------------------ 狼人白天策略
     def _wolf_speech(self, game: Game, me: Player, k: Knowledge, last: bool) -> Speech:
         good_alive = [p.seat for p in game.alive() if not p.is_wolf]
-        if me.seat in game.wolf_plan.get("fake_seers", ()):
+        fakes = game.wolf_plan.get("fake_seers", ())
+        if me.seat in fakes:
+            # 四人搶警：第一隻悍跳預言家、第二隻悍跳燈影預言家，每張牌都有人對跳
+            card = Role.LANTERN_SEER if game.claim_race and fakes.index(me.seat) == 1 else Role.SEER
             if game.night_no not in self.fake_days and not (last and self.fake_checks):
                 self.fake_days.add(game.night_no)
-                self._invent_check(game, me, k, good_alive)
-            rivals = [c for c in game.seer_claims() if c != me.seat and game.players[c].alive]
+                self._invent_check(game, me, k, good_alive, card)
+            rivals = [c for c in game.claims_of(card) if c != me.seat and game.players[c].alive]
             fake_wolves = [t for t, w in self.fake_checks.items() if w and game.players[t].alive]
             others = [s for s in good_alive if s not in self.fake_checks]   # 不點自己發的金水
             accuse = (fake_wolves or rivals or others or [None])[0]
-            text = "我才是真預言家，對跳的是狼" if rivals else ""
-            return Speech(me.seat, Role.SEER, dict(self.fake_checks), accuse, text)
+            text = f"我才是真的{card.value}，對跳的是狼" if rivals else ""
+            return Speech(me.seat, card, dict(self.fake_checks), accuse, text)
 
         target = self.wolf_target(game, k)
         if last:
@@ -531,9 +531,10 @@ class BotController(Controller):
         text = f"我站 {fake}號 預言家" if fake and game.players[fake].alive else "我是平民"
         return Speech(me.seat, accuse=target, text=f"{self.P.opener}，{text}")
 
-    def _invent_check(self, game: Game, me: Player, k: Knowledge, good_alive: list[int]) -> None:
+    def _invent_check(self, game: Game, me: Player, k: Knowledge, good_alive: list[int],
+                      card: Role = Role.SEER) -> None:
         unused = [s for s in good_alive if s not in self.fake_checks and not game.players[s].revealed]
-        rivals = [c for c in game.seer_claims() if c in unused]
+        rivals = [c for c in game.claims_of(card) if c in unused]   # 對同一張牌的真預言家發查殺
         mates = [s for s in game.alive_seats()
                  if s in k.wolf and s != me.seat and s not in self.fake_checks]
         roll = self.rng.random()
