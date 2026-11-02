@@ -6,6 +6,7 @@ import random
 from .engine import DEATH_CAUSES, Game, Rules, deal
 from .guide import CHEATSHEET, run_quiz
 from .human import HumanController, ask, ask_yes
+from .personality import PERSONALITIES, POOL_KEYS
 from .roles import PRESETS, Role, Team
 
 
@@ -49,7 +50,9 @@ def review(game: Game, human_seat: int | None = None) -> None:
         role = p.role.value
         if p.role is Role.WILD_CHILD:
             role += "（轉狼）" if p.turned else f"（{game.alignment(p).value}）"
-        print(f"  {p.seat:>2}號 {role:<4} {status}{me}")
+        pers = game.personality_of(p.seat)
+        pers = f"［{pers.name}］" if pers else ""
+        print(f"  {p.seat:>2}號 {role:<4} {status}{me} {pers}")
 
     if game.has_lantern:
         right = Role.SEER if game.seer_card_accurate else Role.LANTERN_SEER
@@ -139,7 +142,8 @@ def settings(rules: Rules) -> None:
     print(f"\n目前設定：女巫 {names[rules.witch_self_save]}、"
           f"同守同救{'會死' if rules.same_guard_save_dies else '不會死'}、"
           f"{'屠邊' if rules.win_mode == 'side' else '屠城'}、"
-          f"{'有' if rules.sheriff else '無'}警長、{'可' if rules.self_explode else '不可'}自爆")
+          f"{'有' if rules.sheriff else '無'}警長、{'可' if rules.self_explode else '不可'}自爆、"
+          f"燈影板{'四人搶警' if rules.lantern_claim_race else '各報各的牌'}")
     raw = ask("女巫自救：1=全程不可 2=僅首夜 3=隨時（Enter 不變）> ")
     rules.witch_self_save = modes.get(raw, rules.witch_self_save)
     raw = ask("同守同救：1=會死 2=不會死（Enter 不變）> ")
@@ -154,6 +158,24 @@ def settings(rules: Rules) -> None:
     raw = ask("狼人自爆：1=可以 2=不可以（Enter 不變）> ")
     if raw in ("1", "2"):
         rules.self_explode = raw == "1"
+    raw = ask("燈影預言家板：1=四人搶警（預言家、燈影預言家各有一真一假對跳） 2=各報各的牌（Enter 不變）> ")
+    if raw in ("1", "2"):
+        rules.lantern_claim_race = raw == "1"
+    keys = ["mixed", *POOL_KEYS]
+    print("電腦個性：" + "  ".join(
+        f"{i}={'隨機混合' if k == 'mixed' else PERSONALITIES[k].name}" for i, k in enumerate(keys, 1)))
+    for p in (PERSONALITIES[k] for k in POOL_KEYS):
+        print(f"   {p.name}：{p.desc}")
+    raw = ask(f"（目前：{'隨機混合' if rules.bot_personality == 'mixed' else PERSONALITIES[rules.bot_personality].name}，Enter 不變）> ")
+    if raw.isdigit() and 1 <= int(raw) <= len(keys):
+        rules.bot_personality = keys[int(raw) - 1]
+    raw = ask("開局就公開每個電腦的個性：1=公開 2=不公開，復盤時才看（Enter 不變）> ")
+    if raw in ("1", "2"):
+        rules.show_personality = raw == "1"
+    print(f"   推理高手：{PERSONALITIES['detective'].desc}")
+    raw = ask(f"好人電腦裡要有幾位推理高手（0～4，目前 {rules.smart_bots}，Enter 不變）> ")
+    if raw in ("0", "1", "2", "3", "4"):
+        rules.smart_bots = int(raw)
     print("✅ 設定已更新。")
 
 

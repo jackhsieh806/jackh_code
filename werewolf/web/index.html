@@ -114,6 +114,7 @@ select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-r
 .log .event { font-weight: 700; }
 .log .secret { color: var(--muted); font-size: .84rem; padding-left: 10px; border-left: 2px dashed var(--night); }
 .log .private { color: var(--night); background: var(--night-soft); padding: 6px 10px; border-radius: 8px; font-size: .9rem; }
+.action:empty { display: none; }
 .action { scroll-margin-bottom: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 -6px 18px rgb(0 0 0 / .08); }
 .action .title { font-family: var(--display); font-weight: 700; font-size: 1.05rem; }
 .action .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
@@ -226,6 +227,26 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
               <option value="1">可以自爆</option>
               <option value="0">不可以</option>
             </select></label>
+          <label class="field"><span class="hint">燈影預言家板</span>
+            <select id="rule-race">
+              <option value="1">四人搶警（預言家、燈影預各一真一假）</option>
+              <option value="0">各報各的牌</option>
+            </select></label>
+          <label class="field"><span class="hint">電腦個性</span>
+            <select id="rule-personality"></select></label>
+          <label class="field"><span class="hint">推理高手（好人電腦）</span>
+            <select id="rule-smart">
+              <option value="0">0 位</option>
+              <option value="1">1 位</option>
+              <option value="2" selected>2 位</option>
+              <option value="3">3 位</option>
+              <option value="4">4 位</option>
+            </select></label>
+          <label class="field"><span class="hint">公開電腦個性</span>
+            <select id="rule-show-personality">
+              <option value="0">復盤時才公開</option>
+              <option value="1">開局就公開</option>
+            </select></label>
           <label class="field"><span class="hint">勝利條件</span>
             <select id="rule-win">
               <option value="side">屠邊（殺光平民或神職）</option>
@@ -235,6 +256,7 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
       </div>
       <button class="primary" id="start">開始對局</button>
       <p class="hint">電腦狼人會悍跳預言家、發假查殺、統一投票；好人電腦會找矛盾、看票型。警長競選與狼人自爆可以在上面關掉。</p>
+      <details class="hint" id="personality-help"><summary>電腦個性和推理高手有什麼不同？</summary><dl class="terms" id="personality-list"></dl></details>
     </div>
 
     <div id="arena" hidden>
@@ -310,7 +332,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 class Abort extends Error {}
 
 function mkSpeech(seat, o = {}) {
-  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false };
+  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false, findings: [] };
 }
 function renderSpeech(sp) {
   const parts = [];
@@ -336,9 +358,12 @@ class Game {
     this.lureRange = null; this.lastLureRange = new Set(); this.lastLureNight = null; this.lureUses = 0;
     this.reflectUsed = false; this.girlUsed = false; this.sheriffVotes = new Map(); this.knightUsed = false;
     this.knightGold = new Set();  // 騎士決鬥失敗而證實是好人的人（騎金）
+    this.badgeFrom = new Map();   // 新警長 -> 把警徽交給他的前任警長
+    this.findings = [];           // 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
     // 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張反向
     this.hasLantern = this.players.some(p => p.role === "LANTERN");
     this.seerCardAccurate = this.hasLantern ? Math.random() < 0.5 : true;
+    this.claimRace = this.hasLantern && this.rules.lanternClaimRace !== false;  // 四人搶警
     for (const p of this.players) if (p.role === "WOLF_KING" || p.role === "AWAKENED") this.claws[p.seat] = p.role === "AWAKENED" ? 2 : 1;
     this.claims = new Map(); this.nights = []; this.days = []; this.godLog = []; this.wolfPlan = {};
   }
@@ -431,6 +456,16 @@ class Game {
 
   async play() {
     if (this.hasLantern) this.secret("主持人決定：" + (this.seerCardAccurate ? "預言家牌正確查驗、燈影預言家牌反向查驗" : "預言家牌反向查驗、燈影預言家牌正確查驗"));
+    // 推理高手：從好人陣營的電腦裡挑（野孩子陣營會變，不選）
+    const unset = this.players.filter(p => !this.ctrl[p.seat].isHuman && !this.ctrl[p.seat].personality);
+    const goodBots = shuffle(unset.filter(p => !WOLVES.has(p.role) && p.role !== "WILD_CHILD"));
+    for (const p of goodBots.slice(0, this.rules.smartBots ?? 2)) this.ctrl[p.seat].personality = PERSONALITIES.detective;
+    for (const p of unset) {  // 先分配個性，狼隊決定誰悍跳時會參考隊友的個性
+      const c = this.ctrl[p.seat];
+      if (!c.personality) c.personality = PERSONALITIES[this.rules.botPersonality] || PERSONALITIES[choice(PERSONALITY_KEYS)];
+    }
+    for (const p of this.players) if (!this.ctrl[p.seat].isHuman) this.secret(`${p.seat}號 電腦個性：${this.ctrl[p.seat].personality.name}`);
+    if (this.rules.showPersonality) this.say("電腦個性：" + this.players.filter(p => !this.ctrl[p.seat].isHuman).map(p => `${p.seat}號 ${this.ctrl[p.seat].personality.name}`).join("、"), "event");
     for (const p of this.players) await this.ctrl[p.seat].setup(this, p);
     this.io.update(this);
     let w = null;
@@ -696,6 +731,7 @@ class Game {
     const t = await this.ctrl[s].passBadge(this, this.p(s));
     if (t != null && t !== s && this.p(t)?.alive) {
       this.sheriff = t;
+      this.badgeFrom.set(t, s);
       this.sheriffLog.push(`第 ${this.nightNo} 天 ${s}號 把警徽移交給 ${t}號`);
       this.say(`警長 ${s}號 把警徽移交給 ${t}號。`, "event");
     } else {
@@ -915,25 +951,186 @@ class Game {
     if (sp.claim) {
       const prev = this.claims.get(s);
       const checks = prev && prev.role === sp.claim ? new Map(prev.checks) : new Map();
-      this.claims.set(s, { role: sp.claim, checks });
+      const day = prev && prev.role === sp.claim ? prev.day : this.nightNo;  // 第一次跳這個身份是第幾天
+      this.claims.set(s, { role: sp.claim, checks, day });
     }
     if (sp.checks.size && ["SEER", "LANTERN"].includes(this.claimedRole(s))) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
     if (this.today) this.today.speeches.push(sp);
+    for (const f of sp.findings || []) this.findings.push({ ...f, speaker: s, day: this.nightNo });
   }
 }
 
+// ================================================================ 電腦個性
+// 由 werewolf/personality.py 產生（python3 werewolf/web/sync_quiz.py），兩邊保持一致
+const PERSONALITIES = {"rational": {"key": "rational", "name": "理智型", "desc": "綜合直覺、證據和大家的意見，每一項都不偏廢，是最平均的玩家。", "opener": "綜合來看", "intuition": 3.0, "follow": 1.5, "evidence": 1.0, "voteBar": -1000000000.0, "accuseBar": -1000000000.0, "claim": 0.8, "poisonBar": 20, "poisonProb": 0.5, "shootBar": 10, "blindShoot": 0.4, "duelProb": 0.5, "duelGuess": 0.0, "explode": 1.0, "bluff": 1.0, "runSheriff": 0.3, "tearBar": 5, "randomPool": true, "detective": false}, "logical": {"key": "logical", "name": "邏輯型", "desc": "只看查驗、矛盾和票型，幾乎不靠直覺，也不太跟風；沒有理由就不點名。", "opener": "從邏輯上推", "intuition": 0.3, "follow": 0.3, "evidence": 1.6, "voteBar": -1000000000.0, "accuseBar": 4, "claim": 0.9, "poisonBar": 25, "poisonProb": 0.7, "shootBar": 15, "blindShoot": 0.1, "duelProb": 0.7, "duelGuess": 0.0, "explode": 0.8, "bluff": 0.8, "runSheriff": 0.35, "tearBar": 3, "randomPool": true, "detective": false}, "conservative": {"key": "conservative", "name": "保守型", "desc": "習慣跟著多數人和警長的方向走，神職晚一點才跳，技能能省就省。", "opener": "我先跟著大家的方向", "intuition": 1.5, "follow": 4.0, "evidence": 0.9, "voteBar": 10, "accuseBar": 8, "claim": 0.6, "poisonBar": 35, "poisonProb": 0.3, "shootBar": 20, "blindShoot": 0.15, "duelProb": 0.3, "duelGuess": 0.0, "explode": 0.5, "bluff": 0.5, "runSheriff": 0.2, "tearBar": 8, "randomPool": true, "detective": false}, "safe": {"key": "safe", "name": "安全保守型", "desc": "不確定就棄票、不點名；毒藥、獵槍、決鬥只用在確定的狼身上；當狼也絕不自爆。", "opener": "資訊不夠，我先不表態", "intuition": 1.0, "follow": 2.0, "evidence": 0.8, "voteBar": 20, "accuseBar": 18, "claim": 0.4, "poisonBar": 1000000000.0, "poisonProb": 0.0, "shootBar": 1000000000.0, "blindShoot": 0.0, "duelProb": 0.0, "duelGuess": 0.0, "explode": 0.0, "bluff": 0.2, "runSheriff": 0.1, "tearBar": 0, "randomPool": true, "detective": false}, "aggressive": {"key": "aggressive", "name": "積極猜測型", "desc": "很靠直覺，第一天就敢點名、敢開槍、敢毒人、敢決鬥；當狼最愛悍跳和自爆。", "opener": "我直覺", "intuition": 14.0, "follow": 1.0, "evidence": 0.8, "voteBar": -1000000000.0, "accuseBar": -1000000000.0, "claim": 1.0, "poisonBar": 10, "poisonProb": 0.9, "shootBar": 0, "blindShoot": 1.0, "duelProb": 0.9, "duelGuess": 0.4, "explode": 2.0, "bluff": 2.0, "runSheriff": 0.6, "tearBar": 20, "randomPool": true, "detective": false}, "detective": {"key": "detective", "name": "推理高手", "desc": "好人陣營的推理核心：只信證據、不跟風，專門找出別人說法裡的邏輯漏洞並公開，讓其他好人參考。", "opener": "我仔細推了一下", "intuition": 0.2, "follow": 0.6, "evidence": 2.0, "voteBar": -1000000000.0, "accuseBar": 5, "claim": 0.9, "poisonBar": 25, "poisonProb": 0.8, "shootBar": 15, "blindShoot": 0.1, "duelProb": 0.8, "duelGuess": 0.0, "explode": 0.0, "bluff": 0.0, "runSheriff": 0.5, "tearBar": 3, "randomPool": false, "detective": true}};
+// 隨機分配、「全部同一種」可以選的個性（不含推理高手，推理高手由人數設定指派給好人）
+const PERSONALITY_KEYS = Object.keys(PERSONALITIES).filter(k => PERSONALITIES[k].randomPool);
+
 // ================================================================ 電腦玩家
 class Bot {
-  constructor() { this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); }
+  constructor(personality = null) { this.personality = personality; this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); this.reasons = new Map(); }
   setup(g, me) {
+    this.P = this.personality || PERSONALITIES.rational;
     for (const p of g.players) this.pref[p.seat] = Math.random();
     this.guessSeerAccurate = Math.random() < 0.5;  // 推不出來時，猜哪張預言家牌是準的
     if (isWolf(me) && !("fakeSeer" in g.wolfPlan)) {
       const bots = g.players.filter(p => isWolf(p) && !g.ctrl[p.seat].isHuman).map(p => p.seat);
-      g.wolfPlan.fakeSeer = bots.length && Math.random() < 0.6 ? choice(bots) : null;
+      // 越愛詐唬的狼越可能被派去悍跳
+      const w = bots.map(b => (g.ctrl[b].personality || PERSONALITIES.rational).bluff + 0.01);
+      const pickOne = (pool, ws) => { let r = Math.random() * ws.reduce((a, b) => a + b, 0); const i = pool.findIndex((b, j) => (r -= ws[j]) <= 0); return i < 0 ? pool.length - 1 : i; };
+      const fakes = [];
+      if (g.claimRace) {  // 燈影板四人搶警：固定派兩隻狼悍跳
+        const pool = [...bots], ws = [...w];
+        while (pool.length && fakes.length < 2) { const i = pickOne(pool, ws); fakes.push(pool.splice(i, 1)[0]); ws.splice(i, 1); }
+      } else {
+        const chance = bots.length ? Math.min(0.95, 0.6 * w.reduce((a, b) => a + b, 0) / w.length) : 0;
+        if (bots.length && Math.random() < chance) fakes.push(bots[pickOne(bots, w)]);
+      }
+      g.wolfPlan.fakeSeers = fakes;
+      g.wolfPlan.fakeSeer = fakes.length ? fakes[0] : null;
     }
   }
+  // 自己的推理：先整理確定的資訊，再獨立評估警長是不是假的
   analyze(g, me) {
+    const k = this.analyzeBase(g, me);
+    k.protected = k.protected || new Set();
+    k.sheriffDoubt = 0; k.sheriffWhy = [];
+    k.hints = new Map(); k.hintWhy = new Map(); k.hintFrom = new Map();
+    if (isWolf(me)) return k;
+    this.absorbFindings(g, me, k);
+    [k.sheriffDoubt, k.sheriffWhy] = this.sheriffDoubt(g, me, k);
+    const sh = g.sheriff;
+    if (k.sheriffDoubt >= 0.5 && sh != null) {
+      k.protected.delete(sh);
+      if (k.trusted === sh) {  // 不再站警長的邊，改信其他跳預言家的人（或誰都不信）
+        const others = [...k.claims.keys()].filter(c => !k.wolf.has(c) && c !== me.seat && c !== sh);
+        k.trusted = others.length ? others.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a) : null;
+      }
+    }
+    return k;
+  }
+  // 參考推理高手公開的漏洞：公開事實推得出來的直接採信，其他的依信任程度參考
+  absorbFindings(g, me, k) {
+    for (const f of g.findings) {
+      const sp = f.speaker;
+      if (sp === me.seat || k.wolf.has(sp)) continue;
+      if (f.certain && f.public) { if (!k.good.has(f.liar)) k.wolf.add(f.liar); continue; }  // 任何人都能自己驗證的邏輯
+      const trust = (k.good.has(sp) ? 1 : 0.6) * (0.6 + 0.25 * this.P.follow);  // 越願意聽別人意見的個性越會參考
+      const weight = (f.certain ? 25 : 12) * trust;
+      for (const s of f.suspects) {
+        if (k.good.has(s) || s === me.seat) continue;
+        k.hints.set(s, (k.hints.get(s) || 0) + weight / f.suspects.length * (f.certain ? 2 : 1));
+        if (!k.hintWhy.has(s)) { k.hintWhy.set(s, `推理高手 ${sp}號 指出：${f.text}`); k.hintFrom.set(s, sp); }
+      }
+    }
+  }
+  // 找出說法裡的邏輯漏洞。public=只靠公開資訊就能驗證；certain=一定有人說謊
+  findLoopholes(g, me, k) {
+    const out = [];
+    const knownGood = new Set([...g.players.filter(p => p.revealed && !isWolf(p)).map(p => p.seat), ...g.knightGold]);
+    const knownWolf = new Set(g.players.filter(p => p.revealed && isWolf(p)).map(p => p.seat));
+    const cards = ["SEER", "LANTERN"];
+    const add = (liar, suspects, text, certain, pub = true) => out.push({ liar, suspects, text, certain, public: pub });
+    for (const [c, cl] of g.claims) {
+      if (knownWolf.has(c) || c === me.seat) continue;
+      if (cards.includes(cl.role)) {  // 查驗和確定的事實比對
+        const bad = [...cl.checks].filter(([t, w]) => (w && knownGood.has(t)) || (!w && knownWolf.has(t)));
+        const fine = [...cl.checks].filter(([t, w]) => (w && knownWolf.has(t)) || (!w && knownGood.has(t)));
+        if (bad.length) {
+          const [t, w] = bad[0];
+          const said = `${c}號 說 ${t}號 是${w ? "狼" : "好人"}，但 ${t}號 已經證實是${w ? "好人" : "狼"}`;
+          if (!g.hasLantern) add(c, [c], said + "，他的查驗是編的", true);
+          else if (fine.length) add(c, [c], said + "，可是他其他查驗又是準的，時準時反一定是假預言家", true);
+          else add(null, [c], said + "，他要嘛是反向查驗，要嘛是假的", false);
+        }
+        const mine = cl.checks.get(me.seat);
+        if (mine && !g.hasLantern) add(c, [c], `${c}號 查殺我，但我是好人，他是假預言家`, true, false);  // 只有我自己知道的矛盾
+        else if (mine && g.hasLantern) add(null, [c], `${c}號 說我是狼，我是好人，他要嘛是反向查驗要嘛是假的`, false, false);
+      } else if (cl.role !== "VILLAGER" && !WOLVES.has(cl.role)) {
+        const real = g.players.filter(p => p.revealed && p.role === cl.role && p.seat !== c).map(p => p.seat);
+        if (real.length) add(c, [c], `真的${R[cl.role]}已經翻牌是 ${real[0]}號，${c}號 卻說自己是${R[cl.role]}`, true);  // 搶已經翻牌的身份
+        const p = g.p(c);
+        if (cl.role === "HUNTER" && !p.alive && ["vote", "wolf"].includes(p.deathCause) && !p.revealed)
+          add(null, [c], `${c}號 說自己是獵人，出局時卻沒有開槍`, false);
+      }
+    }
+    for (const role of ROLE_ORDER.filter(r => r !== "VILLAGER" && !WOLVES.has(r) && !cards.includes(r))) {  // 兩人搶同一個唯一身份
+      const who = [...g.claims].filter(([c, cl]) => cl.role === role && c !== me.seat).map(([c]) => c).sort(bySeat);
+      if (who.length >= 2) add(null, who, `${who.join("、")}號 都說自己是${R[role]}，至少有一個在說謊`, false);
+    }
+    if (g.hasLantern) {  // 兩張牌驗同一人結果一定相反
+      for (const [a, ra] of g.claimsOf("SEER")) for (const [b, rb] of g.claimsOf("LANTERN")) {
+        const same = [...ra].filter(([t, w]) => rb.has(t) && rb.get(t) === w).map(([t]) => t);
+        if (same.length && a !== me.seat && b !== me.seat)
+          add(null, [a, b], `${a}號（預言家）和 ${b}號（燈影預言家）驗 ${same[0]}號 結果一樣，兩張牌的結果一定相反，他們至少一個是假的`, false);
+      }
+    }
+    if (g.sheriff != null && knownWolf.has(g.badgeFrom.get(g.sheriff)))
+      add(null, [g.sheriff], `警長 ${g.sheriff}號 的警徽是狼（${g.badgeFrom.get(g.sheriff)}號）交給他的`, false);
+    for (const p of g.alive()) {  // 票型：每次都和翻牌的狼投同一個人
+      if (p.seat === me.seat || knownWolf.has(p.seat)) continue;
+      let together = 0, total = 0;
+      for (const d of g.days) {
+        const mine = d.votes.get(p.seat);
+        const wolfTargets = new Set([...knownWolf].map(w => d.votes.get(w)).filter(t => t != null));
+        if (mine != null && wolfTargets.size) { total++; if (wolfTargets.has(mine)) together++; }
+      }
+      if (total >= 2 && together === total) add(null, [p.seat], `${p.seat}號 每次都和已翻牌的狼投同一個人`, false);
+    }
+    const told = new Set(g.findings.map(f => f.text));
+    return out.filter(f => !told.has(f.text));
+  }
+  // 推理高手在發言裡公開新發現的漏洞（一次最多兩個），並歸票確定說謊的人
+  addFindings(g, me, sp) {
+    const k = this.analyze(g, me);
+    const found = this.findLoopholes(g, me, k).sort((a, b) => (a.certain === b.certain ? 0 : a.certain ? -1 : 1) || (a.public === b.public ? 0 : a.public ? -1 : 1)).slice(0, 2);
+    if (!found.length) return;
+    sp.findings = found;
+    sp.text += "；我發現邏輯漏洞：" + found.map(f => f.text).join("；");
+    const liars = found.filter(f => f.certain && f.liar != null && g.p(f.liar).alive).map(f => f.liar);
+    if (liars.length) sp.accuse = liars[0];
+  }
+  // 獨立評估現任警長是假的（狼）的可能性：回傳 [0～1 的懷疑度, 理由]
+  sheriffDoubt(g, me, k) {
+    const s = g.sheriff;
+    if (s == null || s === me.seat || !g.p(s).alive) return [0, []];
+    if (k.wolf.has(s)) return [1, ["他已經確定是狼"]];
+    if (k.good.has(s)) return [0, []];
+    let doubt = 0;
+    const why = [];
+    const claim = g.claimedRole(s);
+    if (claim) {
+      const rivals = [...g.claims].filter(([c, cl]) => c !== s && cl.role === claim).map(([c]) => c);
+      if (rivals.length) { doubt += 0.25; why.push(`${rivals[0]}號 和他對跳${R[claim]}`); }
+    }
+    if (claim === "SEER" || claim === "LANTERN") {
+      for (const [t, w] of g.claims.get(s).checks) if ((w && k.good.has(t)) || (!w && k.wolf.has(t))) {
+        doubt += g.hasLantern ? 0.3 : 0.6;
+        why.push(`他說 ${t}號 是${w ? "狼" : "好人"}，但 ${t}號 其實是${w ? "好人" : "狼"}${g.hasLantern ? "（也可能只是反向查驗）" : ""}`);
+      }
+      const quiet = g.nightNo - (g.claims.get(s).day ?? g.nightNo);
+      if (quiet >= 2) { doubt += Math.min(0.3, 0.1 * (quiet - 1)); why.push(`他跳預言家 ${quiet} 晚都沒被狼刀`); }  // 真預言家通常很快被刀
+    }
+    const hits = new Set();
+    for (const d of g.days) {
+      for (const sp of d.speeches) if (sp.seat === s && k.good.has(sp.accuse)) hits.add(sp.accuse);  // 包含點名我自己
+      for (const votes of [d.votes, d.pkVotes]) if (k.good.has(votes.get(s))) hits.add(votes.get(s));
+    }
+    if (hits.size) {
+      doubt += Math.min(0.45, 0.2 * hits.size);
+      const who = hits.size === 1 && hits.has(me.seat) ? "我" : [...hits].sort(bySeat).map(h => h + "號").join("、");
+      why.push(`他點名或投票給確定的好人（${who}）`);
+    }
+    const backers = [...g.sheriffVotes].filter(([, t]) => t === s).map(([v]) => v);
+    const wolfBackers = backers.filter(v => k.wolf.has(v));
+    if (wolfBackers.length) { doubt += 0.1 + 0.4 * wolfBackers.length / backers.length; why.push(`投他當警長的人裡有確定的狼（${wolfBackers.join("、")}號）`); }
+    if (k.wolf.has(g.badgeFrom.get(s))) { doubt += 0.5; why.push(`他的警徽是狼（${g.badgeFrom.get(s)}號）交給他的`); }
+    // 個性：邏輯型最看證據、保守型比較相信警長；直覺強的人會多一點「說不上來的懷疑」
+    doubt = doubt * this.P.evidence / (1 + 0.15 * Math.max(0, this.P.follow - 1.5));
+    doubt += this.pref[s] * 0.03 * this.P.intuition;
+    return [Math.min(doubt, 1), why];
+  }
+  analyzeBase(g, me) {
     const claims = g.seerClaims();
     if (isWolf(me)) {
       const wolf = new Set(g.players.filter(isWolf).map(p => p.seat));
@@ -961,78 +1158,152 @@ class Bot {
     return { good, wolf, trusted, claims };
   }
   // 燈影預言家板：兩張預言家牌一正一反，用確定的事實反推哪張準
+  // 燈影預言家板：兩位真預言家一位正確、一位反向查驗，可能還有狼悍跳。
+  // 列舉「哪兩個人是真預言家（每張牌各一人）、哪一位準」的組合，用確定的事實排除不可能的，再挑最可能的一組。
+  // 四人搶警時每張牌都有一真一假。
   lanternAnalyze(g, me, good, wolf, claims) {
     const cards = ["SEER", "LANTERN"];
     const mycard = cards.includes(me.role) ? me.role : null;
     for (const [t, w] of this.checks) (w ? wolf : good).add(t);
-    if (mycard) for (const c of g.claimsOf(mycard).keys()) if (c !== me.seat) wolf.add(c);  // 跳我這張牌的是狼
-    const holder = {}, reports = {};
-    for (const card of cards) {
-      if (card === mycard) { holder[card] = me.seat; reports[card] = new Map(this.raw); continue; }
-      const cl = g.claimsOf(card);
-      const cands = [...cl.keys()].filter(c => !wolf.has(c) && c !== me.seat);
-      holder[card] = cands.length ? cands.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a) : null;
-      reports[card] = holder[card] != null ? cl.get(holder[card]) : new Map();
+    const reports = new Map(), cardOf = new Map();
+    for (const [c, cl] of g.claims) if (cards.includes(cl.role) && c !== me.seat) { reports.set(c, new Map(cl.checks)); cardOf.set(c, cl.role); }
+    if (mycard) {
+      reports.set(me.seat, new Map(this.raw)); cardOf.set(me.seat, mycard);
+      for (const c of reports.keys()) if (c !== me.seat && cardOf.get(c) === mycard) wolf.add(c);  // 跳我這張牌的是狼
     }
-    const acc = { SEER: null, LANTERN: null };
-    for (const card of cards) for (const [t, shown] of reports[card]) {
-      if (good.has(t)) acc[card] = !shown; else if (wolf.has(t)) acc[card] = shown;
+    const accP = new Map();  // 從事實推出某人「準 / 反」
+    for (const [c, rep] of reports) {
+      const flags = new Set();
+      for (const [t, shown] of rep) { if (good.has(t)) flags.add(!shown); else if (wolf.has(t)) flags.add(shown); }
+      if (flags.size === 2 && c !== me.seat) wolf.add(c);  // 有時準、有時反 → 不可能是真預言家
+      else if (flags.size) accP.set(c, [...flags][0]);
     }
-    if (acc.SEER == null && acc.LANTERN != null) acc.SEER = !acc.LANTERN;  // 一張準，另一張就是反的
-    if (acc.LANTERN == null && acc.SEER != null) acc.LANTERN = !acc.SEER;
-    if (mycard && acc[mycard] != null) for (const [t, shown] of this.raw) ((acc[mycard] ? shown : !shown) ? wolf : good).add(t);
+    const cands = [...reports.keys()].filter(c => !wolf.has(c));
+    const hyps = [];  // [分數, a, b, a 是否準確]
+    for (let i = 0; i < cands.length; i++) for (let j = i + 1; j < cands.length; j++) {
+      const a = cands[i], b = cands[j];
+      if (mycard && a !== me.seat && b !== me.seat) continue;  // 我自己一定是真預言家之一
+      if (cardOf.get(a) === cardOf.get(b)) continue;   // 兩張牌各一人
+      if ([...reports.get(a)].some(([t, w]) => reports.get(b).has(t) && reports.get(b).get(t) === w)) continue;  // 驗同一人結果一定相反
+      const implied = new Map([...reports.keys()].map(c => [c, c !== a && c !== b]));  // 假設 a、b 是真的：其他跳預言家的都是狼
+      for (const accA of [true, false]) {
+        if ((accP.has(a) && accP.get(a) !== accA) || (accP.has(b) && accP.get(b) !== !accA)) continue;
+        let fits = 0;
+        for (const [m, acc] of [[a, accA], [b, !accA]]) for (const [t, shown] of reports.get(m))
+          if (implied.has(t)) fits += shown === (acc ? implied.get(t) : !implied.get(t)) ? 1 : -100;
+        if (fits < 0) continue;
+        const nightDead = [a, b].filter(m => !g.p(m).alive && ["wolf", "poison", "dream"].includes(g.p(m).deathCause)).length;
+        let score = this.pref[a] + this.pref[b] + 3 * fits + 3 * nightDead + (accP.has(a) || accP.has(b) ? 10 : 0);
+        const seerCardAcc = cardOf.get(a) === "SEER" ? accA : !accA;
+        if (seerCardAcc === this.guessSeerAccurate) score += 0.5;  // 推不出來時，照自己的猜測
+        hyps.push([score, a, b, accA]);
+      }
+    }
+    const holders = new Map(), certain = new Map();
+    if (hyps.length) {
+      const [, a, b, accA] = hyps.reduce((x, y) => y[0] > x[0] ? y : x);
+      const known = accP.has(a) || accP.has(b);
+      holders.set(a, accA); holders.set(b, !accA); certain.set(a, known); certain.set(b, known);
+      if (new Set(hyps.map(h => [h[1], h[2]].sort(bySeat).join())).size === 1)
+        for (const c of cands) if (!holders.has(c)) wolf.add(c);  // 只剩這一組可能 → 其他跳預言家的都是狼
+    } else {
+      for (const c of cands) {
+        const guess = cardOf.get(c) === "SEER" ? this.guessSeerAccurate : !this.guessSeerAccurate;
+        holders.set(c, accP.has(c) ? accP.get(c) : guess); certain.set(c, accP.has(c));
+      }
+    }
+    if (mycard && holders.has(me.seat) && certain.get(me.seat))  // 確定自己準不準 → 自己的查驗變成確定資訊
+      for (const [t, shown] of this.raw) ((holders.get(me.seat) ? shown : !shown) ? wolf : good).add(t);
     const evidence = new Map();
-    for (const card of cards) {
-      if (card === mycard && acc[card] != null) continue;
-      let a = acc[card];
-      const weight = a != null ? 20 : 8;
-      if (a == null) a = card === "SEER" ? this.guessSeerAccurate : !this.guessSeerAccurate;
-      for (const [t, shown] of reports[card]) {
-        const truth = a ? shown : !shown;
+    for (const [c, acc] of holders) {
+      if (c === me.seat && certain.get(c)) continue;
+      const weight = certain.get(c) ? 20 : 8;
+      for (const [t, shown] of reports.get(c)) {
+        const truth = acc ? shown : !shown;
         evidence.set(t, (evidence.get(t) || 0) + (truth ? weight : -weight / 2));
       }
     }
-    const protectedSet = new Set(Object.values(holder).filter(h => h != null && h !== me.seat));
-    const trusted = holder.SEER !== me.seat ? holder.SEER : null;
-    return { good, wolf, trusted, claims, evidence, protected: protectedSet, cardAcc: acc };
+    const cardAcc = {};
+    for (const [c, acc] of holders) if (certain.get(c)) {  // 換算成「哪張牌準」
+      cardAcc[cardOf.get(c)] = acc; cardAcc[cardOf.get(c) === "SEER" ? "LANTERN" : "SEER"] = !acc;
+    }
+    const protectedSet = new Set([...holders.keys()].filter(c => c !== me.seat));
+    const accurate = [...holders].filter(([c, acc]) => acc && c !== me.seat).map(([c]) => c);
+    const trusted = accurate[0] ?? [...protectedSet].sort(bySeat)[0] ?? null;
+    return { good, wolf, trusted, claims, evidence, protected: protectedSet, cardAcc };
   }
+  // 每個人的懷疑度；同時把主要理由記在 this.reasons，發言時說出來
   suspicion(g, me, k) {
     const today = g.today, base = new Map();
+    this.reasons = new Map();
+    const why = (seat, w, text) => { if (w > 0) { if (!this.reasons.has(seat)) this.reasons.set(seat, []); this.reasons.get(seat).push([w, text]); } };
     for (const p of g.players) {
       const s = p.seat;
       if (s === me.seat) continue;
-      let v = this.pref[s] * 2;
-      if (k.wolf.has(s)) v += 100;
+      let v = this.pref[s] * this.P.intuition;
+      why(s, v * 0.5, "直覺覺得他怪怪的");
+      const ev = this.P.evidence;
+      if (k.wolf.has(s)) { v += 100; why(s, 100, "他已經確定是狼"); }
       if (k.good.has(s)) v -= 100;
       if (k.evidence) {  // 燈影預言家板
-        v += k.evidence.get(s) || 0;
-        if (k.protected.has(s)) v -= 15; else if (["SEER", "LANTERN"].includes(g.claimedRole(s))) v += 10;
+        const e = (k.evidence.get(s) || 0) * ev;
+        v += e; why(s, e, "預言家的查驗對他不利（不確定哪張牌準）");
+        if (k.protected.has(s)) v -= 15;
+        else if (["SEER", "LANTERN"].includes(g.claimedRole(s))) { v += 10; why(s, 10, "他和我比較相信的預言家對跳"); }
       } else if (k.trusted != null) {
         const checks = k.claims.get(k.trusted) || new Map();
-        if (checks.has(s)) v += checks.get(s) ? 20 : -8;
-        if (s === k.trusted) v -= 15; else if (k.claims.has(s)) v += 10;
+        if (checks.has(s)) { v += (checks.get(s) ? 20 : -8) * ev; if (checks.get(s)) why(s, 20 * ev, `${k.trusted}號 預言家查殺他`); }
+        if (s === k.trusted) v -= 15;
+        else if (k.claims.has(s)) { v += 10; why(s, 10, `他和 ${k.trusted}號 預言家對跳`); }
+      }
+      if (s === g.sheriff && k.sheriffDoubt) {
+        v += k.sheriffDoubt * 40;
+        why(s, k.sheriffDoubt * 40, "他這個警長很可疑" + (k.sheriffWhy.length ? `（${k.sheriffWhy[0]}）` : ""));
       }
       if (["HUNTER", "WITCH", "IDIOT", "DREAMER", "MERCHANT", "KNIGHT", "VILLAGE_GIRL"].includes(g.claimedRole(s))) v -= 3;
-      v += this.soft[s] || 0;
+      const soft = this.soft[s] || 0;
+      v += soft; why(s, soft, "村姑查驗的線索指向他");
+      let pattern = 0;  // 看票型與發言：攻擊可信的人很可疑（越重證據的個性越看重）
       for (const d of g.days) {
         for (const sp of d.speeches) if (sp.seat === s && sp.accuse != null) {
-          if (k.good.has(sp.accuse) || sp.accuse === k.trusted) v += 5; else if (k.wolf.has(sp.accuse)) v -= 2;
+          if (k.good.has(sp.accuse) || sp.accuse === k.trusted) pattern += 5 * ev; else if (k.wolf.has(sp.accuse)) pattern -= 2 * ev;
         }
         if (d === today) continue;
         for (const votes of [d.votes, d.pkVotes]) {
           const t = votes.get(s);
           if (t == null) continue;
-          if (k.good.has(t) || t === k.trusted) v += 5; else if (k.wolf.has(t)) v -= 3;
+          if (k.good.has(t) || t === k.trusted) pattern += 5 * ev; else if (k.wolf.has(t)) pattern -= 3 * ev;
         }
       }
+      v += pattern; why(s, pattern, "他的發言和票型一直針對可信的人");
+      const hint = k.hints.get(s) || 0;
+      v += hint; why(s, hint, k.hintWhy.get(s) || "");
       base.set(s, v);
     }
+    // 今天的指認：只採信「我不懷疑的人」說的話
     const score = new Map([...base].filter(([s]) => g.p(s).alive));
     if (today) for (const sp of today.speeches) {
-      if (score.has(sp.accuse) && sp.seat !== me.seat && (base.has(sp.seat) ? base.get(sp.seat) : -99) < 8)
-        score.set(sp.accuse, score.get(sp.accuse) + (sp.seat === k.trusted ? 3 : 1.5));
+      if (score.has(sp.accuse) && sp.seat !== me.seat && (base.has(sp.seat) ? base.get(sp.seat) : -99) < 8) {
+        const w = (sp.seat === k.trusted ? 3 : 1.5) * this.P.follow / 1.5;
+        score.set(sp.accuse, score.get(sp.accuse) + w);
+        why(sp.accuse, w, "不少我信得過的人也點他");
+      }
     }
     return score;
+  }
+  // 說出懷疑某人的主要理由（最多 n 個）
+  explain(seat, n = 2) {
+    const items = [...(this.reasons.get(seat) || [])].sort((a, b) => b[0] - a[0]);
+    let texts = items.filter(([w]) => w >= 3).slice(0, n).map(([, t]) => t);
+    if (!texts.length) texts = items.slice(0, 1).map(([, t]) => t);
+    return texts.length ? texts.join("、") : "說不上來，先聽聽大家";
+  }
+  sheriffComment(g, k, accused) {
+    const s = g.sheriff;
+    if (s == null || s === accused || !g.p(s).alive || !k.sheriffWhy.length) return "";
+    if (k.sheriffDoubt >= 0.5) return `；我懷疑警長 ${s}號 是假的：${k.sheriffWhy.slice(0, 2).join("、")}`;
+    if (k.sheriffDoubt >= 0.3) return `；警長 ${s}號 我還在觀察：${k.sheriffWhy[0]}`;
+    return "";
   }
   top(score, pool) {
     const p = (pool ?? [...score.keys()]).filter(s => score.has(s));
@@ -1055,7 +1326,8 @@ class Bot {
     const real = [...[...claims.keys()].filter(c => good.includes(c)), ...[...g.claimsOf("LANTERN").keys()].filter(c => good.includes(c))];
     const witches = good.filter(s => g.claimedRole(s) === "WITCH");
     const golds = real.flatMap(c => [...(g.claims.get(c)?.checks || new Map())].filter(([t, w]) => !w && good.includes(t)).map(([t]) => t));
-    for (let grp of [real, witches, golds]) {
+    const detectives = [...new Set(g.findings.map(f => f.speaker))].filter(s => good.includes(s)).sort(bySeat);
+    for (let grp of [real, detectives, witches, golds]) {  // 公開找漏洞的推理高手也很危險
       grp = grp.filter(s => !hunters.has(s));
       if (grp.length && Math.random() < 0.85) return choice(grp);
     }
@@ -1072,7 +1344,7 @@ class Bot {
       const certain = [...k.wolf].filter(s => g.p(s).alive);
       if (certain.length) return ["poison", choice(certain)];
       const score = this.suspicion(g, me, k), t = this.top(score);
-      if (t != null && score.get(t) >= 20 && Math.random() < 0.5) return ["poison", t];
+      if (t != null && score.get(t) >= this.P.poisonBar && Math.random() < this.P.poisonProb) return ["poison", t];
     }
     return [null, null];
   }
@@ -1081,6 +1353,10 @@ class Bot {
     let pool = opts.filter(s => !this.checks.has(s) && !this.raw.has(s));
     if (!pool.length) pool = opts;
     if (!pool.length) return null;
+    if (g.claimRace) {  // 四人搶警：優先驗和自己對跳的人
+      const rivals = pool.filter(c => ["SEER", "LANTERN"].includes(g.claimedRole(c)));
+      if (rivals.length) return choice(rivals);
+    }
     if (g.nightNo > 1 && Math.random() < 0.6) return this.top(this.suspicion(g, me, this.analyze(g, me)), pool);
     return choice(pool);
   }
@@ -1088,8 +1364,16 @@ class Bot {
     if (g.hasLantern && (me.role === "SEER" || me.role === "LANTERN")) this.raw.set(t, w);  // 不知道自己準不準
     else this.checks.set(t, w);
   }
-  speak(g, me) { return this.speech(g, me, false); }
-  lastWords(g, me) { return this.speech(g, me, true); }
+  speak(g, me) {
+    const sp = this.speech(g, me, false);
+    if (this.P.detective && !isWolf(me)) this.addFindings(g, me, sp);
+    return sp;
+  }
+  lastWords(g, me) {
+    const sp = this.speech(g, me, true);
+    if (this.P.detective && !isWolf(me)) this.addFindings(g, me, sp);
+    return sp;
+  }
   accusedToday(g, me) { return !!g.today && g.today.speeches.some(sp => sp.accuse === me.seat); }
   speech(g, me, last) {
     const k = this.analyze(g, me);
@@ -1103,7 +1387,7 @@ class Bot {
     }
     if (me.role === "SEER") {
       const already = g.claimedRole(me.seat) === "SEER";
-      if (this.checks.size && (last || already || [...this.checks.values()].some(Boolean) || k.claims.size || Math.random() < 0.8)) {
+      if (this.checks.size && (last || already || [...this.checks.values()].some(Boolean) || k.claims.size || Math.random() < this.P.claim)) {
         const aliveWolves = [...this.checks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
         const rivals = [...k.claims.keys()].filter(c => c !== me.seat && g.p(c).alive);
         const accuse = [...aliveWolves, ...rivals, top][0];
@@ -1133,26 +1417,37 @@ class Bot {
       return mkSpeech(me.seat, { claim: me.role, accuse: top, text });
     }
     const text = k.trusted != null ? `我站 ${k.trusted}號 預言家的邊` : (k.claims.size >= 2 ? "預言家對跳，我還在聽" : "目前資訊不多");
-    return mkSpeech(me.seat, { accuse: top, text });
+    const sure = top != null && score.get(top) >= this.P.accuseBar;  // 沒把握就不點名
+    let say = `${this.P.opener}，${text}`;
+    if (sure) {
+      say += `；我懷疑 ${top}號：${this.explain(top)}`;
+      if (k.hintFrom.has(top) && !this.P.detective && !say.includes(k.hintWhy.get(top))) say += `（我參考了推理高手 ${k.hintFrom.get(top)}號 的分析）`;
+    }
+    say += this.sheriffComment(g, k, sure ? top : null);
+    return mkSpeech(me.seat, { accuse: sure ? top : null, text: say });
   }
   wolfSpeech(g, me, k, last) {
     const goodAlive = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
-    if (g.wolfPlan.fakeSeer === me.seat) {
-      if (!this.fakeDays.has(g.nightNo) && !(last && this.fakeChecks.size)) { this.fakeDays.add(g.nightNo); this.inventCheck(g, me, k, goodAlive); }
-      const rivals = [...g.seerClaims().keys()].filter(c => c !== me.seat && g.p(c).alive);
+    const fakes = g.wolfPlan.fakeSeers || [];
+    if (fakes.includes(me.seat)) {
+      // 四人搶警：第一隻悍跳預言家、第二隻悍跳燈影預言家，每張牌都有人對跳
+      const card = g.claimRace && fakes.indexOf(me.seat) === 1 ? "LANTERN" : "SEER";
+      if (!this.fakeDays.has(g.nightNo) && !(last && this.fakeChecks.size)) { this.fakeDays.add(g.nightNo); this.inventCheck(g, me, k, goodAlive, card); }
+      const rivals = [...g.claimsOf(card).keys()].filter(c => c !== me.seat && g.p(c).alive);
       const fw = [...this.fakeChecks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
-      const accuse = [...fw, ...rivals, ...goodAlive, null][0];
-      return mkSpeech(me.seat, { claim: "SEER", checks: new Map(this.fakeChecks), accuse, text: rivals.length ? "我才是真預言家，對跳的是狼" : "" });
+      const others = goodAlive.filter(s => !this.fakeChecks.has(s));  // 不點自己發的金水
+      const accuse = [...fw, ...rivals, ...others, null][0];
+      return mkSpeech(me.seat, { claim: card, checks: new Map(this.fakeChecks), accuse, text: rivals.length ? `我才是真的${R[card]}，對跳的是狼` : "" });
     }
     const target = this.wolfTarget(g);
     if (last) return mkSpeech(me.seat, { claim: "VILLAGER", accuse: target, text: "你們出錯人了" });
-    if (this.accusedToday(g, me) && Math.random() < 0.25) return mkSpeech(me.seat, { claim: "HUNTER", accuse: target, text: "出我的話我會開槍" });
+    if (this.accusedToday(g, me) && Math.random() < Math.min(1, 0.25 * this.P.bluff)) return mkSpeech(me.seat, { claim: "HUNTER", accuse: target, text: "出我的話我會開槍" });
     const fake = g.wolfPlan.fakeSeer;
-    return mkSpeech(me.seat, { accuse: target, text: fake != null && g.p(fake).alive ? `我站 ${fake}號 預言家` : "我是平民" });
+    return mkSpeech(me.seat, { accuse: target, text: `${this.P.opener}，${fake != null && g.p(fake).alive ? `我站 ${fake}號 預言家` : "我是平民"}` });
   }
-  inventCheck(g, me, k, goodAlive) {
+  inventCheck(g, me, k, goodAlive, card = "SEER") {
     const unused = goodAlive.filter(s => !this.fakeChecks.has(s) && !g.p(s).revealed);
-    const rivals = [...g.seerClaims().keys()].filter(c => unused.includes(c));
+    const rivals = [...g.claimsOf(card).keys()].filter(c => unused.includes(c));  // 對同一張牌的真預言家發查殺
     const mates = g.aliveSeats().filter(s => k.wolf.has(s) && s !== me.seat && !this.fakeChecks.has(s));
     const roll = Math.random();
     if (rivals.length && roll < 0.8) this.fakeChecks.set(rivals[0], true);
@@ -1184,7 +1479,9 @@ class Bot {
       const good = cands.filter(c => !k.wolf.has(c));
       return good.length ? choice(good) : null;
     }
-    return this.top(this.suspicion(g, me, k), cands.filter(c => c !== me.seat));
+    const score = this.suspicion(g, me, k);
+    const top = this.top(score, cands.filter(c => c !== me.seat));
+    return top != null && score.get(top) < this.P.voteBar ? null : top;  // 不夠可疑就棄票
   }
   hunterShoot(g, me) {
     const k = this.analyze(g, me);
@@ -1197,8 +1494,8 @@ class Bot {
     const certain = [...k.wolf].filter(s => g.p(s).alive);
     if (certain.length) return certain[0];
     const score = this.suspicion(g, me, k), t = this.top(score);
-    if (t != null && score.get(t) >= 10) return t;
-    return Math.random() < 0.4 ? t : null;
+    if (t != null && score.get(t) >= this.P.shootBar) return t;
+    return Math.random() < this.P.blindShoot ? t : null;
   }
   chooseDream(g, me) {
     const opts = g.aliveSeats().filter(s => s !== me.seat);
@@ -1291,17 +1588,22 @@ class Bot {
     if (certain.length) return certain[0];
     if (g.nightNo >= 2 && k.evidence) {
       const strong = [...k.evidence].filter(([t, v]) => v >= 20 && alive.includes(t)).map(([t]) => t);
-      if (strong.length && Math.random() < 0.5) return strong[0];
+      if (strong.length && Math.random() < this.P.duelProb) return strong[0];
     } else if (g.nightNo >= 2 && k.trusted != null) {
       const checked = [...(k.claims.get(k.trusted) || new Map())].filter(([t, w]) => w && alive.includes(t)).map(([t]) => t);
-      if (checked.length && Math.random() < 0.5) return checked[0];
+      if (checked.length && Math.random() < this.P.duelProb) return checked[0];
+    }
+    if (g.nightNo >= 2 && this.P.duelGuess && Math.random() < this.P.duelGuess) {  // 積極型：只憑懷疑也敢決鬥
+      const score = this.suspicion(g, me, k), t = this.top(score, alive);
+      if (t != null && score.get(t) >= 12) return t;
     }
     return null;
   }
   runForSheriff(g, me) {
+    if (g.claimRace && (me.role === "SEER" || me.role === "LANTERN") && this.raw.size) return true;  // 四人搶警：真預言家一定上警
     if (me.role === "SEER" && this.checks.size) return Math.random() < 0.9;  // 真預言家上警
-    if (isWolf(me) && g.wolfPlan.fakeSeer === me.seat) return true;      // 悍跳狼搶警徽
-    return Math.random() < (isWolf(me) ? 0.35 : 0.3);
+    if (isWolf(me) && (g.wolfPlan.fakeSeers || []).includes(me.seat)) return true;  // 悍跳狼搶警徽
+    return Math.random() < this.P.runSheriff + (isWolf(me) ? 0.05 : 0);
   }
   sheriffVote(g, me, cands) {
     const k = this.analyze(g, me);
@@ -1332,7 +1634,7 @@ class Bot {
     const score = this.suspicion(g, me, k);
     const val = s => score.get(s) ?? 0;
     const best = alive.reduce((a, b) => val(b) < val(a) ? b : a);
-    return val(best) < 5 ? best : null;  // 沒把握就撕警徽
+    return val(best) < this.P.tearBar ? best : null;  // 沒把握就撕警徽
   }
   chooseDirection() { return Math.random() < 0.5 ? "left" : "right"; }
   selfExplode(g, me) {
@@ -1341,11 +1643,12 @@ class Bot {
     const claims = g.seerClaims();
     const real = [...claims.keys()].filter(c => !isWolf(g.p(c)));
     if (g.phase === "election") {  // 真預言家已在警上報查驗 → 自爆打斷，不讓他拿警徽
+      if (g.claimRace) return false;  // 四人搶警：讓兩隻悍跳狼完整跟真預言家對跳
       const spoke = new Set(g.today.speeches.map(sp => sp.seat));
-      return real.some(c => spoke.has(c)) && Math.random() < 0.2;
+      return real.some(c => spoke.has(c)) && Math.random() < 0.2 * this.P.explode;
     }
     const exposed = real.some(c => g.p(c).alive && claims.get(c).get(me.seat));  // 被真預言家查殺
-    return exposed && Math.random() < 0.3;
+    return exposed && Math.random() < 0.3 * this.P.explode;
   }
   hunterPoisoned() {}
 }
@@ -1499,7 +1802,7 @@ class UI {
   say(msg, kind = "sys", seat = null) {
     if (kind === "speech" || kind === "last") {
       const mine = seat === this.humanSeat ? " mine" : "";
-      this.add(`<span class="who">${seat}號</span><span class="what">${esc(msg)}</span>`, `speech${kind === "last" ? " last" : ""}${mine}`);
+      this.add(`<span class="who">${seat}號</span><span class="what">${esc(msg).replace(/(我發現邏輯漏洞：.*?)(；歸票|$)/, "<b>$1</b>$2")}</span>`, `speech${kind === "last" ? " last" : ""}${mine}`);
     } else this.add(esc(msg), kind);
   }
   secret(msg) { if (this.godView) this.add(esc("上帝視角｜" + msg), "secret"); }
@@ -1512,6 +1815,8 @@ class UI {
     $("seats").innerHTML = g.players.map(p => {
       const tags = [];
       if (p.seat === this.humanSeat) tags.push(`<span class="tag">你</span>`);
+      const pers = g.ctrl[p.seat].personality;
+      if (pers && (reveal || g.rules.showPersonality)) tags.push(`<span class="tag">${pers.name}</span>`);
       if (p.seat === g.sheriff) tags.push(`<span class="tag claim">警長</span>`);
       if (reveal || p.revealed || p.seat === this.humanSeat) tags.push(`<span class="tag ${isWolf(p) ? "wolf" : "good"}">${R[p.role]}${p.turned ? "（轉狼）" : ""}</span>`);
       else if (h && isWolf(h) && isWolf(p)) tags.push(`<span class="tag wolf">${p.role === "WEREWOLF" ? "狼隊友" : R[p.role]}</span>`);
@@ -1726,7 +2031,7 @@ for (const b of $("mode-chips").children) b.onclick = () => { S.mode = b.dataset
 async function startGame() {
   const roles = shuffle(currentRoles());
   if (customProblem(roles)) return;
-  const rules = { witchSelfSave: $("rule-self-save").value, sameGuardSaveDies: $("rule-sgs").value === "1", winMode: $("rule-win").value, sheriff: $("rule-sheriff").value === "1", selfExplode: $("rule-explode").value === "1", maxRounds: 30 };
+  const rules = { witchSelfSave: $("rule-self-save").value, sameGuardSaveDies: $("rule-sgs").value === "1", winMode: $("rule-win").value, sheriff: $("rule-sheriff").value === "1", selfExplode: $("rule-explode").value === "1", lanternClaimRace: $("rule-race").value === "1", botPersonality: $("rule-personality").value, showPersonality: $("rule-show-personality").value === "1", smartBots: Number($("rule-smart").value), maxRounds: 30 };
   let humanSeat = null;
   const controllers = {};
   if (S.mode === "play") {
@@ -1779,8 +2084,8 @@ function showResult(g, winner, humanSeat) {
       <div class="banner ${kind}"><h2>${head}</h2>${sub ? `<p>${sub}</p>` : ""}</div>
       <h2>復盤</h2>
       <div class="field"><h3>身份</h3><div class="tablewrap"><table>
-        <thead><tr><th>座位</th><th>身份</th><th>結果</th></tr></thead>
-        <tbody>${g.players.map(p => `<tr><td>${p.seat}號${p.seat === humanSeat ? "（你）" : ""}</td><td class="${g.alignment(p) === "WOLF" ? "w" : "g"}">${R[p.role]}${p.role === "WILD_CHILD" ? (p.turned ? "（轉狼）" : `（${g.alignment(p) === "WOLF" ? "狼陣營" : "好人陣營"}）`) : ""}</td><td>${p.alive ? "存活" : CAUSE[p.deathCause]}</td></tr>`).join("")}</tbody>
+        <thead><tr><th>座位</th><th>身份</th><th>結果</th><th>電腦個性</th></tr></thead>
+        <tbody>${g.players.map(p => `<tr><td>${p.seat}號${p.seat === humanSeat ? "（你）" : ""}</td><td class="${g.alignment(p) === "WOLF" ? "w" : "g"}">${R[p.role]}${p.role === "WILD_CHILD" ? (p.turned ? "（轉狼）" : `（${g.alignment(p) === "WOLF" ? "狼陣營" : "好人陣營"}）`) : ""}</td><td>${p.alive ? "存活" : CAUSE[p.deathCause]}</td><td>${g.ctrl[p.seat].personality?.name ?? "—"}</td></tr>`).join("")}</tbody>
       </table></div></div>
       ${g.hasLantern ? `<div class="field"><h3>燈影預言家</h3><p>本局查驗正確的是<b>${g.seerCardAccurate ? "預言家" : "燈影預言家"}</b>牌，另一張是反向查驗。</p></div>` : ""}
       <div class="field"><h3>夜晚行動</h3><ol class="godlog">${g.godLog.map(l => `<li>${l.round ? `第 ${l.round} 夜` : "開局"}：${esc(l.msg)}</li>`).join("")}</ol></div>
@@ -3311,6 +3616,74 @@ const QUIZ_TOPICS = [
 ],
 0,
 "只要確定其中一張準不準，另一張就一定相反。"
+],
+[
+"四人搶警時，真的預言家和真的燈影預言家互相查驗對方，結果會是？",
+[
+"一個說好人、一個說狼",
+"兩個都說好人",
+"兩個都說狼"
+],
+0,
+"對方是好人：準的那位看到好人，反的那位看到狼，所以一定相反。"
+],
+[
+"A 跳預言家、B 跳燈影預言家，兩人互相給對方金水，他們可能都是真的嗎？",
+[
+"不可能",
+"有可能"
+],
+0,
+"真的兩位互驗結果一定相反；互給金水代表至少一個是假的，很可能是狼隊互保。"
+],
+[
+"四人搶警，假設 A（預言家）、B（燈影預言家）是真的，那和 A 對跳預言家的 C 是？",
+[
+"一定是狼",
+"可能是好人",
+"一定是燈影預言家"
+],
+0,
+"每張牌只有一個真的，對跳的就是悍跳狼。所以 A、B 中準的那位驗 C 一定看到狼，反的那位一定看到好人；對不上，這個假設就錯了。"
+],
+[
+"四人搶警時，警上會怎麼對跳？",
+[
+"預言家兩人對跳、燈影預言家兩人對跳，各一真一假",
+"四個人都說自己是預言家",
+"只有預言家有人對跳"
+],
+0,
+"狼隊派兩隻狼，一隻悍跳預言家、一隻悍跳燈影預言家。好人要先判斷每張牌誰是真的，再判斷哪張牌準。"
+],
+[
+"四人搶警時，真預言家第二晚最該驗誰？",
+[
+"和自己對跳的人",
+"隨便一個平民",
+"自己的金水"
+],
+0,
+"驗對跳的人最能幫大家排除假設，找出哪兩個是真的。"
+],
+[
+"某人跳預言家，他的查驗一次對（驗到翻牌的狼是狼）、一次錯（說確定的好人是狼），他是？",
+[
+"一定是狼",
+"反向查驗的真預言家",
+"正確查驗的真預言家"
+],
+0,
+"真預言家不是一直準就是一直反，時準時反代表他在編查驗。"
+],
+[
+"跳預言家的人晚上被刀死了，他比較可能是？",
+[
+"真預言家",
+"悍跳的狼"
+],
+0,
+"狼通常優先刀真預言家；不過他也可能是被女巫毒死的，要一起考慮。"
 ]
 ]
 }
@@ -3394,6 +3767,7 @@ $("sheet").innerHTML = `
   <p class="hint">狼王、狼美人、3 小狼｜預言家、女巫、騎士、守衛、獵人｜燈影預言家 + 4 平民。夜晚順序：守衛 → 狼人 → 狼美人 → 女巫 → 騎士 → 獵人 → 預言家 → 燈影預言家。</p>
   <dl class="terms">
     <dt>兩張預言家牌</dt><dd>開局主持人決定一張正確查驗、另一張反向查驗，兩人都不知道自己是哪種。預言家牌站神坑，燈影預言家牌站民坑。</dd>
+    <dt>四人搶警</dt><dd>（預設）狼隊派兩隻狼，分別悍跳預言家和燈影預言家，四人一起上警，每張牌一真一假。先找出每張牌誰是真的：假設 A、B 是真的，和他們對跳的就是狼，準的那位驗狼一定看到狼、反的那位一定看到好人；兩位真預言家互驗結果一定相反；查驗時準時反的人一定是假的。</dd>
     <dt>查驗限制</dt><dd>兩位預言家都不能驗自己、翻牌的騎士和騎金（騎士決鬥失敗證實的好人），不能用確定的好人校準。</dd>
     <dt>怎麼推</dt><dd>真的兩張牌驗同一個人，結果一定相反。用確定的事實反推哪張準：被查殺的人就是你自己、翻牌或自爆的狼、騎士決鬥的結果。確定一張，另一張就一定相反。</dd>
     <dt>狼美人、狼王</dt><dd>狼美人不能被自刀，被騎士決鬥時技能被封；狼王被毒時不能帶人。</dd>
@@ -3441,5 +3815,7 @@ for (const b of document.querySelectorAll(".tabs button")) {
     if (b.dataset.tab === "quiz" && Q.picking) renderQuiz();
   };
 }
+$("rule-personality").innerHTML = `<option value="mixed">隨機混合</option>` + PERSONALITY_KEYS.map(k => `<option value="${k}">全部${PERSONALITIES[k].name}</option>`).join("");
+$("personality-list").innerHTML = [...PERSONALITY_KEYS, "detective"].map(k => `<dt>${PERSONALITIES[k].name}</dt><dd>${esc(PERSONALITIES[k].desc)}</dd>`).join("");
 renderSetup();
 </script>

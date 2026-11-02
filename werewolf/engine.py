@@ -43,6 +43,14 @@ class Rules:
     sheriff: bool = True
     # 狼人可否在白天（含警長競選）自爆
     self_explode: bool = True
+    # 燈影預言家板四人搶警：狼隊派兩隻狼分別悍跳預言家和燈影預言家，和兩位真預言家一起上警
+    lantern_claim_race: bool = True
+    # 電腦個性："mixed" 每個電腦隨機分配，或 personality.py 裡的某個 key 讓全部電腦相同
+    bot_personality: str = "mixed"
+    # 對局一開始就公開每個電腦的個性（練習看懂不同風格的玩家）
+    show_personality: bool = False
+    # 好人陣營裡有幾位「推理高手」電腦（會找邏輯漏洞並公開給其他好人參考）
+    smart_bots: int = 2
     # 防止無限循環的回合上限
     max_rounds: int = 30
 
@@ -55,6 +63,7 @@ class Speech:
     accuse: int | None = None              # 指認 / 歸票對象
     text: str = ""
     last_words: bool = False
+    findings: list[dict] = field(default_factory=list)   # 推理高手公開的邏輯漏洞
 
     def render(self) -> str:
         parts = []
@@ -169,8 +178,11 @@ class Game:
     def __init__(self, roles: list[Role], controllers: dict[int, Controller] | None = None,
                  rules: Rules | None = None, seed: int | None = None,
                  out: Callable[[str], None] = print, god_view: bool = False,
-                 pause: Callable[[], None] | None = None):
-        """roles 依座位順序排列（roles[0] 是 1 號）。沒指定 controller 的座位由電腦操作。"""
+                 pause: Callable[[], None] | None = None, personality_mode: str | None = None):
+        """roles 依座位順序排列（roles[0] 是 1 號）。沒指定 controller 的座位由電腦操作。
+
+        personality_mode："mixed" 每個電腦隨機分配五種個性之一，或指定某個個性的 key 讓全部電腦相同。"""
+        self.personality_mode = personality_mode or (rules.bot_personality if rules else "mixed")
         from .bots import BotController
 
         self.rng = random.Random(seed)
@@ -196,6 +208,8 @@ class Game:
         self.claw_given: set[int] = set()  # 曾被親傳狼王爪的狼
         self.sheriff: int | None = None    # 現任警長
         self.sheriff_log: list[str] = []
+        self.badge_from: dict[int, int] = {}   # 新警長 -> 把警徽交給他的前任警長
+        self.findings: list[dict] = []          # 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
         self.phase = "night"               # night / election / day
         # 村姑與虎姑婆
         self.wild_model: int | None = None   # 野孩子的榜樣
@@ -214,6 +228,7 @@ class Game:
         # 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張是反向查驗
         self.has_lantern = any(p.role is Role.LANTERN_SEER for p in self.players.values())
         self.seer_card_accurate = self.rng.random() < 0.5 if self.has_lantern else True
+        self.claim_race = self.has_lantern and self.rules.lantern_claim_race
         self.claims: dict[int, dict] = {}   # 公開宣稱：seat -> {"role": Role, "checks": {t: is_wolf}}
         self.nights: list[NightRecord] = []
         self.days: list[DayRecord] = []
@@ -350,8 +365,32 @@ class Game:
         if self.has_lantern:
             self.secret("主持人決定：" + ("預言家牌正確查驗、燈影預言家牌反向查驗" if self.seer_card_accurate
                                           else "預言家牌反向查驗、燈影預言家牌正確查驗"))
+        from .personality import PERSONALITIES
+        from .personality import POOL_KEYS
+        unset = [s for s in self.players
+                 if hasattr(self.controllers[s], "personality") and self.controllers[s].personality is None]
+        # 推理高手：從好人陣營的電腦裡挑（野孩子陣營會變，不選）
+        good_bots = [s for s in unset if self.players[s].role.team is Team.GOOD
+                     and self.players[s].role is not Role.WILD_CHILD]
+        for s in self.rng.sample(good_bots, min(self.rules.smart_bots, len(good_bots))):
+            self.controllers[s].personality = PERSONALITIES["detective"]
+        for seat in unset:   # 先分配個性，狼隊決定誰悍跳時會參考隊友的個性
+            ctrl = self.controllers[seat]
+            if ctrl.personality is None:
+                key = self.personality_mode if self.personality_mode in POOL_KEYS else self.rng.choice(POOL_KEYS)
+                ctrl.personality = PERSONALITIES[key]
+        for seat in self.players:
+            if (pers := self.personality_of(seat)) is not None:
+                self.secret(f"{seat}號 電腦個性：{pers.name}")
+        if self.rules.show_personality:
+            shown = [f"{s}號 {p.name}" for s in self.players if (p := self.personality_of(s))]
+            self.say("🎭 電腦個性：" + "、".join(shown))
         for seat, p in self.players.items():
             self.controllers[seat].setup(self, p)
+
+    def personality_of(self, seat: int):
+        """電腦玩家的個性；真人回傳 None。"""
+        return getattr(self.controllers[seat], "personality", None)
 
     def play(self) -> Team | None:
         self.setup()
@@ -655,6 +694,7 @@ class Game:
         t = self.controllers[s].pass_badge(self, p)
         if t is not None and t != s and t in self.alive_seats():
             self.sheriff = t
+            self.badge_from[t] = s
             self.sheriff_log.append(f"第{self.night_no}天 {s}號 把警徽移交給 {t}號")
             self.say(f"🎖  警長 {s}號 把警徽移交給 {t}號。")
         else:
@@ -927,8 +967,11 @@ class Game:
         if speech.claim is not None:
             prev = self.claims.get(seat)
             checks = dict(prev["checks"]) if prev and prev["role"] is speech.claim else {}
-            self.claims[seat] = {"role": speech.claim, "checks": checks}
+            day = prev["day"] if prev and prev["role"] is speech.claim else self.night_no
+            self.claims[seat] = {"role": speech.claim, "checks": checks, "day": day}   # day：第一次跳這個身份是第幾天
         if speech.checks and self.claimed_role(seat) in (Role.SEER, Role.LANTERN_SEER):
             self.claims[seat]["checks"].update(speech.checks)
         if self.today is not None:
             self.today.speeches.append(speech)
+        for f in speech.findings:
+            self.findings.append({**f, "speaker": seat, "day": self.night_no})

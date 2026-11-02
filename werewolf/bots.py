@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .engine import ITEMS, Controller, Game, Player, Speech
+from .personality import DEFAULT, Personality
 from .roles import Role
 
 
@@ -27,10 +28,16 @@ class Knowledge:
     evidence: dict[int, float] | None = None
     protected: set[int] = field(default_factory=set)   # 看起來是真的兩位預言家
     card_acc: dict = field(default_factory=dict)        # {Role.SEER / Role.LANTERN_SEER: 是否正確查驗}
+    sheriff_doubt: float = 0.0                          # 我懷疑現任警長是假的程度（0～1）
+    sheriff_why: list[str] = field(default_factory=list)  # 懷疑警長的理由
+    hints: dict[int, float] = field(default_factory=dict)   # 推理高手公開的漏洞帶來的懷疑
+    hint_why: dict[int, str] = field(default_factory=dict)
+    hint_from: dict[int, int] = field(default_factory=dict)  # 是哪位推理高手指出的
 
 
 class BotController(Controller):
-    def __init__(self) -> None:
+    def __init__(self, personality: Personality | None = None) -> None:
+        self.personality = personality          # 沒指定時由 Game 開局分配
         self.checks: dict[int, bool] = {}       # 真預言家的查驗
         self.fake_checks: dict[int, bool] = {}  # 悍跳狼編的查驗
         self.fake_days: set[int] = set()
@@ -41,20 +48,217 @@ class BotController(Controller):
         self.girl_seen: tuple[int, bool, bool] | None = None  # 村姑：(目標, 看到狼?, 確定準確?)
         self.soft: dict[int, float] = {}        # 不確定的線索（村姑猜測的結果）
         self.raw: dict[int, bool] = {}          # 燈影預言家板：自己看到的查驗（可能是反的）
+        self.reasons: dict[int, list[tuple[float, str]]] = {}  # 最近一次推理：懷疑每個人的理由
 
     # ------------------------------------------------------------ 初始化與推理
     def setup(self, game: Game, me: Player) -> None:
         self.rng = game.rng
+        self.P = self.personality or DEFAULT
         self.pref = {s: self.rng.random() for s in game.players}
         self.guess_seer_accurate = self.rng.random() < 0.5   # 推不出來時，猜哪張預言家牌是準的
         if me.is_wolf and "fake_seer" not in game.wolf_plan:
             bots = [p.seat for p in game.players.values()
                     if p.is_wolf and not game.controllers[p.seat].is_human]
-            # 狼隊開局決定要不要派一隻狼悍跳預言家
-            game.wolf_plan["fake_seer"] = (
-                self.rng.choice(bots) if bots and self.rng.random() < 0.6 else None)
+            # 狼隊開局決定悍跳人選：越愛詐唬的狼越可能被派出去
+            weights = [getattr(game.controllers[b], "personality", None) or DEFAULT for b in bots]
+            weights = [w.bluff + 0.01 for w in weights]
+            fakes: list[int] = []
+            if game.claim_race:            # 燈影板四人搶警：固定派兩隻狼悍跳
+                pool, w = list(bots), list(weights)
+                while pool and len(fakes) < 2:
+                    pick = self.rng.choices(pool, weights=w)[0]
+                    i = pool.index(pick)
+                    fakes.append(pool.pop(i))
+                    w.pop(i)
+            else:
+                chance = min(0.95, 0.6 * (sum(weights) / len(weights))) if bots else 0
+                if bots and self.rng.random() < chance:
+                    fakes.append(self.rng.choices(bots, weights=weights)[0])
+            game.wolf_plan["fake_seers"] = fakes
+            game.wolf_plan["fake_seer"] = fakes[0] if fakes else None
 
     def analyze(self, game: Game, me: Player) -> Knowledge:
+        """自己的推理：先整理確定的資訊，再獨立評估警長是不是假的。"""
+        k = self._analyze_base(game, me)
+        if me.is_wolf:
+            return k
+        self._absorb_findings(game, me, k)
+        k.sheriff_doubt, k.sheriff_why = self._sheriff_doubt(game, me, k)
+        sheriff = game.sheriff
+        if k.sheriff_doubt >= 0.5 and sheriff is not None:
+            k.protected.discard(sheriff)
+            if k.trusted == sheriff:   # 不再站警長的邊，改信其他跳預言家的人（或誰都不信）
+                others = [c for c in k.claims if c not in k.wolf and c not in (me.seat, sheriff)]
+                k.trusted = max(others, key=lambda c: self.pref[c]) if others else None
+        return k
+
+    # ------------------------------------------------------------ 推理高手
+    def _absorb_findings(self, game: Game, me: Player, k: Knowledge) -> None:
+        """參考推理高手公開的漏洞：公開事實推得出來的直接採信，其他的依信任程度參考。"""
+        for f in game.findings:
+            speaker = f["speaker"]
+            if speaker == me.seat or speaker in k.wolf:
+                continue
+            if f["certain"] and f["public"]:
+                if f["liar"] not in k.good:        # 任何人都能自己驗證的邏輯
+                    k.wolf.add(f["liar"])
+                continue
+            trust = 1.0 if speaker in k.good else 0.6
+            trust *= 0.6 + 0.25 * self.P.follow    # 越願意聽別人意見的個性越會參考
+            weight = (25 if f["certain"] else 12) * trust
+            for s in f["suspects"]:
+                if s in k.good or s == me.seat:
+                    continue
+                k.hints[s] = k.hints.get(s, 0) + weight / len(f["suspects"]) * (2 if f["certain"] else 1)
+                k.hint_why.setdefault(s, f"推理高手 {speaker}號 指出：{f['text']}")
+                k.hint_from.setdefault(s, speaker)
+
+    def find_loopholes(self, game: Game, me: Player, k: Knowledge) -> list[dict]:
+        """找出說法裡的邏輯漏洞。public=只靠公開資訊就能驗證；certain=一定有人說謊。"""
+        out: list[dict] = []
+        players = game.players.values()
+        known_good = {p.seat for p in players if p.revealed and not p.is_wolf} | game.knight_gold
+        known_wolf = {p.seat for p in players if p.revealed and p.is_wolf}
+        cards = (Role.SEER, Role.LANTERN_SEER)
+
+        def add(liar, suspects, text, certain, public=True):
+            out.append({"liar": liar, "suspects": tuple(suspects), "text": text,
+                        "certain": certain, "public": public})
+
+        for c, cl in game.claims.items():
+            if c in known_wolf or c == me.seat:
+                continue
+            role, checks = cl["role"], cl["checks"]
+            if role in cards:                       # 查驗和確定的事實比對
+                bad = [(t, w) for t, w in checks.items()
+                       if (w and t in known_good) or (not w and t in known_wolf)]
+                fine = [(t, w) for t, w in checks.items()
+                        if (w and t in known_wolf) or (not w and t in known_good)]
+                if bad:
+                    t, w = bad[0]
+                    said = f"{c}號 說 {t}號 是{'狼' if w else '好人'}，但 {t}號 已經證實是{'好人' if w else '狼'}"
+                    if not game.has_lantern:
+                        add(c, (c,), said + "，他的查驗是編的", True)
+                    elif fine:
+                        add(c, (c,), said + "，可是他其他查驗又是準的，時準時反一定是假預言家", True)
+                    else:
+                        add(None, (c,), said + "，他要嘛是反向查驗，要嘛是假的", False)
+                mine = checks.get(me.seat)
+                if mine and not game.has_lantern:   # 只有我自己知道的矛盾
+                    add(c, (c,), f"{c}號 查殺我，但我是好人，他是假預言家", True, public=False)
+                elif mine and game.has_lantern:
+                    add(None, (c,), f"{c}號 說我是狼，我是好人，他要嘛是反向查驗要嘛是假的", False, public=False)
+            elif role not in (Role.VILLAGER, Role.WEREWOLF):
+                real = [p.seat for p in players if p.revealed and p.role is role and p.seat != c]
+                if real:                            # 搶已經翻牌的身份
+                    add(c, (c,), f"真的{role.value}已經翻牌是 {real[0]}號，{c}號 卻說自己是{role.value}", True)
+                if role is Role.HUNTER and not game.players[c].alive \
+                        and game.players[c].death_cause in ("vote", "wolf") and not game.players[c].revealed:
+                    add(None, (c,), f"{c}號 說自己是獵人，出局時卻沒有開槍", False)
+
+        unique = [r for r in Role if r not in (Role.WEREWOLF, Role.VILLAGER, *cards)]
+        for role in unique:                         # 兩個人搶同一個唯一身份
+            who = sorted(c for c, cl in game.claims.items() if cl["role"] is role and c != me.seat)
+            if len(who) >= 2:
+                add(None, who, f"{'、'.join(map(str, who))}號 都說自己是{role.value}，至少有一個在說謊", False)
+
+        if game.has_lantern:                        # 兩張牌驗同一人結果一定相反
+            seers, lanterns = game.claims_of(Role.SEER), game.claims_of(Role.LANTERN_SEER)
+            for a, ra in seers.items():
+                for b, rb in lanterns.items():
+                    same = [t for t, w in ra.items() if t in rb and rb[t] == w]
+                    if same and me.seat not in (a, b):
+                        add(None, (a, b), f"{a}號（預言家）和 {b}號（燈影預言家）驗 {same[0]}號 結果一樣，"
+                                          "兩張牌的結果一定相反，他們至少一個是假的", False)
+
+        if game.sheriff is not None and game.badge_from.get(game.sheriff) in known_wolf:
+            src = game.badge_from[game.sheriff]
+            add(None, (game.sheriff,), f"警長 {game.sheriff}號 的警徽是狼（{src}號）交給他的", False)
+
+        for p in game.alive():                      # 票型：每次都和翻牌的狼投同一個人
+            if p.seat == me.seat or p.seat in known_wolf:
+                continue
+            together = total = 0
+            for d in game.days:
+                mine = d.votes.get(p.seat)
+                wolf_targets = {d.votes.get(w) for w in known_wolf if d.votes.get(w) is not None}
+                if mine is not None and wolf_targets:
+                    total += 1
+                    together += mine in wolf_targets
+            if total >= 2 and together == total:
+                add(None, (p.seat,), f"{p.seat}號 每次都和已翻牌的狼投同一個人", False)
+
+        told = {(f["text"]) for f in game.findings}
+        return [f for f in out if f["text"] not in told]
+
+    def _add_findings(self, game: Game, me: Player, speech: Speech) -> None:
+        """推理高手在發言裡公開新發現的漏洞（一次最多兩個），並歸票確定說謊的人。"""
+        k = self.analyze(game, me)
+        found = self.find_loopholes(game, me, k)
+        found.sort(key=lambda f: (not f["certain"], not f["public"]))
+        found = found[:2]
+        if not found:
+            return
+        speech.findings = found
+        speech.text += "；我發現邏輯漏洞：" + "；".join(f["text"] for f in found)
+        liars = [f["liar"] for f in found if f["certain"] and f["liar"] is not None
+                 and game.players[f["liar"]].alive]
+        if liars:
+            speech.accuse = liars[0]
+
+    def _sheriff_doubt(self, game: Game, me: Player, k: Knowledge) -> tuple[float, list[str]]:
+        """獨立評估現任警長是假的（狼）的可能性，回傳 (0～1 的懷疑度, 理由)。"""
+        s = game.sheriff
+        if s is None or s == me.seat or not game.players[s].alive:
+            return 0.0, []
+        if s in k.wolf:
+            return 1.0, ["他已經確定是狼"]
+        if s in k.good:
+            return 0.0, []
+        doubt, why = 0.0, []
+        claim = game.claimed_role(s)
+        if claim is not None:
+            rivals = [c for c, cl in game.claims.items() if c != s and cl["role"] is claim]
+            if rivals:
+                doubt += 0.25
+                why.append(f"{rivals[0]}號 和他對跳{claim.value}")
+        if claim in (Role.SEER, Role.LANTERN_SEER):
+            for t, w in game.claims[s]["checks"].items():
+                if (w and t in k.good) or (not w and t in k.wolf):
+                    doubt += 0.3 if game.has_lantern else 0.6
+                    why.append(f"他說 {t}號 是{'狼' if w else '好人'}，但 {t}號 其實是{'好人' if w else '狼'}"
+                               + ("（也可能只是反向查驗）" if game.has_lantern else ""))
+            claimed_day = game.claims[s].get("day", game.night_no)
+            quiet = game.night_no - claimed_day
+            if quiet >= 2:                      # 真預言家通常很快被刀
+                doubt += min(0.3, 0.1 * (quiet - 1))
+                why.append(f"他跳預言家 {quiet} 晚都沒被狼刀")
+        hits = set()
+        for d in game.days:
+            for sp in d.speeches:
+                if sp.seat == s and sp.accuse in k.good:   # 包含點名我自己
+                    hits.add(sp.accuse)
+            for votes in (d.votes, d.pk_votes):
+                if votes.get(s) in k.good:
+                    hits.add(votes[s])
+        if hits:
+            doubt += min(0.45, 0.2 * len(hits))
+            who = "我" if hits == {me.seat} else "、".join(f"{h}號" for h in sorted(hits))
+            why.append(f"他點名或投票給確定的好人（{who}）")
+        backers = [v for v, t in game.sheriff_votes.items() if t == s]
+        wolf_backers = [v for v in backers if v in k.wolf]
+        if wolf_backers:
+            doubt += 0.1 + 0.4 * len(wolf_backers) / len(backers)
+            why.append(f"投他當警長的人裡有確定的狼（{'、'.join(map(str, wolf_backers))}號）")
+        if game.badge_from.get(s) in k.wolf:
+            doubt += 0.5
+            why.append(f"他的警徽是狼（{game.badge_from[s]}號）交給他的")
+        # 個性：邏輯型最看證據、保守型比較相信警長；直覺強的人會多一點「說不上來的懷疑」
+        doubt = doubt * self.P.evidence / (1 + 0.15 * max(0.0, self.P.follow - 1.5))
+        doubt += self.pref[s] * 0.03 * self.P.intuition
+        return min(doubt, 1.0), why
+
+    def _analyze_base(self, game: Game, me: Player) -> Knowledge:
         claims = game.seer_claims()
         if me.is_wolf:
             wolves = {p.seat for p in game.players.values() if p.is_wolf}
@@ -86,94 +290,162 @@ class BotController(Controller):
 
     def _lantern_analyze(self, game: Game, me: Player, good: set[int], wolf: set[int],
                          claims: dict[int, dict[int, bool]]) -> Knowledge:
-        """燈影預言家板：兩張預言家牌一張正確、一張反向，用確定的事實反推哪張是準的。"""
+        """燈影預言家板：兩位真預言家一位正確、一位反向查驗，可能還有狼悍跳。
+
+        列舉「哪兩個人是真預言家（每張牌各一人）、哪一位是準的」的所有組合，
+        用確定的事實排除不可能的，再挑最可能的一組。四人搶警時每張牌都有一真一假。"""
         cards = (Role.SEER, Role.LANTERN_SEER)
         mycard = me.role if me.role in cards else None
         for t, w in self.checks.items():          # 幸運兒等其他確定查驗（本板沒有，保留通用性）
             (wolf if w else good).add(t)
-        if mycard:                                 # 跳我這張牌的其他人一定是狼
-            wolf |= {c for c in game.claims_of(mycard) if c != me.seat}
-        holder: dict[Role, int | None] = {}
-        reports: dict[Role, dict[int, bool]] = {}
-        for card in cards:
-            if card is mycard:
-                holder[card], reports[card] = me.seat, dict(self.raw)
-                continue
-            cands = [c for c in game.claims_of(card) if c not in wolf and c != me.seat]
-            holder[card] = max(cands, key=lambda c: self.pref[c]) if cands else None
-            reports[card] = game.claims_of(card).get(holder[card], {}) if holder[card] else {}
-        acc: dict[Role, bool | None] = {c: None for c in cards}
-        for card in cards:                         # 報出的結果和確定的事實比對
-            for t, shown in reports[card].items():
-                if t in good:
-                    acc[card] = not shown
-                elif t in wolf:
-                    acc[card] = shown
-        for a, b in (cards, cards[::-1]):          # 一張準，另一張就一定是反的
-            if acc[a] is None and acc[b] is not None:
-                acc[a] = not acc[b]
-        if mycard and acc[mycard] is not None:     # 知道自己準不準 → 自己的查驗變成確定資訊
-            for t, shown in self.raw.items():
-                (wolf if (shown if acc[mycard] else not shown) else good).add(t)
+        reports = {c: dict(cl["checks"]) for c, cl in game.claims.items()
+                   if cl["role"] in cards and c != me.seat}
+        card_of = {c: game.claims[c]["role"] for c in reports}
+        if mycard:
+            reports[me.seat], card_of[me.seat] = dict(self.raw), mycard
+            wolf |= {c for c in reports if c != me.seat and card_of[c] is mycard}   # 跳我這張牌的一定是狼
+        acc_p: dict[int, bool] = {}                # 從事實推出某人「準 / 反」
+        for c, rep in reports.items():
+            flags = {(not shown) if t in good else shown for t, shown in rep.items() if t in good or t in wolf}
+            if len(flags) == 2 and c != me.seat:
+                wolf.add(c)                        # 有時準、有時反 → 不可能是真預言家
+            elif flags:
+                acc_p[c] = flags.pop()
+        cands = [c for c in reports if c not in wolf]
+
+        hypotheses = []                            # (分數, a, b, a 是否準確)
+        for i, a in enumerate(cands):
+            for b in cands[i + 1:]:
+                if mycard and me.seat not in (a, b):
+                    continue                       # 我自己一定是真預言家之一
+                if card_of[a] is card_of[b]:
+                    continue                       # 兩張牌各一人
+                if any(t in reports[b] and reports[b][t] == w for t, w in reports[a].items()):
+                    continue                       # 真的兩位驗同一個人，結果一定相反
+                # 假設 a、b 是真的：他們是好人，其他跳預言家的人都是狼
+                implied = {c: c not in (a, b) for c in reports}
+                for acc_a in (True, False):
+                    if acc_p.get(a, acc_a) != acc_a or acc_p.get(b, not acc_a) != (not acc_a):
+                        continue
+                    fits = 0
+                    for m, acc in ((a, acc_a), (b, not acc_a)):
+                        for t, shown in reports[m].items():
+                            if t in implied:       # 準的人驗狼看到狼、反的人看到好人；不符就排除
+                                fits += 1 if shown == (implied[t] if acc else not implied[t]) else -100
+                    if fits < 0:
+                        continue
+                    night_dead = sum(not game.players[m].alive and game.players[m].death_cause
+                                     in ("wolf", "poison", "dream") for m in (a, b))
+                    score = (self.pref[a] + self.pref[b] + 3 * fits + 3 * night_dead
+                             + (10 if a in acc_p or b in acc_p else 0))
+                    seer_card_acc = acc_a if card_of[a] is Role.SEER else not acc_a
+                    if seer_card_acc == self.guess_seer_accurate:
+                        score += 0.5               # 推不出來時，照自己的猜測
+                    hypotheses.append((score, a, b, acc_a))
+        holders: dict[int, bool | None] = {}       # 我認為的真預言家 -> 是否準確（None = 不確定）
+        if hypotheses:
+            _, a, b, acc_a = max(hypotheses)
+            known = a in acc_p or b in acc_p
+            holders = {a: acc_a, b: not acc_a}
+            if len({frozenset(h[1:3]) for h in hypotheses}) == 1:
+                wolf |= {c for c in cands if c not in holders}   # 只剩這一組可能 → 其他跳預言家的都是狼
+            certain = {a: known, b: known}
+        else:                                      # 只有一個人（或沒有人）可能是真的
+            for c in cands:
+                guess = self.guess_seer_accurate if card_of[c] is Role.SEER else not self.guess_seer_accurate
+                holders[c] = acc_p.get(c, guess)
+            certain = {c: c in acc_p for c in cands}
+        if mycard and holders.get(me.seat) is not None and certain.get(me.seat):
+            for t, shown in self.raw.items():      # 確定自己準不準 → 自己的查驗變成確定資訊
+                (wolf if (shown if holders[me.seat] else not shown) else good).add(t)
         evidence: dict[int, float] = {}
-        for card in cards:
-            if card is mycard and acc[card] is not None:
+        for c, acc in holders.items():
+            if c == me.seat and certain.get(c):
                 continue
-            a = acc[card]
-            weight = 20 if a is not None else 8
-            if a is None:
-                a = self.guess_seer_accurate if card is Role.SEER else not self.guess_seer_accurate
-            for t, shown in reports[card].items():
-                truth = shown if a else not shown
+            weight = 20 if certain.get(c) else 8
+            for t, shown in reports[c].items():
+                truth = shown if acc else not shown
                 evidence[t] = evidence.get(t, 0) + (weight if truth else -weight / 2)
-        protected = {h for h in holder.values() if h is not None and h != me.seat}
-        trusted = holder[Role.SEER] if holder[Role.SEER] != me.seat else None
-        return Knowledge(good, wolf, trusted, claims, evidence, protected, acc)
+        acc_card: dict = {}
+        for c, acc in holders.items():             # 換算成「哪張牌準」：自己的牌一定知道是哪張
+            if certain.get(c):
+                acc_card[card_of[c]] = acc
+                acc_card[cards[1] if card_of[c] is cards[0] else cards[0]] = not acc
+        protected = {c for c in holders if c != me.seat}
+        accurate = [c for c, acc in holders.items() if acc and c != me.seat]
+        trusted = (accurate or sorted(protected) or [None])[0]
+        return Knowledge(good, wolf, trusted, claims, evidence, protected, acc_card)
 
     def suspicion(self, game: Game, me: Player, k: Knowledge) -> dict[int, float]:
+        """每個人的懷疑度；同時把主要理由記在 self.reasons，發言時說出來。"""
         today = game.today
         base: dict[int, float] = {}
+        self.reasons = {}
+
+        def why(seat: int, weight: float, text: str) -> None:
+            if weight > 0:
+                self.reasons.setdefault(seat, []).append((weight, text))
+
         for p in game.players.values():
             s = p.seat
             if s == me.seat:
                 continue
-            v = self.pref[s] * 2
+            v = self.pref[s] * self.P.intuition
+            why(s, v * 0.5, "直覺覺得他怪怪的")
             if s in k.wolf:
                 v += 100
+                why(s, 100, "他已經確定是狼")
             if s in k.good:
                 v -= 100
             if k.evidence is not None:            # 燈影預言家板
-                v += k.evidence.get(s, 0)
+                e = k.evidence.get(s, 0) * self.P.evidence
+                v += e
+                why(s, e, "預言家的查驗對他不利（不確定哪張牌準）")
                 if s in k.protected:
                     v -= 15
                 elif game.claimed_role(s) in (Role.SEER, Role.LANTERN_SEER):
                     v += 10                       # 和看起來是真的預言家對跳
+                    why(s, 10, "他和我比較相信的預言家對跳")
             elif k.trusted is not None:
                 checks = k.claims.get(k.trusted, {})
                 if s in checks:
-                    v += 20 if checks[s] else -8
+                    v += (20 if checks[s] else -8) * self.P.evidence
+                    if checks[s]:
+                        why(s, 20 * self.P.evidence, f"{k.trusted}號 預言家查殺他")
                 if s == k.trusted:
                     v -= 15
                 elif s in k.claims:
                     v += 10  # 和我相信的預言家對跳
+                    why(s, 10, f"他和 {k.trusted}號 預言家對跳")
+            if s == game.sheriff and k.sheriff_doubt:
+                v += k.sheriff_doubt * 40
+                why(s, k.sheriff_doubt * 40,
+                    "他這個警長很可疑" + (f"（{k.sheriff_why[0]}）" if k.sheriff_why else ""))
             if game.claimed_role(s) in CLAIMABLE:
                 v -= 3
-            for d in game.days:  # 看票型與發言：攻擊可信的人很可疑
+            ev = self.P.evidence
+            pattern = 0.0
+            for d in game.days:  # 看票型與發言：攻擊可信的人很可疑（越重證據的個性越看重）
                 for sp in d.speeches:
                     if sp.seat == s and sp.accuse is not None:
                         if sp.accuse in k.good or sp.accuse == k.trusted:
-                            v += 5
+                            pattern += 5 * ev
                         elif sp.accuse in k.wolf:
-                            v -= 2
+                            pattern -= 2 * ev
                 if d is today:
                     continue
                 for votes in (d.votes, d.pk_votes):
                     tgt = votes.get(s)
                     if tgt in k.good or (tgt is not None and tgt == k.trusted):
-                        v += 5
+                        pattern += 5 * ev
                     elif tgt in k.wolf:
-                        v -= 3
+                        pattern -= 3 * ev
+            v += pattern
+            why(s, pattern, "他的發言和票型一直針對可信的人")
             v += self.soft.get(s, 0)
+            why(s, self.soft.get(s, 0), "村姑查驗的線索指向他")
+            v += k.hints.get(s, 0)
+            why(s, k.hints.get(s, 0), k.hint_why.get(s, ""))
             base[s] = v
 
         # 今天的指認：只採信「我不懷疑的人」說的話
@@ -181,7 +453,9 @@ class BotController(Controller):
         if today:
             for sp in today.speeches:
                 if sp.accuse in score and sp.seat != me.seat and base.get(sp.seat, -99) < 8:
-                    score[sp.accuse] += 3 if sp.seat == k.trusted else 1.5
+                    w = (3 if sp.seat == k.trusted else 1.5) * self.P.follow / 1.5
+                    score[sp.accuse] += w
+                    why(sp.accuse, w, "不少我信得過的人也點他")
         return score
 
     def _top(self, score: dict[int, float], pool=None) -> int | None:
@@ -212,7 +486,8 @@ class BotController(Controller):
         witches = [s for s in good if game.claimed_role(s) is Role.WITCH]
         golds = [t for c in real_seers for t, w in game.claims.get(c, {}).get("checks", {}).items()
                  if not w and t in good]
-        for group in (real_seers, witches, golds):
+        detectives = sorted({f["speaker"] for f in game.findings if f["speaker"] in good})
+        for group in (real_seers, detectives, witches, golds):   # 公開找漏洞的推理高手也很危險
             group = [s for s in group if s not in hunters]
             if group and self.rng.random() < 0.85:
                 return self.rng.choice(group)
@@ -233,7 +508,7 @@ class BotController(Controller):
                 return "poison", self.rng.choice(certain)
             score = self.suspicion(game, me, k)
             top = self._top(score)
-            if top is not None and score[top] >= 20 and self.rng.random() < 0.5:
+            if top is not None and score[top] >= self.P.poison_bar and self.rng.random() < self.P.poison_prob:
                 return "poison", top
         return None, None
 
@@ -242,6 +517,10 @@ class BotController(Controller):
         pool = [s for s in options if s not in self.checks and s not in self.raw] or options
         if not pool:
             return None
+        if game.claim_race:                 # 四人搶警：優先驗和自己對跳的人
+            rivals = [c for c in pool if game.claimed_role(c) in (Role.SEER, Role.LANTERN_SEER)]
+            if rivals:
+                return self.rng.choice(rivals)
         if game.night_no > 1 and self.rng.random() < 0.6:
             score = self.suspicion(game, me, self.analyze(game, me))
             return self._top(score, pool)
@@ -255,10 +534,16 @@ class BotController(Controller):
 
     # ------------------------------------------------------------ 白天
     def speak(self, game: Game, me: Player) -> Speech:
-        return self._speech(game, me, last=False)
+        speech = self._speech(game, me, last=False)
+        if self.P.detective and not me.is_wolf:
+            self._add_findings(game, me, speech)
+        return speech
 
     def last_words(self, game: Game, me: Player) -> Speech:
-        return self._speech(game, me, last=True)
+        speech = self._speech(game, me, last=True)
+        if self.P.detective and not me.is_wolf:
+            self._add_findings(game, me, speech)
+        return speech
 
     def _accused_today(self, game: Game, me: Player) -> bool:
         return bool(game.today) and any(sp.accuse == me.seat for sp in game.today.speeches)
@@ -281,7 +566,7 @@ class BotController(Controller):
         if me.role is Role.SEER:
             already = game.claimed_role(me.seat) is Role.SEER
             if self.checks and (last or already or any(self.checks.values())
-                                or k.claims or self.rng.random() < 0.8):
+                                or k.claims or self.rng.random() < self.P.claim):
                 alive_wolves = [t for t, w in self.checks.items() if w and game.players[t].alive]
                 rivals = [c for c in k.claims if c != me.seat and game.players[c].alive]
                 accuse = (alive_wolves or rivals or [top])[0]
@@ -323,33 +608,62 @@ class BotController(Controller):
             text = "預言家對跳，我還在聽"
         else:
             text = "目前資訊不多"
+        if top is not None and score[top] < self.P.accuse_bar:
+            top = None                           # 沒把握就不點名
+        text = f"{self.P.opener}，{text}"
+        if top is not None:
+            text += f"；我懷疑 {top}號：{self.explain(top)}"
+            if top in k.hint_from and not self.P.detective and k.hint_why[top] not in text:
+                text += f"（我參考了推理高手 {k.hint_from[top]}號 的分析）"
+        text += self._sheriff_comment(game, k, top)
         return Speech(me.seat, accuse=top, text=text)
+
+    def explain(self, seat: int, n: int = 2) -> str:
+        """說出懷疑某人的主要理由（最多 n 個）。"""
+        items = sorted(self.reasons.get(seat, []), reverse=True)
+        texts = [t for w, t in items if w >= 3][:n] or [t for _, t in items[:1]]
+        return "、".join(texts) if texts else "說不上來，先聽聽大家"
+
+    def _sheriff_comment(self, game: Game, k: Knowledge, accused: int | None) -> str:
+        s = game.sheriff
+        if s is None or s == accused or not game.players[s].alive or not k.sheriff_why:
+            return ""
+        if k.sheriff_doubt >= 0.5:
+            return f"；我懷疑警長 {s}號 是假的：{'、'.join(k.sheriff_why[:2])}"
+        if k.sheriff_doubt >= 0.3:
+            return f"；警長 {s}號 我還在觀察：{k.sheriff_why[0]}"
+        return ""
 
     # ------------------------------------------------------------ 狼人白天策略
     def _wolf_speech(self, game: Game, me: Player, k: Knowledge, last: bool) -> Speech:
         good_alive = [p.seat for p in game.alive() if not p.is_wolf]
-        if game.wolf_plan.get("fake_seer") == me.seat:
+        fakes = game.wolf_plan.get("fake_seers", ())
+        if me.seat in fakes:
+            # 四人搶警：第一隻悍跳預言家、第二隻悍跳燈影預言家，每張牌都有人對跳
+            card = Role.LANTERN_SEER if game.claim_race and fakes.index(me.seat) == 1 else Role.SEER
             if game.night_no not in self.fake_days and not (last and self.fake_checks):
                 self.fake_days.add(game.night_no)
-                self._invent_check(game, me, k, good_alive)
-            rivals = [c for c in game.seer_claims() if c != me.seat and game.players[c].alive]
+                self._invent_check(game, me, k, good_alive, card)
+            rivals = [c for c in game.claims_of(card) if c != me.seat and game.players[c].alive]
             fake_wolves = [t for t, w in self.fake_checks.items() if w and game.players[t].alive]
-            accuse = (fake_wolves or rivals or good_alive or [None])[0]
-            text = "我才是真預言家，對跳的是狼" if rivals else ""
-            return Speech(me.seat, Role.SEER, dict(self.fake_checks), accuse, text)
+            others = [s for s in good_alive if s not in self.fake_checks]   # 不點自己發的金水
+            accuse = (fake_wolves or rivals or others or [None])[0]
+            text = f"我才是真的{card.value}，對跳的是狼" if rivals else ""
+            return Speech(me.seat, card, dict(self.fake_checks), accuse, text)
 
         target = self.wolf_target(game, k)
         if last:
             return Speech(me.seat, Role.VILLAGER, accuse=target, text="你們出錯人了")
-        if self._accused_today(game, me) and self.rng.random() < 0.25:
+        if self._accused_today(game, me) and self.rng.random() < min(1, 0.25 * self.P.bluff):
             return Speech(me.seat, Role.HUNTER, accuse=target, text="出我的話我會開槍")  # 假跳獵人
         fake = game.wolf_plan.get("fake_seer")
         text = f"我站 {fake}號 預言家" if fake and game.players[fake].alive else "我是平民"
-        return Speech(me.seat, accuse=target, text=text)
+        return Speech(me.seat, accuse=target, text=f"{self.P.opener}，{text}")
 
-    def _invent_check(self, game: Game, me: Player, k: Knowledge, good_alive: list[int]) -> None:
+    def _invent_check(self, game: Game, me: Player, k: Knowledge, good_alive: list[int],
+                      card: Role = Role.SEER) -> None:
         unused = [s for s in good_alive if s not in self.fake_checks and not game.players[s].revealed]
-        rivals = [c for c in game.seer_claims() if c in unused]
+        rivals = [c for c in game.claims_of(card) if c in unused]   # 對同一張牌的真預言家發查殺
         mates = [s for s in game.alive_seats()
                  if s in k.wolf and s != me.seat and s not in self.fake_checks]
         roll = self.rng.random()
@@ -391,7 +705,10 @@ class BotController(Controller):
             good = [c for c in candidates if c not in k.wolf]
             return self.rng.choice(good) if good else None
         score = self.suspicion(game, me, k)
-        return self._top(score, [c for c in candidates if c != me.seat])
+        top = self._top(score, [c for c in candidates if c != me.seat])
+        if top is not None and score[top] < self.P.vote_bar:
+            return None                          # 沒有夠可疑的人：保守的玩家會棄票
+        return top
 
     def hunter_shoot(self, game: Game, me: Player) -> int | None:
         k = self.analyze(game, me)
@@ -407,9 +724,9 @@ class BotController(Controller):
             return certain[0]
         score = self.suspicion(game, me, k)
         top = self._top(score)
-        if top is not None and score[top] >= 10:
+        if top is not None and score[top] >= self.P.shoot_bar:
             return top
-        return top if self.rng.random() < 0.4 else None
+        return top if self.rng.random() < self.P.blind_shoot else None
 
     # ------------------------------------------------------------ 新角色
     def choose_dream(self, game: Game, me: Player) -> int | None:
@@ -470,11 +787,13 @@ class BotController(Controller):
 
     # ------------------------------------------------------------ 警長與自爆
     def run_for_sheriff(self, game: Game, me: Player) -> bool:
+        if game.claim_race and me.role in (Role.SEER, Role.LANTERN_SEER) and self.raw:
+            return True                             # 四人搶警：兩位真預言家一定上警
         if me.role is Role.SEER and self.checks:
             return self.rng.random() < 0.9          # 真預言家上警拿警徽
-        if me.is_wolf and game.wolf_plan.get("fake_seer") == me.seat:
+        if me.is_wolf and me.seat in game.wolf_plan.get("fake_seers", ()):
             return True                             # 悍跳狼一定上警搶警徽
-        return self.rng.random() < (0.35 if me.is_wolf else 0.3)
+        return self.rng.random() < self.P.run_sheriff + (0.05 if me.is_wolf else 0)
 
     def sheriff_vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
         k = self.analyze(game, me)
@@ -506,7 +825,7 @@ class BotController(Controller):
             return good[0]
         score = self.suspicion(game, me, k)
         best = min(alive, key=lambda s: score.get(s, 0))
-        return best if score.get(best, 0) < 5 else None   # 沒把握就撕警徽
+        return best if score.get(best, 0) < self.P.tear_bar else None   # 沒把握就撕警徽
 
     def choose_direction(self, game: Game, me: Player) -> str:
         return self.rng.choice(["left", "right"])
@@ -518,12 +837,14 @@ class BotController(Controller):
         claims = game.seer_claims()
         real = [c for c in claims if not game.players[c].is_wolf]
         if game.phase == "election":
+            if game.claim_race:
+                return False                     # 四人搶警：讓兩隻悍跳狼完整跟真預言家對跳
             # 真預言家已經在警上報出查驗，自爆打斷，不讓他拿到警徽
             spoke = {sp.seat for sp in game.today.speeches}
-            return any(c in spoke for c in real) and self.rng.random() < 0.2
+            return any(c in spoke for c in real) and self.rng.random() < 0.2 * self.P.explode
         # 被真預言家查殺、今天很可能被投出去 → 自爆跳過投票，保留隊友
         exposed = any(claims[c].get(me.seat) for c in real if game.players[c].alive)
-        return exposed and self.rng.random() < 0.3
+        return exposed and self.rng.random() < 0.3 * self.P.explode
 
     # ------------------------------------------------------------ 村姑與虎姑婆
     def choose_model(self, game: Game, me: Player) -> int | None:
@@ -580,10 +901,15 @@ class BotController(Controller):
             return certain[0]
         if game.night_no >= 2 and k.evidence is not None:
             strong = [t for t, v in k.evidence.items() if v >= 20 and t in alive]
-            if strong and self.rng.random() < 0.5:
+            if strong and self.rng.random() < self.P.duel_prob:
                 return strong[0]
         elif game.night_no >= 2 and k.trusted is not None:
             checked = [t for t, w in k.claims.get(k.trusted, {}).items() if w and t in alive]
-            if checked and self.rng.random() < 0.5:
+            if checked and self.rng.random() < self.P.duel_prob:
                 return checked[0]
+        if game.night_no >= 2 and self.P.duel_guess and self.rng.random() < self.P.duel_guess:
+            score = self.suspicion(game, me, k)
+            top = self._top(score, list(alive))
+            if top is not None and score[top] >= 12:
+                return top                       # 積極型：只憑懷疑也敢決鬥
         return None
