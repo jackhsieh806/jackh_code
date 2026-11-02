@@ -114,6 +114,7 @@ select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-r
 .log .event { font-weight: 700; }
 .log .secret { color: var(--muted); font-size: .84rem; padding-left: 10px; border-left: 2px dashed var(--night); }
 .log .private { color: var(--night); background: var(--night-soft); padding: 6px 10px; border-radius: 8px; font-size: .9rem; }
+.action:empty { display: none; }
 .action { scroll-margin-bottom: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 -6px 18px rgb(0 0 0 / .08); }
 .action .title { font-family: var(--display); font-weight: 700; font-size: 1.05rem; }
 .action .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
@@ -233,6 +234,14 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
             </select></label>
           <label class="field"><span class="hint">電腦個性</span>
             <select id="rule-personality"></select></label>
+          <label class="field"><span class="hint">推理高手（好人電腦）</span>
+            <select id="rule-smart">
+              <option value="0">0 位</option>
+              <option value="1">1 位</option>
+              <option value="2" selected>2 位</option>
+              <option value="3">3 位</option>
+              <option value="4">4 位</option>
+            </select></label>
           <label class="field"><span class="hint">公開電腦個性</span>
             <select id="rule-show-personality">
               <option value="0">復盤時才公開</option>
@@ -247,7 +256,7 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
       </div>
       <button class="primary" id="start">開始對局</button>
       <p class="hint">電腦狼人會悍跳預言家、發假查殺、統一投票；好人電腦會找矛盾、看票型。警長競選與狼人自爆可以在上面關掉。</p>
-      <details class="hint" id="personality-help"><summary>五種電腦個性有什麼不同？</summary><dl class="terms" id="personality-list"></dl></details>
+      <details class="hint" id="personality-help"><summary>電腦個性和推理高手有什麼不同？</summary><dl class="terms" id="personality-list"></dl></details>
     </div>
 
     <div id="arena" hidden>
@@ -323,7 +332,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 class Abort extends Error {}
 
 function mkSpeech(seat, o = {}) {
-  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false };
+  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false, findings: [] };
 }
 function renderSpeech(sp) {
   const parts = [];
@@ -350,6 +359,7 @@ class Game {
     this.reflectUsed = false; this.girlUsed = false; this.sheriffVotes = new Map(); this.knightUsed = false;
     this.knightGold = new Set();  // 騎士決鬥失敗而證實是好人的人（騎金）
     this.badgeFrom = new Map();   // 新警長 -> 把警徽交給他的前任警長
+    this.findings = [];           // 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
     // 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張反向
     this.hasLantern = this.players.some(p => p.role === "LANTERN");
     this.seerCardAccurate = this.hasLantern ? Math.random() < 0.5 : true;
@@ -446,9 +456,13 @@ class Game {
 
   async play() {
     if (this.hasLantern) this.secret("主持人決定：" + (this.seerCardAccurate ? "預言家牌正確查驗、燈影預言家牌反向查驗" : "預言家牌反向查驗、燈影預言家牌正確查驗"));
-    for (const p of this.players) {  // 先分配個性，狼隊決定誰悍跳時會參考隊友的個性
+    // 推理高手：從好人陣營的電腦裡挑（野孩子陣營會變，不選）
+    const unset = this.players.filter(p => !this.ctrl[p.seat].isHuman && !this.ctrl[p.seat].personality);
+    const goodBots = shuffle(unset.filter(p => !WOLVES.has(p.role) && p.role !== "WILD_CHILD"));
+    for (const p of goodBots.slice(0, this.rules.smartBots ?? 2)) this.ctrl[p.seat].personality = PERSONALITIES.detective;
+    for (const p of unset) {  // 先分配個性，狼隊決定誰悍跳時會參考隊友的個性
       const c = this.ctrl[p.seat];
-      if (!c.isHuman && !c.personality) c.personality = PERSONALITIES[this.rules.botPersonality] || PERSONALITIES[choice(PERSONALITY_KEYS)];
+      if (!c.personality) c.personality = PERSONALITIES[this.rules.botPersonality] || PERSONALITIES[choice(PERSONALITY_KEYS)];
     }
     for (const p of this.players) if (!this.ctrl[p.seat].isHuman) this.secret(`${p.seat}號 電腦個性：${this.ctrl[p.seat].personality.name}`);
     if (this.rules.showPersonality) this.say("電腦個性：" + this.players.filter(p => !this.ctrl[p.seat].isHuman).map(p => `${p.seat}號 ${this.ctrl[p.seat].personality.name}`).join("、"), "event");
@@ -942,13 +956,15 @@ class Game {
     }
     if (sp.checks.size && ["SEER", "LANTERN"].includes(this.claimedRole(s))) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
     if (this.today) this.today.speeches.push(sp);
+    for (const f of sp.findings || []) this.findings.push({ ...f, speaker: s, day: this.nightNo });
   }
 }
 
 // ================================================================ 電腦個性
 // 由 werewolf/personality.py 產生（python3 werewolf/web/sync_quiz.py），兩邊保持一致
-const PERSONALITIES = {"rational": {"key": "rational", "name": "理智型", "desc": "綜合直覺、證據和大家的意見，每一項都不偏廢，是最平均的玩家。", "opener": "綜合來看", "intuition": 3.0, "follow": 1.5, "evidence": 1.0, "voteBar": -1000000000.0, "accuseBar": -1000000000.0, "claim": 0.8, "poisonBar": 20, "poisonProb": 0.5, "shootBar": 10, "blindShoot": 0.4, "duelProb": 0.5, "duelGuess": 0.0, "explode": 1.0, "bluff": 1.0, "runSheriff": 0.3, "tearBar": 5}, "logical": {"key": "logical", "name": "邏輯型", "desc": "只看查驗、矛盾和票型，幾乎不靠直覺，也不太跟風；沒有理由就不點名。", "opener": "從邏輯上推", "intuition": 0.3, "follow": 0.3, "evidence": 1.6, "voteBar": -1000000000.0, "accuseBar": 4, "claim": 0.9, "poisonBar": 25, "poisonProb": 0.7, "shootBar": 15, "blindShoot": 0.1, "duelProb": 0.7, "duelGuess": 0.0, "explode": 0.8, "bluff": 0.8, "runSheriff": 0.35, "tearBar": 3}, "conservative": {"key": "conservative", "name": "保守型", "desc": "習慣跟著多數人和警長的方向走，神職晚一點才跳，技能能省就省。", "opener": "我先跟著大家的方向", "intuition": 1.5, "follow": 4.0, "evidence": 0.9, "voteBar": 10, "accuseBar": 8, "claim": 0.6, "poisonBar": 35, "poisonProb": 0.3, "shootBar": 20, "blindShoot": 0.15, "duelProb": 0.3, "duelGuess": 0.0, "explode": 0.5, "bluff": 0.5, "runSheriff": 0.2, "tearBar": 8}, "safe": {"key": "safe", "name": "安全保守型", "desc": "不確定就棄票、不點名；毒藥、獵槍、決鬥只用在確定的狼身上；當狼也絕不自爆。", "opener": "資訊不夠，我先不表態", "intuition": 1.0, "follow": 2.0, "evidence": 0.8, "voteBar": 20, "accuseBar": 18, "claim": 0.4, "poisonBar": 1000000000.0, "poisonProb": 0.0, "shootBar": 1000000000.0, "blindShoot": 0.0, "duelProb": 0.0, "duelGuess": 0.0, "explode": 0.0, "bluff": 0.2, "runSheriff": 0.1, "tearBar": 0}, "aggressive": {"key": "aggressive", "name": "積極猜測型", "desc": "很靠直覺，第一天就敢點名、敢開槍、敢毒人、敢決鬥；當狼最愛悍跳和自爆。", "opener": "我直覺", "intuition": 14.0, "follow": 1.0, "evidence": 0.8, "voteBar": -1000000000.0, "accuseBar": -1000000000.0, "claim": 1.0, "poisonBar": 10, "poisonProb": 0.9, "shootBar": 0, "blindShoot": 1.0, "duelProb": 0.9, "duelGuess": 0.4, "explode": 2.0, "bluff": 2.0, "runSheriff": 0.6, "tearBar": 20}};
-const PERSONALITY_KEYS = Object.keys(PERSONALITIES);
+const PERSONALITIES = {"rational": {"key": "rational", "name": "理智型", "desc": "綜合直覺、證據和大家的意見，每一項都不偏廢，是最平均的玩家。", "opener": "綜合來看", "intuition": 3.0, "follow": 1.5, "evidence": 1.0, "voteBar": -1000000000.0, "accuseBar": -1000000000.0, "claim": 0.8, "poisonBar": 20, "poisonProb": 0.5, "shootBar": 10, "blindShoot": 0.4, "duelProb": 0.5, "duelGuess": 0.0, "explode": 1.0, "bluff": 1.0, "runSheriff": 0.3, "tearBar": 5, "randomPool": true, "detective": false}, "logical": {"key": "logical", "name": "邏輯型", "desc": "只看查驗、矛盾和票型，幾乎不靠直覺，也不太跟風；沒有理由就不點名。", "opener": "從邏輯上推", "intuition": 0.3, "follow": 0.3, "evidence": 1.6, "voteBar": -1000000000.0, "accuseBar": 4, "claim": 0.9, "poisonBar": 25, "poisonProb": 0.7, "shootBar": 15, "blindShoot": 0.1, "duelProb": 0.7, "duelGuess": 0.0, "explode": 0.8, "bluff": 0.8, "runSheriff": 0.35, "tearBar": 3, "randomPool": true, "detective": false}, "conservative": {"key": "conservative", "name": "保守型", "desc": "習慣跟著多數人和警長的方向走，神職晚一點才跳，技能能省就省。", "opener": "我先跟著大家的方向", "intuition": 1.5, "follow": 4.0, "evidence": 0.9, "voteBar": 10, "accuseBar": 8, "claim": 0.6, "poisonBar": 35, "poisonProb": 0.3, "shootBar": 20, "blindShoot": 0.15, "duelProb": 0.3, "duelGuess": 0.0, "explode": 0.5, "bluff": 0.5, "runSheriff": 0.2, "tearBar": 8, "randomPool": true, "detective": false}, "safe": {"key": "safe", "name": "安全保守型", "desc": "不確定就棄票、不點名；毒藥、獵槍、決鬥只用在確定的狼身上；當狼也絕不自爆。", "opener": "資訊不夠，我先不表態", "intuition": 1.0, "follow": 2.0, "evidence": 0.8, "voteBar": 20, "accuseBar": 18, "claim": 0.4, "poisonBar": 1000000000.0, "poisonProb": 0.0, "shootBar": 1000000000.0, "blindShoot": 0.0, "duelProb": 0.0, "duelGuess": 0.0, "explode": 0.0, "bluff": 0.2, "runSheriff": 0.1, "tearBar": 0, "randomPool": true, "detective": false}, "aggressive": {"key": "aggressive", "name": "積極猜測型", "desc": "很靠直覺，第一天就敢點名、敢開槍、敢毒人、敢決鬥；當狼最愛悍跳和自爆。", "opener": "我直覺", "intuition": 14.0, "follow": 1.0, "evidence": 0.8, "voteBar": -1000000000.0, "accuseBar": -1000000000.0, "claim": 1.0, "poisonBar": 10, "poisonProb": 0.9, "shootBar": 0, "blindShoot": 1.0, "duelProb": 0.9, "duelGuess": 0.4, "explode": 2.0, "bluff": 2.0, "runSheriff": 0.6, "tearBar": 20, "randomPool": true, "detective": false}, "detective": {"key": "detective", "name": "推理高手", "desc": "好人陣營的推理核心：只信證據、不跟風，專門找出別人說法裡的邏輯漏洞並公開，讓其他好人參考。", "opener": "我仔細推了一下", "intuition": 0.2, "follow": 0.6, "evidence": 2.0, "voteBar": -1000000000.0, "accuseBar": 5, "claim": 0.9, "poisonBar": 25, "poisonProb": 0.8, "shootBar": 15, "blindShoot": 0.1, "duelProb": 0.8, "duelGuess": 0.0, "explode": 0.0, "bluff": 0.0, "runSheriff": 0.5, "tearBar": 3, "randomPool": false, "detective": true}};
+// 隨機分配、「全部同一種」可以選的個性（不含推理高手，推理高手由人數設定指派給好人）
+const PERSONALITY_KEYS = Object.keys(PERSONALITIES).filter(k => PERSONALITIES[k].randomPool);
 
 // ================================================================ 電腦玩家
 class Bot {
@@ -979,7 +995,9 @@ class Bot {
     const k = this.analyzeBase(g, me);
     k.protected = k.protected || new Set();
     k.sheriffDoubt = 0; k.sheriffWhy = [];
+    k.hints = new Map(); k.hintWhy = new Map(); k.hintFrom = new Map();
     if (isWolf(me)) return k;
+    this.absorbFindings(g, me, k);
     [k.sheriffDoubt, k.sheriffWhy] = this.sheriffDoubt(g, me, k);
     const sh = g.sheriff;
     if (k.sheriffDoubt >= 0.5 && sh != null) {
@@ -990,6 +1008,87 @@ class Bot {
       }
     }
     return k;
+  }
+  // 參考推理高手公開的漏洞：公開事實推得出來的直接採信，其他的依信任程度參考
+  absorbFindings(g, me, k) {
+    for (const f of g.findings) {
+      const sp = f.speaker;
+      if (sp === me.seat || k.wolf.has(sp)) continue;
+      if (f.certain && f.public) { if (!k.good.has(f.liar)) k.wolf.add(f.liar); continue; }  // 任何人都能自己驗證的邏輯
+      const trust = (k.good.has(sp) ? 1 : 0.6) * (0.6 + 0.25 * this.P.follow);  // 越願意聽別人意見的個性越會參考
+      const weight = (f.certain ? 25 : 12) * trust;
+      for (const s of f.suspects) {
+        if (k.good.has(s) || s === me.seat) continue;
+        k.hints.set(s, (k.hints.get(s) || 0) + weight / f.suspects.length * (f.certain ? 2 : 1));
+        if (!k.hintWhy.has(s)) { k.hintWhy.set(s, `推理高手 ${sp}號 指出：${f.text}`); k.hintFrom.set(s, sp); }
+      }
+    }
+  }
+  // 找出說法裡的邏輯漏洞。public=只靠公開資訊就能驗證；certain=一定有人說謊
+  findLoopholes(g, me, k) {
+    const out = [];
+    const knownGood = new Set([...g.players.filter(p => p.revealed && !isWolf(p)).map(p => p.seat), ...g.knightGold]);
+    const knownWolf = new Set(g.players.filter(p => p.revealed && isWolf(p)).map(p => p.seat));
+    const cards = ["SEER", "LANTERN"];
+    const add = (liar, suspects, text, certain, pub = true) => out.push({ liar, suspects, text, certain, public: pub });
+    for (const [c, cl] of g.claims) {
+      if (knownWolf.has(c) || c === me.seat) continue;
+      if (cards.includes(cl.role)) {  // 查驗和確定的事實比對
+        const bad = [...cl.checks].filter(([t, w]) => (w && knownGood.has(t)) || (!w && knownWolf.has(t)));
+        const fine = [...cl.checks].filter(([t, w]) => (w && knownWolf.has(t)) || (!w && knownGood.has(t)));
+        if (bad.length) {
+          const [t, w] = bad[0];
+          const said = `${c}號 說 ${t}號 是${w ? "狼" : "好人"}，但 ${t}號 已經證實是${w ? "好人" : "狼"}`;
+          if (!g.hasLantern) add(c, [c], said + "，他的查驗是編的", true);
+          else if (fine.length) add(c, [c], said + "，可是他其他查驗又是準的，時準時反一定是假預言家", true);
+          else add(null, [c], said + "，他要嘛是反向查驗，要嘛是假的", false);
+        }
+        const mine = cl.checks.get(me.seat);
+        if (mine && !g.hasLantern) add(c, [c], `${c}號 查殺我，但我是好人，他是假預言家`, true, false);  // 只有我自己知道的矛盾
+        else if (mine && g.hasLantern) add(null, [c], `${c}號 說我是狼，我是好人，他要嘛是反向查驗要嘛是假的`, false, false);
+      } else if (cl.role !== "VILLAGER" && !WOLVES.has(cl.role)) {
+        const real = g.players.filter(p => p.revealed && p.role === cl.role && p.seat !== c).map(p => p.seat);
+        if (real.length) add(c, [c], `真的${R[cl.role]}已經翻牌是 ${real[0]}號，${c}號 卻說自己是${R[cl.role]}`, true);  // 搶已經翻牌的身份
+        const p = g.p(c);
+        if (cl.role === "HUNTER" && !p.alive && ["vote", "wolf"].includes(p.deathCause) && !p.revealed)
+          add(null, [c], `${c}號 說自己是獵人，出局時卻沒有開槍`, false);
+      }
+    }
+    for (const role of ROLE_ORDER.filter(r => r !== "VILLAGER" && !WOLVES.has(r) && !cards.includes(r))) {  // 兩人搶同一個唯一身份
+      const who = [...g.claims].filter(([c, cl]) => cl.role === role && c !== me.seat).map(([c]) => c).sort(bySeat);
+      if (who.length >= 2) add(null, who, `${who.join("、")}號 都說自己是${R[role]}，至少有一個在說謊`, false);
+    }
+    if (g.hasLantern) {  // 兩張牌驗同一人結果一定相反
+      for (const [a, ra] of g.claimsOf("SEER")) for (const [b, rb] of g.claimsOf("LANTERN")) {
+        const same = [...ra].filter(([t, w]) => rb.has(t) && rb.get(t) === w).map(([t]) => t);
+        if (same.length && a !== me.seat && b !== me.seat)
+          add(null, [a, b], `${a}號（預言家）和 ${b}號（燈影預言家）驗 ${same[0]}號 結果一樣，兩張牌的結果一定相反，他們至少一個是假的`, false);
+      }
+    }
+    if (g.sheriff != null && knownWolf.has(g.badgeFrom.get(g.sheriff)))
+      add(null, [g.sheriff], `警長 ${g.sheriff}號 的警徽是狼（${g.badgeFrom.get(g.sheriff)}號）交給他的`, false);
+    for (const p of g.alive()) {  // 票型：每次都和翻牌的狼投同一個人
+      if (p.seat === me.seat || knownWolf.has(p.seat)) continue;
+      let together = 0, total = 0;
+      for (const d of g.days) {
+        const mine = d.votes.get(p.seat);
+        const wolfTargets = new Set([...knownWolf].map(w => d.votes.get(w)).filter(t => t != null));
+        if (mine != null && wolfTargets.size) { total++; if (wolfTargets.has(mine)) together++; }
+      }
+      if (total >= 2 && together === total) add(null, [p.seat], `${p.seat}號 每次都和已翻牌的狼投同一個人`, false);
+    }
+    const told = new Set(g.findings.map(f => f.text));
+    return out.filter(f => !told.has(f.text));
+  }
+  // 推理高手在發言裡公開新發現的漏洞（一次最多兩個），並歸票確定說謊的人
+  addFindings(g, me, sp) {
+    const k = this.analyze(g, me);
+    const found = this.findLoopholes(g, me, k).sort((a, b) => (a.certain === b.certain ? 0 : a.certain ? -1 : 1) || (a.public === b.public ? 0 : a.public ? -1 : 1)).slice(0, 2);
+    if (!found.length) return;
+    sp.findings = found;
+    sp.text += "；我發現邏輯漏洞：" + found.map(f => f.text).join("；");
+    const liars = found.filter(f => f.certain && f.liar != null && g.p(f.liar).alive).map(f => f.liar);
+    if (liars.length) sp.accuse = liars[0];
   }
   // 獨立評估現任警長是假的（狼）的可能性：回傳 [0～1 的懷疑度, 理由]
   sheriffDoubt(g, me, k) {
@@ -1177,6 +1276,8 @@ class Bot {
         }
       }
       v += pattern; why(s, pattern, "他的發言和票型一直針對可信的人");
+      const hint = k.hints.get(s) || 0;
+      v += hint; why(s, hint, k.hintWhy.get(s) || "");
       base.set(s, v);
     }
     // 今天的指認：只採信「我不懷疑的人」說的話
@@ -1225,7 +1326,8 @@ class Bot {
     const real = [...[...claims.keys()].filter(c => good.includes(c)), ...[...g.claimsOf("LANTERN").keys()].filter(c => good.includes(c))];
     const witches = good.filter(s => g.claimedRole(s) === "WITCH");
     const golds = real.flatMap(c => [...(g.claims.get(c)?.checks || new Map())].filter(([t, w]) => !w && good.includes(t)).map(([t]) => t));
-    for (let grp of [real, witches, golds]) {
+    const detectives = [...new Set(g.findings.map(f => f.speaker))].filter(s => good.includes(s)).sort(bySeat);
+    for (let grp of [real, detectives, witches, golds]) {  // 公開找漏洞的推理高手也很危險
       grp = grp.filter(s => !hunters.has(s));
       if (grp.length && Math.random() < 0.85) return choice(grp);
     }
@@ -1262,8 +1364,16 @@ class Bot {
     if (g.hasLantern && (me.role === "SEER" || me.role === "LANTERN")) this.raw.set(t, w);  // 不知道自己準不準
     else this.checks.set(t, w);
   }
-  speak(g, me) { return this.speech(g, me, false); }
-  lastWords(g, me) { return this.speech(g, me, true); }
+  speak(g, me) {
+    const sp = this.speech(g, me, false);
+    if (this.P.detective && !isWolf(me)) this.addFindings(g, me, sp);
+    return sp;
+  }
+  lastWords(g, me) {
+    const sp = this.speech(g, me, true);
+    if (this.P.detective && !isWolf(me)) this.addFindings(g, me, sp);
+    return sp;
+  }
   accusedToday(g, me) { return !!g.today && g.today.speeches.some(sp => sp.accuse === me.seat); }
   speech(g, me, last) {
     const k = this.analyze(g, me);
@@ -1309,7 +1419,10 @@ class Bot {
     const text = k.trusted != null ? `我站 ${k.trusted}號 預言家的邊` : (k.claims.size >= 2 ? "預言家對跳，我還在聽" : "目前資訊不多");
     const sure = top != null && score.get(top) >= this.P.accuseBar;  // 沒把握就不點名
     let say = `${this.P.opener}，${text}`;
-    if (sure) say += `；我懷疑 ${top}號：${this.explain(top)}`;
+    if (sure) {
+      say += `；我懷疑 ${top}號：${this.explain(top)}`;
+      if (k.hintFrom.has(top) && !this.P.detective && !say.includes(k.hintWhy.get(top))) say += `（我參考了推理高手 ${k.hintFrom.get(top)}號 的分析）`;
+    }
     say += this.sheriffComment(g, k, sure ? top : null);
     return mkSpeech(me.seat, { accuse: sure ? top : null, text: say });
   }
@@ -1689,7 +1802,7 @@ class UI {
   say(msg, kind = "sys", seat = null) {
     if (kind === "speech" || kind === "last") {
       const mine = seat === this.humanSeat ? " mine" : "";
-      this.add(`<span class="who">${seat}號</span><span class="what">${esc(msg)}</span>`, `speech${kind === "last" ? " last" : ""}${mine}`);
+      this.add(`<span class="who">${seat}號</span><span class="what">${esc(msg).replace(/(我發現邏輯漏洞：.*?)(；歸票|$)/, "<b>$1</b>$2")}</span>`, `speech${kind === "last" ? " last" : ""}${mine}`);
     } else this.add(esc(msg), kind);
   }
   secret(msg) { if (this.godView) this.add(esc("上帝視角｜" + msg), "secret"); }
@@ -1918,7 +2031,7 @@ for (const b of $("mode-chips").children) b.onclick = () => { S.mode = b.dataset
 async function startGame() {
   const roles = shuffle(currentRoles());
   if (customProblem(roles)) return;
-  const rules = { witchSelfSave: $("rule-self-save").value, sameGuardSaveDies: $("rule-sgs").value === "1", winMode: $("rule-win").value, sheriff: $("rule-sheriff").value === "1", selfExplode: $("rule-explode").value === "1", lanternClaimRace: $("rule-race").value === "1", botPersonality: $("rule-personality").value, showPersonality: $("rule-show-personality").value === "1", maxRounds: 30 };
+  const rules = { witchSelfSave: $("rule-self-save").value, sameGuardSaveDies: $("rule-sgs").value === "1", winMode: $("rule-win").value, sheriff: $("rule-sheriff").value === "1", selfExplode: $("rule-explode").value === "1", lanternClaimRace: $("rule-race").value === "1", botPersonality: $("rule-personality").value, showPersonality: $("rule-show-personality").value === "1", smartBots: Number($("rule-smart").value), maxRounds: 30 };
   let humanSeat = null;
   const controllers = {};
   if (S.mode === "play") {
@@ -3703,6 +3816,6 @@ for (const b of document.querySelectorAll(".tabs button")) {
   };
 }
 $("rule-personality").innerHTML = `<option value="mixed">隨機混合</option>` + PERSONALITY_KEYS.map(k => `<option value="${k}">全部${PERSONALITIES[k].name}</option>`).join("");
-$("personality-list").innerHTML = PERSONALITY_KEYS.map(k => `<dt>${PERSONALITIES[k].name}</dt><dd>${esc(PERSONALITIES[k].desc)}</dd>`).join("");
+$("personality-list").innerHTML = [...PERSONALITY_KEYS, "detective"].map(k => `<dt>${PERSONALITIES[k].name}</dt><dd>${esc(PERSONALITIES[k].desc)}</dd>`).join("");
 renderSetup();
 </script>
