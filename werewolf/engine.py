@@ -49,6 +49,8 @@ class Rules:
     bot_personality: str = "mixed"
     # 對局一開始就公開每個電腦的個性（練習看懂不同風格的玩家）
     show_personality: bool = False
+    # 好人陣營裡有幾位「推理高手」電腦（會找邏輯漏洞並公開給其他好人參考）
+    smart_bots: int = 2
     # 防止無限循環的回合上限
     max_rounds: int = 30
 
@@ -61,6 +63,7 @@ class Speech:
     accuse: int | None = None              # 指認 / 歸票對象
     text: str = ""
     last_words: bool = False
+    findings: list[dict] = field(default_factory=list)   # 推理高手公開的邏輯漏洞
 
     def render(self) -> str:
         parts = []
@@ -206,6 +209,7 @@ class Game:
         self.sheriff: int | None = None    # 現任警長
         self.sheriff_log: list[str] = []
         self.badge_from: dict[int, int] = {}   # 新警長 -> 把警徽交給他的前任警長
+        self.findings: list[dict] = []          # 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
         self.phase = "night"               # night / election / day
         # 村姑與虎姑婆
         self.wild_model: int | None = None   # 野孩子的榜樣
@@ -362,11 +366,18 @@ class Game:
             self.secret("主持人決定：" + ("預言家牌正確查驗、燈影預言家牌反向查驗" if self.seer_card_accurate
                                           else "預言家牌反向查驗、燈影預言家牌正確查驗"))
         from .personality import PERSONALITIES
-        keys = list(PERSONALITIES)
-        for seat in self.players:   # 先分配個性，狼隊決定誰悍跳時會參考隊友的個性
+        from .personality import POOL_KEYS
+        unset = [s for s in self.players
+                 if hasattr(self.controllers[s], "personality") and self.controllers[s].personality is None]
+        # 推理高手：從好人陣營的電腦裡挑（野孩子陣營會變，不選）
+        good_bots = [s for s in unset if self.players[s].role.team is Team.GOOD
+                     and self.players[s].role is not Role.WILD_CHILD]
+        for s in self.rng.sample(good_bots, min(self.rules.smart_bots, len(good_bots))):
+            self.controllers[s].personality = PERSONALITIES["detective"]
+        for seat in unset:   # 先分配個性，狼隊決定誰悍跳時會參考隊友的個性
             ctrl = self.controllers[seat]
-            if hasattr(ctrl, "personality") and ctrl.personality is None:
-                key = self.personality_mode if self.personality_mode in PERSONALITIES else self.rng.choice(keys)
+            if ctrl.personality is None:
+                key = self.personality_mode if self.personality_mode in POOL_KEYS else self.rng.choice(POOL_KEYS)
                 ctrl.personality = PERSONALITIES[key]
         for seat in self.players:
             if (pers := self.personality_of(seat)) is not None:
@@ -962,3 +973,5 @@ class Game:
             self.claims[seat]["checks"].update(speech.checks)
         if self.today is not None:
             self.today.speeches.append(speech)
+        for f in speech.findings:
+            self.findings.append({**f, "speaker": seat, "day": self.night_no})

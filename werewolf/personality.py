@@ -31,6 +31,8 @@ class Personality:
     bluff: float          # 狼人悍跳、假跳身份的傾向倍數
     run_sheriff: float    # 上警機率（真預言家除外）
     tear_bar: float       # 警長死前：最可信的人懷疑度高於這個就撕警徽
+    random_pool: bool = True   # 會不會被隨機分配；推理高手只由「推理高手人數」設定指派給好人
+    detective: bool = False    # 推理高手：主動找邏輯漏洞並公開給其他好人參考
 
 
 PERSONALITIES: dict[str, Personality] = {p.key: p for p in [
@@ -59,6 +61,15 @@ PERSONALITIES: dict[str, Personality] = {p.key: p for p in [
         "我直覺", intuition=14.0, follow=1.0, evidence=0.8, vote_bar=-INF, accuse_bar=-INF,
         claim=1.0, poison_bar=10, poison_prob=0.9, shoot_bar=0, blind_shoot=1.0,
         duel_prob=0.9, duel_guess=0.4, explode=2.0, bluff=2.0, run_sheriff=0.6, tear_bar=20),
+    Personality(
+        "detective", "推理高手", "好人陣營的推理核心：只信證據、不跟風，專門找出別人說法裡的邏輯漏洞並公開，讓其他好人參考。",
+        "我仔細推了一下", intuition=0.2, follow=0.6, evidence=2.0, vote_bar=-INF, accuse_bar=5,
+        claim=0.9, poison_bar=25, poison_prob=0.8, shoot_bar=15, blind_shoot=0.1,
+        duel_prob=0.8, duel_guess=0.0, explode=0.0, bluff=0.0, run_sheriff=0.5, tear_bar=3,
+        random_pool=False, detective=True),
 ]}
+
+# 隨機分配、「全部同一種」可以選的個性（不含推理高手）
+POOL_KEYS = [k for k, p in PERSONALITIES.items() if p.random_pool]
 
 DEFAULT = PERSONALITIES["rational"]

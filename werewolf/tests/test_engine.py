@@ -17,7 +17,7 @@ class Scripted(BotController):
 
 def quiet_game(roles, controllers=None, rules=None, seed=0):
     """預設關閉警長與自爆，讓舊的流程測試保持確定性。"""
-    rules = rules or Rules(sheriff=False, self_explode=False)
+    rules = rules or Rules(sheriff=False, self_explode=False, smart_bots=0)
     return Game(roles, controllers or {}, rules=rules, seed=seed, out=lambda _: None)
 
 
@@ -705,7 +705,7 @@ class PersonalityTest(unittest.TestCase):
     def test_mixed_mode_gives_every_bot_a_personality(self):
         from werewolf.human import HumanController
         g = Game(BOARD, {4: HumanController()}, seed=1, out=lambda _: None,
-                 rules=Rules(sheriff=False, self_explode=False, bot_personality="mixed"))
+                 rules=Rules(sheriff=False, self_explode=False, smart_bots=0, bot_personality="mixed"))
         g.controllers[4].setup = lambda game, me: None
         g.setup()
         self.assertIsNone(g.personality_of(4))
@@ -715,13 +715,13 @@ class PersonalityTest(unittest.TestCase):
 
     def test_single_mode_and_explicit_personality(self):
         g = quiet_game(BOARD, {2: BotController(PERSONALITIES["logical"])},
-                       rules=Rules(sheriff=False, self_explode=False, bot_personality="safe"))
+                       rules=Rules(sheriff=False, self_explode=False, smart_bots=0, bot_personality="safe"))
         g.setup()
         self.assertEqual(g.personality_of(2).key, "logical")      # 個別指定優先
         self.assertTrue(all(g.personality_of(s).key == "safe" for s in g.players if s != 2))
 
     def _hunter_game(self, key):
-        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, bot_personality=key))
+        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, smart_bots=0, bot_personality=key))
         g.setup()
         g.days.append(DayRecord(1))
         g.players[6].alive = False                 # 獵人出局，場上沒有確定的狼
@@ -738,7 +738,7 @@ class PersonalityTest(unittest.TestCase):
         self.assertIsNotNone(hunter.hunter_shoot(g, g.players[6]))
 
     def test_safe_witch_only_poisons_certain_wolves(self):
-        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, bot_personality="safe"))
+        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, smart_bots=0, bot_personality="safe"))
         g.setup()
         g.night_no = 2
         g.days.append(DayRecord(1))
@@ -749,7 +749,7 @@ class PersonalityTest(unittest.TestCase):
         self.assertEqual(witch.witch_action(g, g.players[5], None), ("poison", 10))
 
     def test_safe_voter_abstains_without_strong_suspicion(self):
-        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, bot_personality="safe"))
+        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, smart_bots=0, bot_personality="safe"))
         g.setup()
         g.days.append(DayRecord(1))
         self.assertIsNone(g.controllers[9].vote(g, g.players[9], list(range(1, 11))))
@@ -761,7 +761,7 @@ class SheriffDoubtTest(unittest.TestCase):
     """好人電腦會獨立評估警長是不是假的。座位：1-3 狼、4 預言家、5 女巫、6 獵人、7 守衛、8 白痴、9-10 平民。"""
 
     def game(self, key="logical"):
-        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, bot_personality=key))
+        g = quiet_game(BOARD, rules=Rules(sheriff=False, self_explode=False, smart_bots=0, bot_personality=key))
         g.setup()
         g.night_no = 2
         g.days.append(DayRecord(1))
@@ -872,6 +872,77 @@ class ClaimRaceTest(unittest.TestCase):
         self.assertFalse(k.card_acc[Role.LANTERN_SEER])
         self.assertIn(3, k.wolf)                               # 跳我這張牌的是狼
         self.assertEqual(len(k.protected), 1)                  # 燈影預言家只會有一個真的
+
+
+class DetectiveTest(unittest.TestCase):
+    """推理高手。座位：1-3 狼、4 預言家、5 女巫、6 獵人、7 守衛、8 白痴、9-10 平民。"""
+
+    def game(self, detective=9):
+        ctrls = {detective: BotController(PERSONALITIES["detective"])} if detective else {}
+        g = quiet_game(BOARD, ctrls, rules=Rules(sheriff=False, self_explode=False, smart_bots=0,
+                                                 bot_personality="rational"))
+        g.setup()
+        g.night_no = 2
+        g.days.append(DayRecord(1))
+        return g
+
+    def test_assigns_detectives_to_good_bots_only(self):
+        for seed in range(20):
+            g = Game(BOARD, seed=seed, out=lambda _: None, rules=Rules(smart_bots=2))
+            g.setup()
+            dets = [s for s in g.players if g.personality_of(s).detective]
+            self.assertEqual(len(dets), 2)
+            self.assertTrue(all(not g.players[s].is_wolf for s in dets))
+
+    def test_public_loophole_is_adopted_by_everyone(self):
+        g = self.game()
+        g.players[8].revealed = True                       # 白痴翻牌
+        g._register_speech(Speech(2, Role.IDIOT))          # 2 號（狼）卻說自己是白痴
+        sp = g.controllers[9].speak(g, g.players[9])
+        self.assertTrue(sp.findings and sp.findings[0]["certain"] and sp.findings[0]["public"])
+        self.assertIn("漏洞", sp.text)
+        self.assertEqual(sp.accuse, 2)
+        g._register_speech(sp)
+        k = g.controllers[10].analyze(g, g.players[10])
+        self.assertIn(2, k.wolf)                           # 其他好人直接採信（自己也驗證得了）
+
+    def test_private_loophole_is_weighed_by_trust(self):
+        g = self.game()
+        g._register_speech(Speech(1, Role.SEER, {9: True}))   # 1 號查殺推理高手 9 號
+        sp = g.controllers[9].speak(g, g.players[9])
+        self.assertTrue(any(not f["public"] for f in sp.findings))
+        g._register_speech(sp)
+        k = g.controllers[10].analyze(g, g.players[10])
+        self.assertNotIn(1, k.wolf)                        # 不能自己驗證 → 不當成確定
+        self.assertGreater(k.hints.get(1, 0), 0)           # 但會參考
+        g.controllers[10].suspicion(g, g.players[10], k)
+        self.assertIn("推理高手 9號", g.controllers[10].explain(1, n=5))   # 說得出是參考誰的推理
+
+    def test_duplicate_role_claims_raise_suspicion_on_both(self):
+        g = self.game()
+        g._register_speech(Speech(2, Role.WITCH))
+        g._register_speech(Speech(5, Role.WITCH))
+        sp = g.controllers[9].speak(g, g.players[9])
+        g._register_speech(sp)
+        k = g.controllers[10].analyze(g, g.players[10])
+        self.assertGreater(k.hints.get(2, 0), 0)
+        self.assertGreater(k.hints.get(5, 0), 0)
+
+    def test_ordinary_bots_do_not_announce_loopholes(self):
+        g = self.game(detective=None)
+        g.players[8].revealed = True
+        g._register_speech(Speech(2, Role.IDIOT))
+        self.assertEqual(g.controllers[9].speak(g, g.players[9]).findings, [])
+
+    def test_wolves_hunt_detectives(self):
+        hits = 0
+        for seed in range(30):
+            g = self.game()
+            g.controllers[1].rng = random.Random(seed)
+            g.findings.append({"speaker": 9, "day": 1, "liar": None, "suspects": (2,), "text": "x",
+                               "certain": False, "public": True})
+            hits += g.controllers[1].choose_kill(g, g.players[1]) == 9
+        self.assertGreater(hits, 15)
 
 
 class SimulationTest(unittest.TestCase):
