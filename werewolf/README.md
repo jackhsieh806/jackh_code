@@ -1,5 +1,7 @@
 # 🐺 狼人殺邏輯練習器
 
+> 要接手開發的 AI agent，請先讀 [`HANDOFF.md`](HANDOFF.md)：架構、開發慣例、規則假設、目前進度和進行中的實驗。
+
 為真人狼人殺做準備的文字版練習程式。純 Python 3.10+，不需要安裝任何套件。
 
 ```bash
@@ -94,6 +96,7 @@ python3 -m unittest werewolf.tests.test_engine   # 執行測試
 - `human.py`：真人輸入
 - `guide.py`：規則速查、術語、測驗題
 - `cli.py`：主選單與復盤
+- `experiments/`：好人策略實驗（`harness.py` 可開關騎士決鬥、女巫毒、守衛、集中票推等打法）
 
 ## 網頁版
 
