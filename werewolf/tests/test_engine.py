@@ -820,18 +820,20 @@ class ClaimRaceTest(unittest.TestCase):
     """燈影板四人搶警：預言家、燈影預言家各有一真一假對跳。
     座位：1 狼王、2 狼美人、3-5 小狼、6 預言家、7 女巫、8 騎士、9 守衛、10 獵人、11 燈影預言家、12-15 平民。"""
 
-    def test_one_fake_per_card_and_all_four_run(self):
+    def test_one_seer_one_wolf_and_two_random_candidates_run(self):
         g = Game(LANTERN_BOARD, seed=3, out=lambda _: None,
                  rules=Rules(self_explode=False, lantern_claim_race=True))
         g.setup()
         fakes = g.wolf_plan["fake_seers"]
-        self.assertEqual(len(fakes), 2)
-        self.assertTrue(all(g.players[f].is_wolf for f in fakes))
+        self.assertEqual(len(g.claim_race_candidates), 4)
+        self.assertIn(g.claim_race_seer, g.claim_race_candidates)
+        self.assertIn(g.claim_race_wolf, g.claim_race_candidates)
+        self.assertIn(g.players[g.claim_race_seer].role, (Role.SEER, Role.LANTERN_SEER))
+        self.assertTrue(g.players[g.claim_race_wolf].is_wolf)
+        self.assertEqual(fakes, [g.claim_race_wolf])
         g.run_dawn(g.run_night())
-        claim = {sp.seat: sp.claim for sp in g.days[0].speeches}
-        self.assertIs(claim[6], Role.SEER)
-        self.assertIs(claim[11], Role.LANTERN_SEER)
-        self.assertEqual(sorted(claim[f].name for f in fakes), ["LANTERN_SEER", "SEER"])
+        speakers = {sp.seat for sp in g.days[0].speeches}
+        self.assertEqual(speakers, g.claim_race_candidates)
 
     def test_counter_claim_of_my_card_is_a_wolf(self):
         g = lantern_game(race=True)
