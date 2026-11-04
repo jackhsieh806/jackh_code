@@ -43,7 +43,7 @@ class Rules:
     sheriff: bool = True
     # 狼人可否在白天（含警長競選）自爆
     self_explode: bool = True
-    # 燈影預言家板四人搶警：至少一位真預言家、一位狼人，另兩位隨機抽選
+    # 燈影預言家板核心四人必上警：兩位真預言家和兩位悍跳狼；其他玩家也可上警
     lantern_claim_race: bool = True
     # 電腦個性："mixed" 每個電腦隨機分配，或 personality.py 裡的某個 key 讓全部電腦相同
     bot_personality: str = "mixed"
@@ -236,32 +236,27 @@ class Game:
         self.wolf_plan: dict = {}           # 狼隊共享的戰術（只有狼可以讀）
         self.winner: Team | None = None
         self._setup_done = False
-        self.claim_race_candidates: set[int] = set()
-        self.claim_race_seer: int | None = None
-        self.claim_race_wolf: int | None = None
-        self.claim_race_fake_role: Role | None = None
+        self.claim_race_candidates: set[int] = set()  # 四位保證上警的核心候選
+        self.claim_race_seers: set[int] = set()
+        self.claim_race_wolves: set[int] = set()
+        self.claim_race_fake_roles: dict[int, Role] = {}
         if self.claim_race:
-            seers = [p.seat for p in self.players.values()
-                     if p.role in (Role.SEER, Role.LANTERN_SEER)]
+            seers = {p.role: p.seat for p in self.players.values()
+                     if p.role in (Role.SEER, Role.LANTERN_SEER)}
             wolves = [p.seat for p in self.players.values() if p.is_wolf]
-            if seers and wolves and len(self.players) >= 4:
-                self.claim_race_seer = self.rng.choice(seers)
-                self.claim_race_wolf = self.rng.choice(wolves)
-                remaining = [s for s in self.players
-                             if s not in (self.claim_race_seer, self.claim_race_wolf)]
-                random_two = self.rng.sample(remaining, 2)
-                self.claim_race_candidates = {
-                    self.claim_race_seer, self.claim_race_wolf, *random_two,
+            if all(role in seers for role in (Role.SEER, Role.LANTERN_SEER)) and len(wolves) >= 2:
+                self.claim_race_seers = {seers[Role.SEER], seers[Role.LANTERN_SEER]}
+                self.claim_race_wolves = set(self.rng.sample(wolves, 2))
+                self.claim_race_candidates = self.claim_race_seers | self.claim_race_wolves
+                wolf_a, wolf_b = sorted(self.claim_race_wolves)
+                self.claim_race_fake_roles = {
+                    wolf_a: Role.SEER,
+                    wolf_b: Role.LANTERN_SEER,
                 }
-                self.claim_race_fake_role = (
-                    Role.LANTERN_SEER
-                    if self.players[self.claim_race_seer].role is Role.SEER
-                    else Role.SEER
-                )
                 self.wolf_plan = {
-                    "fake_seers": [self.claim_race_wolf],
-                    "fake_seer": self.claim_race_wolf,
-                    "fake_seer_role": self.claim_race_fake_role,
+                    "fake_seers": sorted(self.claim_race_wolves),
+                    "fake_seer": wolf_a,
+                    "fake_seer_roles": self.claim_race_fake_roles,
                 }
             else:
                 self.claim_race = False
@@ -677,8 +672,10 @@ class Game:
         self.phase = "election"
         self.say("\n🎖  ===== 警長競選 =====")
         seats = sorted(self.players)
-        running = (sorted(self.claim_race_candidates) if self.claim_race else
-                   [s for s in seats if self.controllers[s].run_for_sheriff(self, self.players[s])])
+        running = [s for s in seats if (
+            (self.claim_race and s in self.claim_race_candidates)
+            or self.controllers[s].run_for_sheriff(self, self.players[s])
+        )]
         if not running or len(running) == len(seats):
             self.say("沒有人上警，警徽流失。" if not running else "全員上警，沒有人能投票，警徽流失。")
             self.sheriff_log.append("警徽流失（無人可選）")

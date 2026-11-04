@@ -229,7 +229,7 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
             </select></label>
           <label class="field"><span class="hint">燈影預言家板</span>
             <select id="rule-race">
-              <option value="1">四人搶警（至少一預言家、一狼人，另兩位隨機）</option>
+              <option value="1">四人核心搶警（兩位真預言家、兩位悍跳狼；其他人也可上警）</option>
               <option value="0">各報各的牌</option>
             </select></label>
           <label class="field"><span class="hint">電腦個性</span>
@@ -366,19 +366,19 @@ class Game {
     this.claimRace = this.hasLantern && this.rules.lanternClaimRace !== false;  // 燈影板四人競選
     for (const p of this.players) if (p.role === "WOLF_KING" || p.role === "AWAKENED") this.claws[p.seat] = p.role === "AWAKENED" ? 2 : 1;
     this.claims = new Map(); this.nights = []; this.days = []; this.godLog = []; this.wolfPlan = {};
-    this.claimRaceCandidates = new Set(); this.claimRaceSeer = null; this.claimRaceWolf = null; this.claimRaceFakeRole = null;
+    this.claimRaceCandidates = new Set(); this.claimRaceSeers = new Set(); this.claimRaceWolves = new Set(); this.claimRaceFakeRoles = {};
     if (this.claimRace) {
-      const seers = this.players.filter(p => p.role === "SEER" || p.role === "LANTERN").map(p => p.seat);
+      const seers = Object.fromEntries(this.players.filter(p => p.role === "SEER" || p.role === "LANTERN").map(p => [p.role, p.seat]));
       const wolves = this.players.filter(isWolf).map(p => p.seat);
-      if (seers.length && wolves.length && this.players.length >= 4) {
+      if (seers.SEER && seers.LANTERN && wolves.length >= 2) {
         const take = pool => pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-        this.claimRaceSeer = take([...seers]);
-        this.claimRaceWolf = take([...wolves]);
-        const remaining = this.players.map(p => p.seat).filter(s => s !== this.claimRaceSeer && s !== this.claimRaceWolf);
-        const randomTwo = [take(remaining), take(remaining)];
-        this.claimRaceCandidates = new Set([this.claimRaceSeer, this.claimRaceWolf, ...randomTwo]);
-        this.claimRaceFakeRole = this.p(this.claimRaceSeer).role === "SEER" ? "LANTERN" : "SEER";
-        this.wolfPlan = { fakeSeers: [this.claimRaceWolf], fakeSeer: this.claimRaceWolf, fakeSeerRole: this.claimRaceFakeRole };
+        this.claimRaceSeers = new Set([seers.SEER, seers.LANTERN]);
+        const wolfPool = [...wolves];
+        this.claimRaceWolves = new Set([take(wolfPool), take(wolfPool)]);
+        this.claimRaceCandidates = new Set([...this.claimRaceSeers, ...this.claimRaceWolves]);
+        const [wolfA, wolfB] = [...this.claimRaceWolves].sort((a, b) => a - b);
+        this.claimRaceFakeRoles = { [wolfA]: "SEER", [wolfB]: "LANTERN" };
+        this.wolfPlan = { fakeSeers: [wolfA, wolfB], fakeSeer: wolfA, fakeSeerRoles: this.claimRaceFakeRoles };
       } else this.claimRace = false;
     }
   }
@@ -701,8 +701,11 @@ class Game {
     this.phase = "election";
     this.say("警長競選", "sub");
     const seats = this.players.map(p => p.seat);
-    const running = this.claimRace ? [...this.claimRaceCandidates].sort((a, b) => a - b) : [];
-    if (!this.claimRace) for (const s of seats) if (await this.ctrl[s].runForSheriff(this, this.p(s))) running.push(s);
+    const running = [];
+    for (const s of seats) {
+      if (this.claimRace && this.claimRaceCandidates.has(s)) running.push(s);
+      else if (await this.ctrl[s].runForSheriff(this, this.p(s))) running.push(s);
+    }
     if (!running.length || running.length === seats.length) {
       this.say(running.length ? "全員上警，沒有人能投票，警徽流失。" : "沒有人上警，警徽流失。", "event");
       this.sheriffLog.push("警徽流失（無人可選）");
@@ -994,14 +997,15 @@ class Bot {
       const w = bots.map(b => (g.ctrl[b].personality || PERSONALITIES.rational).bluff + 0.01);
       const pickOne = (pool, ws) => { let r = Math.random() * ws.reduce((a, b) => a + b, 0); const i = pool.findIndex((b, j) => (r -= ws[j]) <= 0); return i < 0 ? pool.length - 1 : i; };
       const fakes = [];
-      if (g.claimRace && g.claimRaceWolf != null) {
-        fakes.push(g.claimRaceWolf);
+      if (g.claimRace && g.claimRaceWolves.size) {
+        fakes.push(...g.claimRaceWolves);
       } else {
         const chance = bots.length ? Math.min(0.95, 0.6 * w.reduce((a, b) => a + b, 0) / w.length) : 0;
         if (bots.length && Math.random() < chance) fakes.push(bots[pickOne(bots, w)]);
       }
       g.wolfPlan.fakeSeers = fakes;
       g.wolfPlan.fakeSeer = fakes.length ? fakes[0] : null;
+      if (g.claimRace) g.wolfPlan.fakeSeerRoles = g.claimRaceFakeRoles;
     }
   }
   // 自己的推理：先整理確定的資訊，再獨立評估警長是不是假的
@@ -1174,7 +1178,7 @@ class Bot {
   // 燈影預言家板：兩張預言家牌一正一反，用確定的事實反推哪張準
   // 燈影預言家板：兩位真預言家一位正確、一位反向查驗，可能還有狼悍跳。
   // 列舉「哪兩個人是真預言家（每張牌各一人）、哪一位準」的組合，用確定的事實排除不可能的，再挑最可能的一組。
-  // 四人搶警至少有一位真預言家角色與一位狼人，另兩位隨機，因此不保證每張牌都一真一假。
+  // 搶警核心保證兩真預言家和兩悍跳狼；其他玩家也可另外上警。
   lanternAnalyze(g, me, good, wolf, claims) {
     const cards = ["SEER", "LANTERN"];
     const mycard = cards.includes(me.role) ? me.role : null;
@@ -1367,7 +1371,7 @@ class Bot {
     let pool = opts.filter(s => !this.checks.has(s) && !this.raw.has(s));
     if (!pool.length) pool = opts;
     if (!pool.length) return null;
-    if (g.claimRace) {  // 四人搶警：優先驗已宣稱預言家牌、且與自己對跳的人
+    if (g.claimRace) {  // 搶警時優先驗已宣稱預言家牌、且與自己對跳的人
       const rivals = pool.filter(c => ["SEER", "LANTERN"].includes(g.claimedRole(c)));
       if (rivals.length) return choice(rivals);
     }
@@ -1444,7 +1448,7 @@ class Bot {
     const goodAlive = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
     const fakes = g.wolfPlan.fakeSeers || [];
     if (fakes.includes(me.seat)) {
-      const card = g.wolfPlan.fakeSeerRole || "SEER";
+      const card = g.wolfPlan.fakeSeerRoles?.[me.seat] || g.wolfPlan.fakeSeerRole || "SEER";
       if (!this.fakeDays.has(g.nightNo) && !(last && this.fakeChecks.size)) { this.fakeDays.add(g.nightNo); this.inventCheck(g, me, k, goodAlive, card); }
       const rivals = [...g.claimsOf(card).keys()].filter(c => c !== me.seat && g.p(c).alive);
       const fw = [...this.fakeChecks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
@@ -1617,7 +1621,7 @@ class Bot {
     return null;
   }
   runForSheriff(g, me) {
-    if (g.claimRace) return g.claimRaceCandidates.has(me.seat);
+    if (g.claimRace && g.claimRaceCandidates.has(me.seat)) return true;
     if (me.role === "SEER" && this.checks.size) return Math.random() < 0.9;  // 真預言家上警
     if (isWolf(me) && (g.wolfPlan.fakeSeers || []).includes(me.seat)) return true;  // 悍跳狼搶警徽
     return Math.random() < this.P.runSheriff + (isWolf(me) ? 0.05 : 0);
@@ -1660,7 +1664,7 @@ class Bot {
     const claims = g.seerClaims();
     const real = [...claims.keys()].filter(c => !isWolf(g.p(c)));
     if (g.phase === "election") {  // 真預言家已在警上報查驗 → 自爆打斷，不讓他拿警徽
-      if (g.claimRace) return false;  // 四人搶警：讓入選候選人完整發言
+      if (g.claimRace) return false;  // 搶警核心發言完整結束前不自爆
       const spoke = new Set(g.today.speeches.map(sp => sp.seat));
       return real.some(c => spoke.has(c)) && Math.random() < 0.2 * this.P.explode;
     }
@@ -3664,24 +3668,24 @@ const QUIZ_TOPICS = [
 "每張牌只有一個真的，對跳的就是悍跳狼。所以 A、B 中準的那位驗 C 一定看到狼，反的那位一定看到好人；對不上，這個假設就錯了。"
 ],
 [
-"四人搶警名單會如何組成？",
+"燈影板搶警時，哪些人一定會上警？",
 [
-"一位真預言家角色、一位狼人，另外兩位從其餘玩家隨機抽",
-"兩位真預言家加兩隻狼固定上警",
-"任意四位玩家完全隨機"
+"兩位真預言家（預言家與燈影預言家）和兩位悍跳狼",
+"只會有一位真預言家和一位狼人",
+"全員都必須上警"
 ],
 0,
-"先確保一位真預言家角色和一位狼人，再抽兩位不同玩家；四人自動上警，隨機候選也可能是狼或另一位預言家。"
+"兩位真預言家和分別悍跳兩張牌的狼都必定上警；其他玩家也可以自行參選，所以候選人不只四位。"
 ],
 [
-"四人搶警時，真預言家第二晚最該驗誰？",
+"搶警後，真預言家優先驗誰最能釐清局勢？",
 [
-"依發言與票型判斷最可疑的玩家",
+"和自己同牌對跳的狼，或有更強公開線索的可疑玩家",
 "隨便一個平民",
 "自己的金水"
 ],
 0,
-"四人名單不保證每張牌都有對跳者；先依資訊更新判斷，不要固定只驗某種身份。"
+"核心四人保證同牌對跳；依查驗和票型更新判斷，必要時再轉查更值得懷疑的人。"
 ],
 [
 "某人跳預言家，他的查驗一次對（驗到翻牌的狼是狼）、一次錯（說確定的好人是狼），他是？",
@@ -3784,7 +3788,7 @@ $("sheet").innerHTML = `
   <p class="hint">狼王、狼美人、3 小狼｜預言家、女巫、騎士、守衛、獵人｜燈影預言家 + 4 平民。夜晚順序：守衛 → 狼人 → 狼美人 → 女巫 → 騎士 → 獵人 → 預言家 → 燈影預言家。</p>
   <dl class="terms">
     <dt>兩張預言家牌</dt><dd>開局主持人決定一張正確查驗、另一張反向查驗，兩人都不知道自己是哪種。預言家牌站神坑，燈影預言家牌站民坑。</dd>
-    <dt>四人搶警</dt><dd>（預設）名單先抽一位真預言家角色和一位狼人，再從其餘玩家隨機抽兩位，四人自動上警。指定狼人會悍跳另一張預言家牌；隨機候選也可能是狼或另一位預言家，因此不保證每張牌都有一真一假。依查驗、翻牌和決鬥資訊推理，不要只靠固定對跳配置。</dd>
+    <dt>四人核心搶警</dt><dd>（預設）兩位真預言家（預言家、燈影預言家各一）和兩隻悍跳狼必定上警，兩隻狼各跳一張牌。其他玩家也可上警，總候選人數不限於四位；依查驗、翻牌和決鬥資訊判斷各張牌的真假。</dd>
     <dt>查驗限制</dt><dd>兩位預言家都不能驗自己、翻牌的騎士和騎金（騎士決鬥失敗證實的好人），不能用確定的好人校準。</dd>
     <dt>怎麼推</dt><dd>真的兩張牌驗同一個人，結果一定相反。用確定的事實反推哪張準：被查殺的人就是你自己、翻牌或自爆的狼、騎士決鬥的結果。確定一張，另一張就一定相反。</dd>
     <dt>狼美人、狼王</dt><dd>狼美人不能被自刀，被騎士決鬥時技能被封；狼王被毒時不能帶人。</dd>

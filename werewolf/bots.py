@@ -57,23 +57,17 @@ class BotController(Controller):
         self.pref = {s: self.rng.random() for s in game.players}
         self.guess_seer_accurate = self.rng.random() < 0.5   # 推不出來時，猜哪張預言家牌是準的
         if me.is_wolf and "fake_seer" not in game.wolf_plan:
-            if game.claim_race and game.claim_race_wolf is not None:
-                fakes = [game.claim_race_wolf]
-                game.wolf_plan["fake_seers"] = fakes
-                game.wolf_plan["fake_seer"] = game.claim_race_wolf
-                game.wolf_plan["fake_seer_role"] = game.claim_race_fake_role
-            else:
-                bots = [p.seat for p in game.players.values()
-                        if p.is_wolf and not game.controllers[p.seat].is_human]
-                # 狼隊開局決定悍跳人選：越愛詐唬的狼越可能被派出去
-                weights = [getattr(game.controllers[b], "personality", None) or DEFAULT for b in bots]
-                weights = [w.bluff + 0.01 for w in weights]
-                fakes: list[int] = []
-                chance = min(0.95, 0.6 * (sum(weights) / len(weights))) if bots else 0
-                if bots and self.rng.random() < chance:
-                    fakes.append(self.rng.choices(bots, weights=weights)[0])
-                game.wolf_plan["fake_seers"] = fakes
-                game.wolf_plan["fake_seer"] = fakes[0] if fakes else None
+            bots = [p.seat for p in game.players.values()
+                    if p.is_wolf and not game.controllers[p.seat].is_human]
+            # 狼隊開局決定悍跳人選：越愛詐唬的狼越可能被派出去
+            weights = [getattr(game.controllers[b], "personality", None) or DEFAULT for b in bots]
+            weights = [w.bluff + 0.01 for w in weights]
+            fakes: list[int] = []
+            chance = min(0.95, 0.6 * (sum(weights) / len(weights))) if bots else 0
+            if bots and self.rng.random() < chance:
+                fakes.append(self.rng.choices(bots, weights=weights)[0])
+            game.wolf_plan["fake_seers"] = fakes
+            game.wolf_plan["fake_seer"] = fakes[0] if fakes else None
 
     def analyze(self, game: Game, me: Player) -> Knowledge:
         """自己的推理：先整理確定的資訊，再獨立評估警長是不是假的。"""
@@ -291,7 +285,7 @@ class BotController(Controller):
         """燈影預言家板：兩位真預言家一位正確、一位反向查驗，可能還有狼悍跳。
 
         列舉「哪兩個人是真預言家（每張牌各一人）、哪一位是準的」的所有組合，
-        用確定的事實排除不可能的，再挑最可能的一組；警上名單不保證兩張牌都有人對跳。"""
+        用確定的事實排除不可能的，再挑最可能的一組；核心警上各有一真一假，其他玩家也可能額外跳牌。"""
         cards = (Role.SEER, Role.LANTERN_SEER)
         mycard = me.role if me.role in cards else None
         for t, w in self.checks.items():          # 幸運兒等其他確定查驗（本板沒有，保留通用性）
@@ -637,7 +631,7 @@ class BotController(Controller):
         good_alive = [p.seat for p in game.alive() if not p.is_wolf]
         fakes = game.wolf_plan.get("fake_seers", ())
         if me.seat in fakes:
-            card = game.wolf_plan.get("fake_seer_role") or Role.SEER
+            card = game.wolf_plan.get("fake_seer_roles", {}).get(me.seat) or game.wolf_plan.get("fake_seer_role") or Role.SEER
             if game.night_no not in self.fake_days and not (last and self.fake_checks):
                 self.fake_days.add(game.night_no)
                 self._invent_check(game, me, k, good_alive, card)
@@ -784,8 +778,8 @@ class BotController(Controller):
 
     # ------------------------------------------------------------ 警長與自爆
     def run_for_sheriff(self, game: Game, me: Player) -> bool:
-        if game.claim_race:
-            return me.seat in game.claim_race_candidates
+        if game.claim_race and me.seat in game.claim_race_candidates:
+            return True
         if me.role is Role.SEER and self.checks:
             return self.rng.random() < 0.9          # 真預言家上警拿警徽
         if me.is_wolf and me.seat in game.wolf_plan.get("fake_seers", ()):
