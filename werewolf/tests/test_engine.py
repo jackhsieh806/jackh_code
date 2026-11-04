@@ -817,7 +817,7 @@ class SheriffDoubtTest(unittest.TestCase):
 
 
 class ClaimRaceTest(unittest.TestCase):
-    """燈影板四人搶警：預言家、燈影預言家各有一真一假對跳。
+    """燈影板四人搶警：至少一位真預言家角色、一位狼，另兩位隨機候選。
     座位：1 狼王、2 狼美人、3-5 小狼、6 預言家、7 女巫、8 騎士、9 守衛、10 獵人、11 燈影預言家、12-15 平民。"""
 
     def test_one_seer_one_wolf_and_two_random_candidates_run(self):
