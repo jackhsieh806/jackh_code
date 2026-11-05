@@ -210,6 +210,7 @@ class Game:
         self.claw_given: set[int] = set()  # 曾被親傳狼王爪的狼
         self.sheriff: int | None = None    # 現任警長
         self.sheriff_log: list[str] = []
+        self.badge_torn: list[tuple[int, int]] = []  # (天數, 撕掉警徽的警長)
         self.badge_from: dict[int, int] = {}   # 新警長 -> 把警徽交給他的前任警長
         self.findings: list[dict] = []          # 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
         self.phase = "night"               # night / election / day
@@ -755,6 +756,7 @@ class Game:
             self.say(f"🎖  警長 {s}號 把警徽移交給 {t}號。")
         else:
             self.sheriff = None
+            self.badge_torn.append((self.night_no, s))
             self.sheriff_log.append(f"第{self.night_no}天 {s}號 撕掉警徽")
             self.say(f"🎖  警長 {s}號 撕掉了警徽，之後沒有警長。")
 

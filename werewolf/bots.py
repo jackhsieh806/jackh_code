@@ -440,6 +440,59 @@ class BotController(Controller):
             why(s, k.hints.get(s, 0), k.hint_why.get(s, ""))
             base[s] = v
 
+        # 被狼美人迷魅帶走、警長撕徽，以及撕徽警長的歷史支持者，都只作為軟線索。
+        ev = self.P.evidence
+        for p in game.players.values():
+            if p.death_cause == "charm" and p.seat in base and p.seat not in k.good:
+                weight = 7 * ev
+                base[p.seat] += weight
+                why(p.seat, weight, "被狼美人迷魅帶走（狼坑線索，非確定身份）")
+        for torn_day, sheriff in game.badge_torn:
+            if sheriff in base and sheriff not in k.good:
+                weight = 8 * ev
+                base[sheriff] += weight
+                why(sheriff, weight, "警長選擇撕掉警徽（軟性狼坑線索）")
+
+            # 投票支持該警長是主要站邊訊號；另按往日投票／歸票同向程度加權。
+            for voter, target in game.sheriff_votes.items():
+                if target == sheriff and voter in base and voter not in k.good:
+                    weight = 3 * ev
+                    base[voter] += weight
+                    why(voter, weight, f"曾投票支持撕徽警長 {sheriff}號")
+
+            aligned: dict[int, int] = {}
+            sheriff_targets: set[int] = set()
+            for d in game.days:
+                if d.day > torn_day:
+                    continue
+                for sp in d.speeches:
+                    if sp.seat == sheriff and sp.accuse is not None:
+                        sheriff_targets.add(sp.accuse)
+                for votes in (d.votes, d.pk_votes):
+                    target = votes.get(sheriff)
+                    if target is not None:
+                        sheriff_targets.add(target)
+            for d in game.days:
+                if d.day > torn_day:
+                    continue
+                for voter in base:
+                    if voter == sheriff or voter in k.good:
+                        continue
+                    same_targets = {
+                        sp.accuse for sp in d.speeches
+                        if sp.seat == voter and sp.accuse in sheriff_targets
+                    }
+                    for votes in (d.votes, d.pk_votes):
+                        target = votes.get(voter)
+                        if target in sheriff_targets:
+                            same_targets.add(target)
+                    aligned[voter] = aligned.get(voter, 0) + len(same_targets)
+            for voter, count in aligned.items():
+                if count:
+                    weight = min(6, 2 * count) * ev
+                    base[voter] += weight
+                    why(voter, weight, f"過往票型／歸票曾與撕徽警長 {sheriff}號 同向")
+
         # 今天的指認：只採信「我不懷疑的人」說的話
         score = {s: v for s, v in base.items() if game.players[s].alive}
         if today:

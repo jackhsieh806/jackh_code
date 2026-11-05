@@ -353,7 +353,7 @@ class Game {
     for (const p of this.players) this.ctrl[p.seat] = controllers[p.seat] || new Bot();
     this.nightNo = 0; this.antidote = true; this.poison = true; this.lastGuard = null;
     this.lastDream = null; this.tradeUsed = false; this.lucky = null; this.clawGiven = new Set();
-    this.claws = {}; this.sheriff = null; this.sheriffLog = []; this.phase = "night";
+    this.claws = {}; this.sheriff = null; this.sheriffLog = []; this.badgeTorn = []; this.phase = "night";
     // 村姑與虎姑婆
     this.wildModel = null; this.wildFixedGood = false; this.charm = null; this.lastCharm = null;
     this.lureRange = null; this.lastLureRange = new Set(); this.lastLureNight = null; this.lureUses = 0;
@@ -775,6 +775,7 @@ class Game {
       this.say(`警長 ${s}號 把警徽移交給 ${t}號。`, "event");
     } else {
       this.sheriff = null;
+      this.badgeTorn.push({ day: this.nightNo, seat: s });
       this.sheriffLog.push(`第 ${this.nightNo} 天 ${s}號 撕掉警徽`);
       this.say(`警長 ${s}號 撕掉了警徽，之後沒有警長。`, "event");
     }
@@ -1318,6 +1319,51 @@ class Bot {
       const hint = k.hints.get(s) || 0;
       v += hint; why(s, hint, k.hintWhy.get(s) || "");
       base.set(s, v);
+    }
+    // 被狼美人迷魅帶走、警長撕徽，以及撕徽警長的歷史支持者，都只作為軟線索。
+    const ev = this.P.evidence;
+    for (const p of g.players) if (p.deathCause === "charm" && base.has(p.seat) && !k.good.has(p.seat)) {
+      const weight = 7 * ev;
+      base.set(p.seat, base.get(p.seat) + weight);
+      why(p.seat, weight, "被狼美人迷魅帶走（狼坑線索，非確定身份）");
+    }
+    for (const { day: tornDay, seat: sheriff } of g.badgeTorn) {
+      if (base.has(sheriff) && !k.good.has(sheriff)) {
+        const weight = 8 * ev;
+        base.set(sheriff, base.get(sheriff) + weight);
+        why(sheriff, weight, "警長選擇撕掉警徽（軟性狼坑線索）");
+      }
+      for (const [voter, target] of g.sheriffVotes) if (target === sheriff && base.has(voter) && !k.good.has(voter)) {
+        const weight = 3 * ev;
+        base.set(voter, base.get(voter) + weight);
+        why(voter, weight, `曾投票支持撕徽警長 ${sheriff}號`);
+      }
+      const sheriffTargets = new Set();
+      for (const d of g.days) if (d.day <= tornDay) {
+        for (const sp of d.speeches) if (sp.seat === sheriff && sp.accuse != null) sheriffTargets.add(sp.accuse);
+        for (const votes of [d.votes, d.pkVotes]) {
+          const target = votes.get(sheriff);
+          if (target != null) sheriffTargets.add(target);
+        }
+      }
+      const aligned = new Map();
+      for (const d of g.days) if (d.day <= tornDay) {
+        for (const voter of base.keys()) {
+          if (voter === sheriff || k.good.has(voter)) continue;
+          const sameTargets = new Set();
+          for (const sp of d.speeches) if (sp.seat === voter && sheriffTargets.has(sp.accuse)) sameTargets.add(sp.accuse);
+          for (const votes of [d.votes, d.pkVotes]) {
+            const target = votes.get(voter);
+            if (sheriffTargets.has(target)) sameTargets.add(target);
+          }
+          aligned.set(voter, (aligned.get(voter) || 0) + sameTargets.size);
+        }
+      }
+      for (const [voter, count] of aligned) if (count) {
+        const weight = Math.min(6, 2 * count) * ev;
+        base.set(voter, base.get(voter) + weight);
+        why(voter, weight, `過往票型／歸票曾與撕徽警長 ${sheriff}號 同向`);
+      }
     }
     // 今天的指認：只採信「我不懷疑的人」說的話
     const score = new Map([...base].filter(([s]) => g.p(s).alive));
