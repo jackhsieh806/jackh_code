@@ -139,11 +139,16 @@ def play_game(rules: Rules, spectate: bool = False) -> None:
 def settings(rules: Rules) -> None:
     modes = {"1": "never", "2": "first_night", "3": "always"}
     names = {"never": "全程不可自救", "first_night": "僅首夜可自救", "always": "隨時可自救"}
+    race_mode = ("core" if rules.lantern_claim_race is True else
+                 "off" if rules.lantern_claim_race is False else rules.lantern_claim_race)
+    race_names = {"core": "四人核心搶警（其他玩家也可上警）",
+                  "compact": "2–3 人搶警（一真預言家、一至兩狼悍跳）",
+                  "off": "各報各的牌"}
     print(f"\n目前設定：女巫 {names[rules.witch_self_save]}、"
           f"同守同救{'會死' if rules.same_guard_save_dies else '不會死'}、"
           f"{'屠邊' if rules.win_mode == 'side' else '屠城'}、"
           f"{'有' if rules.sheriff else '無'}警長、{'可' if rules.self_explode else '不可'}自爆、"
-          f"燈影板{'四人核心搶警（其他玩家也可上警）' if rules.lantern_claim_race else '各報各的牌'}")
+          f"燈影板{race_names.get(race_mode, '各報各的牌')}")
     raw = ask("女巫自救：1=全程不可 2=僅首夜 3=隨時（Enter 不變）> ")
     rules.witch_self_save = modes.get(raw, rules.witch_self_save)
     raw = ask("同守同救：1=會死 2=不會死（Enter 不變）> ")
@@ -158,9 +163,10 @@ def settings(rules: Rules) -> None:
     raw = ask("狼人自爆：1=可以 2=不可以（Enter 不變）> ")
     if raw in ("1", "2"):
         rules.self_explode = raw == "1"
-    raw = ask("燈影預言家板：1=四人核心搶警（兩真預言家、兩狼悍跳；其他人可上警） 2=各報各的牌（Enter 不變）> ")
-    if raw in ("1", "2"):
-        rules.lantern_claim_race = raw == "1"
+    raw = ask("燈影預言家板：1=四人核心搶警 2=2–3 人搶警 3=各報各的牌（Enter 不變）> ")
+    race_modes = {"1": "core", "2": "compact", "3": "off"}
+    if raw in race_modes:
+        rules.lantern_claim_race = race_modes[raw]
     keys = ["mixed", *POOL_KEYS]
     print("電腦個性：" + "  ".join(
         f"{i}={'隨機混合' if k == 'mixed' else PERSONALITIES[k].name}" for i, k in enumerate(keys, 1)))

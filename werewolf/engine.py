@@ -43,8 +43,10 @@ class Rules:
     sheriff: bool = True
     # 狼人可否在白天（含警長競選）自爆
     self_explode: bool = True
-    # 燈影預言家板核心四人必上警：兩位真預言家和兩位悍跳狼；其他玩家也可上警
-    lantern_claim_race: bool = True
+    # 燈影預言家板警長競選模式："core" 四人核心且其他人可上警；
+    # "compact" 共 2–3 人（1 位真預言家、1–2 位悍跳狼）；"off" 各報各的牌。
+    # 保留 bool 相容：True 等同 core、False 等同 off。
+    lantern_claim_race: str | bool = "core"
     # 電腦個性："mixed" 每個電腦隨機分配，或 personality.py 裡的某個 key 讓全部電腦相同
     bot_personality: str = "mixed"
     # 對局一開始就公開每個電腦的個性（練習看懂不同風格的玩家）
@@ -228,7 +230,17 @@ class Game:
         # 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張是反向查驗
         self.has_lantern = any(p.role is Role.LANTERN_SEER for p in self.players.values())
         self.seer_card_accurate = self.rng.random() < 0.5 if self.has_lantern else True
-        self.claim_race = self.has_lantern and self.rules.lantern_claim_race
+        race_setting = self.rules.lantern_claim_race
+        if race_setting is True:
+            race_mode = "core"
+        elif race_setting is False:
+            race_mode = "off"
+        else:
+            race_mode = race_setting
+        if race_mode not in ("core", "compact", "off"):
+            race_mode = "off"
+        self.claim_race_mode = race_mode if self.has_lantern else "off"
+        self.claim_race = self.has_lantern and self.claim_race_mode != "off"
         self.claims: dict[int, dict] = {}   # 公開宣稱：seat -> {"role": Role, "checks": {t: is_wolf}}
         self.nights: list[NightRecord] = []
         self.days: list[DayRecord] = []
@@ -236,7 +248,7 @@ class Game:
         self.wolf_plan: dict = {}           # 狼隊共享的戰術（只有狼可以讀）
         self.winner: Team | None = None
         self._setup_done = False
-        self.claim_race_candidates: set[int] = set()  # 四位保證上警的核心候選
+        self.claim_race_candidates: set[int] = set()  # 依所選模式保證上警的候選人
         self.claim_race_seers: set[int] = set()
         self.claim_race_wolves: set[int] = set()
         self.claim_race_fake_roles: dict[int, Role] = {}
@@ -244,22 +256,36 @@ class Game:
             seers = {p.role: p.seat for p in self.players.values()
                      if p.role in (Role.SEER, Role.LANTERN_SEER)}
             wolves = [p.seat for p in self.players.values() if p.is_wolf]
-            if all(role in seers for role in (Role.SEER, Role.LANTERN_SEER)) and len(wolves) >= 2:
+            if self.claim_race_mode == "core" and all(
+                    role in seers for role in (Role.SEER, Role.LANTERN_SEER)) and len(wolves) >= 2:
                 self.claim_race_seers = {seers[Role.SEER], seers[Role.LANTERN_SEER]}
                 self.claim_race_wolves = set(self.rng.sample(wolves, 2))
                 self.claim_race_candidates = self.claim_race_seers | self.claim_race_wolves
                 wolf_a, wolf_b = sorted(self.claim_race_wolves)
-                self.claim_race_fake_roles = {
-                    wolf_a: Role.SEER,
-                    wolf_b: Role.LANTERN_SEER,
-                }
-                self.wolf_plan = {
-                    "fake_seers": sorted(self.claim_race_wolves),
-                    "fake_seer": wolf_a,
-                    "fake_seer_roles": self.claim_race_fake_roles,
-                }
+                self.claim_race_fake_roles = {wolf_a: Role.SEER, wolf_b: Role.LANTERN_SEER}
+            elif self.claim_race_mode == "compact" and seers and wolves:
+                real_role = self.rng.choice(list(seers))
+                self.claim_race_seers = {seers[real_role]}
+                wolf_count = self.rng.choice((1, 2))
+                self.claim_race_wolves = set(self.rng.sample(wolves, wolf_count))
+                self.claim_race_candidates = self.claim_race_seers | self.claim_race_wolves
+                wolf_order = sorted(self.claim_race_wolves)
+                opposite_role = Role.LANTERN_SEER if real_role is Role.SEER else Role.SEER
+                self.claim_race_fake_roles = {wolf_order[0]: real_role}
+                if len(wolf_order) == 2:
+                    self.claim_race_fake_roles[wolf_order[1]] = opposite_role
             else:
                 self.claim_race = False
+
+            if self.claim_race:
+                fake_seers = sorted(self.claim_race_wolves)
+                fake_roles = self.claim_race_fake_roles
+                fake_seer = fake_seers[0]
+                self.wolf_plan = {
+                    "fake_seers": fake_seers,
+                    "fake_seer": fake_seer,
+                    "fake_seer_roles": fake_roles,
+                }
 
     # ------------------------------------------------------------ 查詢工具
     def alive(self) -> list[Player]:
@@ -672,10 +698,13 @@ class Game:
         self.phase = "election"
         self.say("\n🎖  ===== 警長競選 =====")
         seats = sorted(self.players)
-        running = [s for s in seats if (
-            (self.claim_race and s in self.claim_race_candidates)
-            or self.controllers[s].run_for_sheriff(self, self.players[s])
-        )]
+        if self.claim_race_mode == "compact" and self.claim_race:
+            running = sorted(self.claim_race_candidates)
+        else:
+            running = [s for s in seats if (
+                (self.claim_race and s in self.claim_race_candidates)
+                or self.controllers[s].run_for_sheriff(self, self.players[s])
+            )]
         if not running or len(running) == len(seats):
             self.say("沒有人上警，警徽流失。" if not running else "全員上警，沒有人能投票，警徽流失。")
             self.sheriff_log.append("警徽流失（無人可選）")
