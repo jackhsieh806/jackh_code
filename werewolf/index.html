@@ -294,7 +294,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       </div>
       <div class="doodle">
         <div class="doodle-bar" id="doodleBar">
-          <span class="title">✏️ 塗鴉區 <span class="hint">（用 Apple Pencil 畫，手指可以捲動）</span></span>
+          <span class="title">✏️ 塗鴉區・<span id="doodleDay">第 1 天</span> <span class="hint">（用 Apple Pencil 畫，手指可以捲動；每天一頁）</span></span>
           <button data-pen="#111111" class="on"><span class="pen-dot" style="background:#111111"></span>黑</button>
           <button data-pen="#1e5bd8"><span class="pen-dot" style="background:#1e5bd8"></span>藍</button>
           <button data-pen="#d92b2b"><span class="pen-dot" style="background:#d92b2b"></span>紅</button>
@@ -465,6 +465,11 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   }
   const P = (seat) => state.players[seat - 1];
   const B = () => BOARDS[state.board];
+  // 天數是累積的：看第 N 天時，只顯示第 1～N 天記下的查驗、投票和出局。
+  const checksSoFar = () => state.checks.filter((c) => c.day <= state.day);
+  const votesSoFar = () => state.votes.filter((v) => v.day <= state.day);
+  const aliveNow = (p) => p.alive || !!(p.death && p.death.day > state.day);
+  const laterNote = (n, what) => (n ? `<div class="hint" style="margin:0 0 10px">另有 ${n} 筆第 ${state.day} 天之後的${what}，切到後面的天數才會顯示。</div>` : '');
   const N = () => state.players.length;
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -503,16 +508,16 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       const mid = idx === cols ? '<div class="table-mid">桌子</div>' : '';
       if (!seat) return `${mid}<div class="seat-gap"></div>`;
       const p = P(seat);
-      const cls = ['seat', p.mark !== 'none' ? p.mark : '', p.alive ? '' : 'dead'].join(' ');
+      const cls = ['seat', p.mark !== 'none' ? p.mark : '', aliveNow(p) ? '' : 'dead'].join(' ');
       const badges = [];
       if (p.claim) badges.push(`<span class="badge claim">跳${esc(p.claim)}</span>`);
-      const gold = state.checks.filter((c) => c.target === seat && c.result === 'good').length;
-      const kill = state.checks.filter((c) => c.target === seat && c.result === 'wolf').length;
+      const gold = checksSoFar().filter((c) => c.target === seat && c.result === 'good').length;
+      const kill = checksSoFar().filter((c) => c.target === seat && c.result === 'wolf').length;
       if (gold) badges.push(`<span class="badge gold">金水${gold > 1 ? '×' + gold : ''}</span>`);
       if (kill) badges.push(`<span class="badge kill">查殺${kill > 1 ? '×' + kill : ''}</span>`);
-      const silver = state.checks.filter((c) => c.target === seat && c.result === 'silver').length;
+      const silver = checksSoFar().filter((c) => c.target === seat && c.result === 'silver').length;
       if (silver) badges.push(`<span class="badge silver">銀水${silver > 1 ? '×' + silver : ''}</span>`);
-      if (!p.alive && p.death) badges.push(`<span class="badge">D${p.death.day} ${esc(p.death.cause)}</span>`);
+      if (!aliveNow(p) && p.death) badges.push(`<span class="badge">D${p.death.day} ${esc(p.death.cause)}</span>`);
       if (p.kgold) badges.push('<span class="badge gold">騎金</span>');
       const up = state.election.up[seat];
       if (up) badges.push(`<span class="badge">${up === 'up' ? '上警' : '退水'}</span>`);
@@ -559,8 +564,16 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     $('dayLabel').textContent = `第 ${state.day} 天`;
     $('boardLabel').textContent = B().name;
   }
-  $('dayUp').addEventListener('click', () => { state.day++; commit(); });
-  $('dayDown').addEventListener('click', () => { if (state.day > 1) { state.day--; commit(); } });
+  function changeDay(delta) {
+    if (state.day + delta < 1) return;
+    state.day += delta;
+    doodle.current = null;
+    doodle.pointerId = null;
+    commit();
+    redrawDoodle();
+  }
+  $('dayUp').addEventListener('click', () => changeDay(1));
+  $('dayDown').addEventListener('click', () => changeDay(-1));
 
   // ---------- player sheet ----------
   function openSheet(seat) {
@@ -577,7 +590,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 
   function voteHistoryFor(seat) {
     const lines = [];
-    state.votes.forEach((v) => {
+    votesSoFar().forEach((v) => {
       const t = v.ballots[seat];
       if (t === undefined) return;
       lines.push(`D${v.day} ${v.kind}：投 ${t === 0 ? '棄票' : t + '號'}`);
@@ -598,9 +611,9 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       .sort((a, b) => a - b)
       .map((d) => `<div><b>第 ${d} 天：</b><span class="day-note">${esc(p.notes[d])}</span></div>`)
       .join('');
-    const checksBy = state.checks.filter((c) => c.seer === seat)
+    const checksBy = checksSoFar().filter((c) => c.seer === seat)
       .map((c) => `N${c.day} ${c.by && c.by !== '預言家' ? esc(c.by) + ' ' : ''}${verb(c)} ${c.target}號 → ${resultSpan(c)}`);
-    const checksOn = state.checks.filter((c) => c.target === seat)
+    const checksOn = checksSoFar().filter((c) => c.target === seat)
       .map((c) => `${c.seer}號 在 N${c.day} 給 ${resultSpan(c)}`);
     const votes = voteHistoryFor(seat);
 
@@ -626,6 +639,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         ${opt('alive', '1', '存活', p.alive)}
         ${B().causes.map((c) => opt('death', c, c, !p.alive && p.death && p.death.cause === c)).join('')}
       </div>
+      ${!p.alive && p.death && p.death.day > state.day ? `<div class="hint" style="margin-top:6px">他在第 ${p.death.day} 天出局；現在看的是第 ${state.day} 天，所以座位上還顯示存活。</div>` : ''}
       <div class="opt-group" style="margin-top:8px">
         ${opt('sheriff', '1', '★ 警長', p.sheriff)}
         ${opt('me', '1', '這是我', state.mySeat === seat)}
@@ -720,27 +734,28 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   let checkDraft = { seer: null, target: null, result: 'good', by: '預言家' };
 
   function checksHTML() {
-    const seers = [...new Set(state.checks.map((c) => c.seer))];
+    const shown = checksSoFar();
+    const seers = [...new Set(shown.map((c) => c.seer))];
     const conflicts = [];
     for (let t = 1; t <= N(); t++) {
-      const rs = state.checks.filter((c) => c.target === t);
+      const rs = shown.filter((c) => c.target === t);
       if (rs.some((c) => c.result === 'good') && rs.some((c) => c.result === 'wolf')) {
         const who = rs.filter((c) => c.result !== 'silver').map((c) => `${c.seer}號說${RESULTS[c.result].label}`).join('、');
         conflicts.push(`${t}號 結果矛盾：${who}${B().lantern ? '（燈影板一正一反，矛盾是正常的，請看下方燈影分析）' : ''}`);
       }
     }
     if (B().lantern) {
-      state.checks.filter((c) => B().checkers.includes(c.by)).forEach((c) => {
+      shown.filter((c) => B().checkers.includes(c.by)).forEach((c) => {
         const t = P(c.target);
         const why = t.kgold ? '騎金' : (t.claim === '騎士' ? '翻牌騎士' : '');
         if (why) conflicts.push(`${c.seer}號 報驗了 ${c.target}號（${why}）：規則不能驗${why}，這個查驗可疑`);
       });
     }
     const cols = seers.map((s) => {
-      const items = state.checks.filter((c) => c.seer === s).sort((a, b) => a.day - b.day);
+      const items = shown.filter((c) => c.seer === s).sort((a, b) => a.day - b.day);
       const roles = [...new Set(items.map((c) => c.by || '預言家'))].join('/');
       return `<div class="seer-col">
-        <h4>${seatLabel(s)}（${esc(roles)}）${P(s).alive ? '' : '（已出局）'}</h4>
+        <h4>${seatLabel(s)}（${esc(roles)}）${aliveNow(P(s)) ? '' : '（已出局）'}</h4>
         ${items.map((c) => `<div class="list-item">
           <span class="grow">N${c.day} ${verb(c)} ${seatLabel(c.target)} → ${resultSpan(c)}</span>
           <button class="x-btn" data-del-check="${c.id}" aria-label="刪除">✕</button>
@@ -771,6 +786,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         </div>
         ${checkDraft.by === '女巫' ? '<div class="hint" style="margin-top:8px">銀水＝女巫說她救了誰（那晚被狼刀、被救活的人）。女巫可能是假跳，銀水不一定是好人。</div>' : ''}
       </div>
+      ${laterNote(state.checks.length - shown.length, '查驗')}
       ${conflicts.map((c) => `<div class="warn">⚠️ ${c}</div>`).join('')}
       ${seers.length > 1 ? '<div class="hint" style="margin-bottom:8px">有 ' + seers.length + ' 人報查驗，並排比較：</div>' : ''}
       ${seers.length ? `<div class="seer-cols">${cols}</div>` : '<div class="empty">還沒有查驗或銀水紀錄</div>'}
@@ -790,7 +806,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   const knownFact = (seat) => {
     const p = P(seat);
     if (p.kgold) return 'good';
-    if (p.death && (p.death.cause === '自爆' || p.death.cause === '被騎士決鬥')) return 'wolf';
+    if (p.death && p.death.day <= state.day && (p.death.cause === '自爆' || p.death.cause === '被騎士決鬥')) return 'wolf';
     return null;
   };
 
@@ -809,7 +825,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     }
     const reports = (seat) => {
       const m = {};
-      state.checks.filter((c) => c.seer === seat && c.result !== 'silver').forEach((c) => { (m[c.target] = m[c.target] || []).push(c.result); });
+      checksSoFar().filter((c) => c.seer === seat && c.result !== 'silver').forEach((c) => { (m[c.target] = m[c.target] || []).push(c.result); });
       return m;
     };
     const rS = reports(sSeat);
@@ -896,7 +912,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       for (let b = a + 1; b <= N(); b++) {
         let same = 0;
         let both = 0;
-        state.votes.forEach((v) => {
+        votesSoFar().forEach((v) => {
           const ta = v.ballots[a];
           const tb = v.ballots[b];
           if (ta === undefined || tb === undefined) return;
@@ -910,7 +926,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   }
 
   function votesHTML() {
-    const rounds = [...state.votes].reverse().map((v) => {
+    const rounds = [...votesSoFar()].reverse().map((v) => {
       const open = ui.openVote === v.id;
       const t = tally(v);
       const max = t.length ? t[0].n : 1;
@@ -935,9 +951,9 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
           for (let s = 1; s <= N(); s++) {
             if (s === p.seat) continue;
             if (isElection && ups[s] !== 'up') continue;
-            chips.push(`<button class="chip ${cur === s ? 'on' : ''} ${P(s).alive ? '' : 'dim'}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="${s}">${s}</button>`);
+            chips.push(`<button class="chip ${cur === s ? 'on' : ''} ${aliveNow(P(s)) ? '' : 'dim'}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="${s}">${s}</button>`);
           }
-          return `<div class="ballot" style="${p.alive ? '' : 'opacity:.45'}">
+          return `<div class="ballot" style="${aliveNow(p) ? '' : 'opacity:.45'}">
             <div class="voter">${p.seat}</div><div class="chips" style="--cols:${Math.max(chips.length, 6)}">${chips.join('')}</div></div>`;
         }).join('');
       }
@@ -966,6 +982,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         </div>
       </div>
       ${pairsHTML}
+      ${laterNote(state.votes.length - votesSoFar().length, '投票')}
       ${rounds || '<div class="empty">還沒有投票紀錄</div>'}
     `;
   }
@@ -1022,7 +1039,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 
   function summaryHTML() {
     const group = (mark) => state.players.filter((p) => p.mark === mark).map((p) => p.seat);
-    const alive = state.players.filter((p) => p.alive).map((p) => p.seat);
+    const alive = state.players.filter(aliveNow).map((p) => p.seat);
     const line = (label, arr) => `<div class="list-item"><span style="min-width:72px">${label}</span><span class="grow">${arr.length ? arr.join('、') : '—'}</span></div>`;
     const wolves = group('wolf');
     return `<div class="card"><h3>目前判斷</h3>
@@ -1166,18 +1183,25 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   // Strokes are kept as data (tool, color, points in CSS pixels) so the drawing can be
   // redrawn after a resize or rotation, undone stroke by stroke, and saved between visits.
   // Only the Apple Pencil (or a mouse) draws; finger touches are left to scroll the page.
-  const DOODLE_KEY = 'werewolf-doodle-v1';
+  // Each day has its own page: byDay[day] = strokes. A new day starts blank.
+  const DOODLE_KEY = 'werewolf-doodle-v2';
   const PEN_WIDTH = 3;
   const ERASER_WIDTH = 26;
-  const doodle = { canvas: $('doodle'), strokes: [], tool: '#111111', current: null, pointerId: null };
+  const doodle = { canvas: $('doodle'), byDay: {}, tool: '#111111', current: null, pointerId: null };
   const dctx = doodle.canvas.getContext('2d');
   try {
     const raw = localStorage.getItem(DOODLE_KEY);
-    if (raw) doodle.strokes = JSON.parse(raw) || [];
-  } catch (e) { doodle.strokes = []; }
+    if (raw) doodle.byDay = JSON.parse(raw) || {};
+    else {
+      // 舊版只有一頁塗鴉：放到目前這一天
+      const old = JSON.parse(localStorage.getItem('werewolf-doodle-v1') || '[]');
+      if (old.length) doodle.byDay[state.day] = old;
+    }
+  } catch (e) { doodle.byDay = {}; }
+  const dayStrokes = () => (doodle.byDay[state.day] = doodle.byDay[state.day] || []);
 
   function saveDoodle() {
-    try { localStorage.setItem(DOODLE_KEY, JSON.stringify(doodle.strokes)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(DOODLE_KEY, JSON.stringify(doodle.byDay)); } catch (e) { /* ignore */ }
   }
   function strokeStyle(st) {
     const eraser = st.tool === 'eraser';
@@ -1208,7 +1232,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     dctx.setTransform(1, 0, 0, 1, 0, 0);
     dctx.clearRect(0, 0, c.width, c.height);
     dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    doodle.strokes.forEach(drawStroke);
+    dayStrokes().forEach(drawStroke);
+    $('doodleDay').textContent = `第 ${state.day} 天`;
   }
   function sizeDoodle() {
     const r = $('canvasWrap').getBoundingClientRect();
@@ -1240,7 +1265,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     doodle.pointerId = e.pointerId;
     try { doodle.canvas.setPointerCapture(e.pointerId); } catch (err) { /* keep drawing without capture */ }
     doodle.current = { tool: doodle.tool, points: [pointAt(e)] };
-    doodle.strokes.push(doodle.current);
+    dayStrokes().push(doodle.current);
     drawStroke(doodle.current);
   });
   doodle.canvas.addEventListener('pointermove', (e) => {
@@ -1280,17 +1305,19 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     if (!b) return;
     if (b.dataset.pen) { selectTool(b.dataset.pen, b); return; }
     if (b.dataset.doodle === 'undo') {
-      doodle.strokes.pop();
+      dayStrokes().pop();
       saveDoodle();
       redrawDoodle();
     }
     if (b.dataset.doodle === 'clear') {
-      if (!doodle.strokes.length || !confirm('清空整個塗鴉區？')) return;
-      clearDoodle();
+      if (!dayStrokes().length || !confirm(`清空第 ${state.day} 天的塗鴉？`)) return;
+      doodle.byDay[state.day] = [];
+      saveDoodle();
+      redrawDoodle();
     }
   });
   function clearDoodle() {
-    doodle.strokes = [];
+    doodle.byDay = {};
     saveDoodle();
     redrawDoodle();
   }
