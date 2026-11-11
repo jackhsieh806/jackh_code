@@ -95,7 +95,19 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   .main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow-y: auto; }
   .side { border-left: none !important; border-top: 1px solid var(--line); }
 }
-.board { padding: 16px; overflow-y: auto; }
+.board { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; }
+.doodle { flex: 1; min-height: 340px; display: flex; flex-direction: column; margin-top: 14px; }
+.doodle-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.doodle-bar .title { font-size: 14px; font-weight: 600; flex-basis: 100%; }
+.doodle-bar button, .color-pick { min-height: 40px; padding: 6px 12px; }
+.doodle-bar button.on, .color-pick.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
+.pen-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 4px; border: 2px solid #fff; }
+.color-pick { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.color-pick input { width: 26px; height: 26px; padding: 0; border: none; border-radius: 50%; background: none; cursor: pointer; }
+.color-pick input::-webkit-color-swatch-wrapper { padding: 0; }
+.color-pick input::-webkit-color-swatch { border: 2px solid #fff; border-radius: 50%; }
+.canvas-wrap { flex: 1; position: relative; min-height: 260px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
+#doodle { position: absolute; inset: 0; width: 100%; height: 100%; background: #fff; touch-action: pan-x pan-y; cursor: crosshair; }
 .side { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 
 /* ---------- seats ---------- */
@@ -279,6 +291,19 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         <span>★ 警長</span>
         <span>銀水 = 被女巫救</span>
         <span>劃線 = 出局</span>
+      </div>
+      <div class="doodle">
+        <div class="doodle-bar" id="doodleBar">
+          <span class="title">✏️ 塗鴉區 <span class="hint">（用 Apple Pencil 畫，手指可以捲動）</span></span>
+          <button data-pen="#111111" class="on"><span class="pen-dot" style="background:#111111"></span>黑</button>
+          <button data-pen="#1e5bd8"><span class="pen-dot" style="background:#1e5bd8"></span>藍</button>
+          <button data-pen="#d92b2b"><span class="pen-dot" style="background:#d92b2b"></span>紅</button>
+          <label class="color-pick" id="colorPick"><input type="color" id="penColor" value="#2e9e5b" aria-label="自訂顏色">自訂</label>
+          <button data-pen="eraser">🧽 橡皮擦</button>
+          <button data-doodle="undo" aria-label="復原">↶ 復原</button>
+          <button data-doodle="clear" class="danger">清空</button>
+        </div>
+        <div class="canvas-wrap" id="canvasWrap"><canvas id="doodle"></canvas></div>
       </div>
     </section>
 
@@ -1104,7 +1129,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   $('newGameBtn').addEventListener('click', () => {
     $('sheet').innerHTML = `
       <h3 style="margin-top:0">開始新的一局？</h3>
-      <p class="hint">目前的標記、查驗、投票和筆記都會清空。</p>
+      <p class="hint">目前的標記、查驗、投票、筆記和塗鴉都會清空。</p>
       <div class="field-label">板子</div>
       <div class="opt-group" id="ngBoard">
         ${Object.entries(BOARDS).map(([id, b]) => `<button data-board="${id}" class="${id === state.board ? 'on' : ''}">${esc(b.name)}</button>`).join('')}
@@ -1124,8 +1149,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       boardId = b.dataset.board;
       [...$('ngBoard').children].forEach((x) => x.classList.toggle('on', x === b));
     };
-    $('ngKeep').onclick = () => { state = blankState(boardId, state.players.map((p) => p.name)); save(); closeSheet(); };
-    $('ngAll').onclick = () => { state = blankState(boardId); save(); closeSheet(); };
+    $('ngKeep').onclick = () => { state = blankState(boardId, state.players.map((p) => p.name)); save(); clearDoodle(); closeSheet(); };
+    $('ngAll').onclick = () => { state = blankState(boardId); save(); clearDoodle(); closeSheet(); };
   });
 
   // ---------- privacy cover ----------
@@ -1136,6 +1161,142 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     if (now - lastTap < 400) $('cover').classList.remove('open');
     lastTap = now;
   });
+
+  // ---------- doodle ----------
+  // Strokes are kept as data (tool, color, points in CSS pixels) so the drawing can be
+  // redrawn after a resize or rotation, undone stroke by stroke, and saved between visits.
+  // Only the Apple Pencil (or a mouse) draws; finger touches are left to scroll the page.
+  const DOODLE_KEY = 'werewolf-doodle-v1';
+  const PEN_WIDTH = 3;
+  const ERASER_WIDTH = 26;
+  const doodle = { canvas: $('doodle'), strokes: [], tool: '#111111', current: null, pointerId: null };
+  const dctx = doodle.canvas.getContext('2d');
+  try {
+    const raw = localStorage.getItem(DOODLE_KEY);
+    if (raw) doodle.strokes = JSON.parse(raw) || [];
+  } catch (e) { doodle.strokes = []; }
+
+  function saveDoodle() {
+    try { localStorage.setItem(DOODLE_KEY, JSON.stringify(doodle.strokes)); } catch (e) { /* ignore */ }
+  }
+  function strokeStyle(st) {
+    const eraser = st.tool === 'eraser';
+    dctx.globalCompositeOperation = eraser ? 'destination-out' : 'source-over';
+    dctx.strokeStyle = eraser ? '#000' : st.tool;
+    dctx.fillStyle = dctx.strokeStyle;
+    dctx.lineWidth = eraser ? ERASER_WIDTH : PEN_WIDTH;
+    dctx.lineCap = 'round';
+    dctx.lineJoin = 'round';
+  }
+  function drawStroke(st) {
+    const pts = st.points;
+    if (!pts.length) return;
+    strokeStyle(st);
+    dctx.beginPath();
+    if (pts.length === 1) {
+      dctx.arc(pts[0][0], pts[0][1], dctx.lineWidth / 2, 0, Math.PI * 2);
+      dctx.fill();
+      return;
+    }
+    dctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) dctx.lineTo(pts[i][0], pts[i][1]);
+    dctx.stroke();
+  }
+  function redrawDoodle() {
+    const c = doodle.canvas;
+    const dpr = window.devicePixelRatio || 1;
+    dctx.setTransform(1, 0, 0, 1, 0, 0);
+    dctx.clearRect(0, 0, c.width, c.height);
+    dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    doodle.strokes.forEach(drawStroke);
+  }
+  function sizeDoodle() {
+    const r = $('canvasWrap').getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(r.width * dpr));
+    const h = Math.max(1, Math.round(r.height * dpr));
+    if (doodle.canvas.width !== w || doodle.canvas.height !== h) {
+      doodle.canvas.width = w;
+      doodle.canvas.height = h;
+      redrawDoodle();
+    }
+  }
+  const pointAt = (e) => {
+    const r = doodle.canvas.getBoundingClientRect();
+    return [Math.round((e.clientX - r.left) * 10) / 10, Math.round((e.clientY - r.top) * 10) / 10];
+  };
+
+  // Safari scrolls on Apple Pencil touches too; cancel those so the pencil draws,
+  // while finger touches keep scrolling.
+  const blockStylusScroll = (e) => {
+    if ([...e.touches].some((t) => t.touchType === 'stylus')) e.preventDefault();
+  };
+  doodle.canvas.addEventListener('touchstart', blockStylusScroll, { passive: false });
+  doodle.canvas.addEventListener('touchmove', blockStylusScroll, { passive: false });
+
+  doodle.canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch' || doodle.pointerId !== null) return;
+    e.preventDefault();
+    doodle.pointerId = e.pointerId;
+    try { doodle.canvas.setPointerCapture(e.pointerId); } catch (err) { /* keep drawing without capture */ }
+    doodle.current = { tool: doodle.tool, points: [pointAt(e)] };
+    doodle.strokes.push(doodle.current);
+    drawStroke(doodle.current);
+  });
+  doodle.canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== doodle.pointerId || !doodle.current) return;
+    e.preventDefault();
+    const pts = doodle.current.points;
+    const events = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
+    strokeStyle(doodle.current);
+    events.forEach((ev) => {
+      const prev = pts[pts.length - 1];
+      const p = pointAt(ev);
+      if (p[0] === prev[0] && p[1] === prev[1]) return;
+      pts.push(p);
+      dctx.beginPath();
+      dctx.moveTo(prev[0], prev[1]);
+      dctx.lineTo(p[0], p[1]);
+      dctx.stroke();
+    });
+  });
+  const endStroke = (e) => {
+    if (e.pointerId !== doodle.pointerId) return;
+    doodle.pointerId = null;
+    doodle.current = null;
+    saveDoodle();
+  };
+  doodle.canvas.addEventListener('pointerup', endStroke);
+  doodle.canvas.addEventListener('pointercancel', endStroke);
+
+  function selectTool(tool, el) {
+    doodle.tool = tool;
+    $('doodleBar').querySelectorAll('[data-pen], #colorPick').forEach((x) => x.classList.toggle('on', x === el));
+  }
+  $('penColor').addEventListener('input', (e) => selectTool(e.target.value, $('colorPick')));
+  $('penColor').addEventListener('click', (e) => selectTool(e.target.value, $('colorPick')));
+  $('doodleBar').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.pen) { selectTool(b.dataset.pen, b); return; }
+    if (b.dataset.doodle === 'undo') {
+      doodle.strokes.pop();
+      saveDoodle();
+      redrawDoodle();
+    }
+    if (b.dataset.doodle === 'clear') {
+      if (!doodle.strokes.length || !confirm('清空整個塗鴉區？')) return;
+      clearDoodle();
+    }
+  });
+  function clearDoodle() {
+    doodle.strokes = [];
+    saveDoodle();
+    redrawDoodle();
+  }
+  if ('ResizeObserver' in window) new ResizeObserver(sizeDoodle).observe($('canvasWrap'));
+  window.addEventListener('resize', sizeDoodle);
+  sizeDoodle();
 
   // ---------- keep screen awake ----------
   let wakeLock = null;
