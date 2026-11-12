@@ -7,6 +7,8 @@ from enum import Enum
 class Team(Enum):
     GOOD = "好人陣營"
     WOLF = "狼人陣營"
+    LIGHT = "光明陣營"
+    DARK = "黑暗陣營"
 
 
 class Role(Enum):
@@ -27,10 +29,24 @@ class Role(Enum):
     KNIGHT = "騎士"
     VILLAGE_GIRL = "村姑"
     VILLAGER = "平民"
+    LIGHT_SEER = "光明預言家"
+    LIGHT_WITCH = "光明女巫"
+    LIGHT_KNIGHT = "光明騎士"
+    LIGHT_DREAMER = "光明攝夢人（強攝）"
+    LIGHT_HUNTER = "光明獵人"
+    DARK_SEER = "黑暗預言家"
+    DARK_WITCH = "黑暗女巫"
+    DARK_KNIGHT = "黑暗騎士"
+    DARK_DREAMER = "黑暗攝夢人（狼美人）"
+    DARK_HUNTER = "黑暗獵人（黑狼王）"
 
     @property
     def team(self) -> Team:
         """開局陣營。野孩子的陣營會隨榜樣改變，要用 Game.alignment() 判斷。"""
+        if self in LIGHT_ROLES:
+            return Team.LIGHT
+        if self in DARK_ROLES:
+            return Team.DARK
         return Team.WOLF if self in WOLVES else Team.GOOD
 
     @property
@@ -38,7 +54,7 @@ class Role(Enum):
         """神職：預言家、女巫、獵人、守衛、白痴、攝夢人、奇蹟商人、騎士。
 
         村姑和野孩子既不是神職也不是平民，屠邊時不算任何一邊；燈影預言家站民坑，算在平民那一邊。"""
-        return self in GODS
+        return self in GODS or self in LIGHT_GODS
 
 
 # 「真狼」：好人要把這些全部放逐才算贏（轉狼的野孩子不用出局）
@@ -46,6 +62,13 @@ WOLVES = frozenset({Role.WEREWOLF, Role.WOLF_KING, Role.AWAKENED_WOLF_KING,
                     Role.WOLF_BEAUTY, Role.TIGER_GRANDMA})
 GODS = frozenset({Role.SEER, Role.WITCH, Role.HUNTER, Role.GUARD, Role.IDIOT,
                   Role.DREAMER, Role.MERCHANT, Role.KNIGHT})
+LIGHT_ROLES = frozenset({Role.LIGHT_SEER, Role.LIGHT_WITCH, Role.LIGHT_KNIGHT,
+                         Role.LIGHT_DREAMER, Role.LIGHT_HUNTER})
+DARK_ROLES = frozenset({Role.DARK_SEER, Role.DARK_WITCH, Role.DARK_KNIGHT,
+                        Role.DARK_DREAMER, Role.DARK_HUNTER})
+DARK_PACK = frozenset({Role.DARK_WITCH, Role.DARK_KNIGHT, Role.DARK_DREAMER,
+                       Role.DARK_HUNTER})
+LIGHT_GODS = LIGHT_ROLES
 
 ROLE_DESCRIPTIONS = {
     Role.WEREWOLF: "每晚與狼隊友商量殺一個人。白天要隱藏身份，可以假冒神職（悍跳）。",
@@ -79,6 +102,16 @@ ROLE_DESCRIPTIONS = {
     Role.VILLAGE_GIRL: "整局一次查驗，投過票後的夜晚才能用。結果準不準要看她投的票（優先看警長票）："
                        "警長票投狼人或放逐票投好人 → 結果正確；警長票投好人或放逐票投狼人 → 結果相反。",
     Role.VILLAGER: "沒有特殊能力，靠發言、聽邏輯、投票找出狼人。",
+    Role.LIGHT_SEER: "每晚查驗一名玩家並得知身份；黑暗陣營角色顯示為狼人。",
+    Role.LIGHT_WITCH: "有一瓶解藥和一瓶毒藥，各一次；不能自救。",
+    Role.LIGHT_KNIGHT: "白天可發動一次決鬥；依光明與黑暗對決規則結算。",
+    Role.LIGHT_DREAMER: "每晚選一人攝夢，可自守；目標免疫黑暗夜刀，連續兩晚攝夢會出局。",
+    Role.LIGHT_HUNTER: "出局時可開槍帶走一名玩家。",
+    Role.DARK_SEER: "每晚查驗一名玩家；黑暗隊友全數出局或被黑暗騎士決鬥後，加入黑暗狼隊。",
+    Role.DARK_WITCH: "只有一瓶毒藥，只能在第二夜使用；可自爆、自刀。",
+    Role.DARK_KNIGHT: "白天可發動一次決鬥；依黑暗騎士規則結算；可自爆、自刀。",
+    Role.DARK_DREAMER: "每晚迷魅一名玩家；出局時帶走仍存活的迷魅目標；不能自爆、自刀。",
+    Role.DARK_HUNTER: "被放逐時可指定一人帶走；被騎士決鬥、毒或迷魅出局時不能開槍。",
 }
 
 
@@ -106,4 +139,8 @@ PRESETS: dict[str, tuple[str, list[Role]]] = {
     # 海報配置寫 5 平民（合計 16 人），但標題是 15 人、獲勝條件是「四民 + 燈影預」，這裡採用 4 平民
     "9": ("15 人「燈影預言家」：狼王、狼美人、3 小狼 + 預言家、女巫、騎士、守衛、獵人 + 燈影預言家 + 4 平民",
           _board([WK, WB, W, W, W], [S, WI, KN, G, H, Role.LANTERN_SEER], 4)),
+    "10": ("15 人「光明與黑暗對決 3.0」：光明五職、黑暗五職、5 平民",
+           [Role.LIGHT_SEER, Role.LIGHT_WITCH, Role.LIGHT_KNIGHT, Role.LIGHT_DREAMER,
+            Role.LIGHT_HUNTER, Role.DARK_SEER, Role.DARK_WITCH, Role.DARK_KNIGHT,
+            Role.DARK_DREAMER, Role.DARK_HUNTER, *([Role.VILLAGER] * 5)]),
 }

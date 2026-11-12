@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from .engine import ITEMS, Controller, Game, Player, Speech
 from .personality import DEFAULT, Personality
 from .roles import Role
+from .roles import DARK_PACK, DARK_ROLES, LIGHT_ROLES, Team
 
 
 CLAIMABLE = (Role.HUNTER, Role.WITCH, Role.IDIOT, Role.DREAMER, Role.MERCHANT, Role.KNIGHT,
@@ -48,6 +49,7 @@ class BotController(Controller):
         self.girl_seen: tuple[int, bool, bool] | None = None  # 村姑：(目標, 看到狼?, 確定準確?)
         self.soft: dict[int, float] = {}        # 不確定的線索（村姑猜測的結果）
         self.raw: dict[int, bool] = {}          # 燈影預言家板：自己看到的查驗（可能是反的）
+        self.identity_checks: dict[int, str] = {}
         self.reasons: dict[int, list[tuple[float, str]]] = {}  # 最近一次推理：懷疑每個人的理由
 
     # ------------------------------------------------------------ 初始化與推理
@@ -72,7 +74,7 @@ class BotController(Controller):
     def analyze(self, game: Game, me: Player) -> Knowledge:
         """自己的推理：先整理確定的資訊，再獨立評估警長是不是假的。"""
         k = self._analyze_base(game, me)
-        if me.is_wolf:
+        if me.is_wolf or (game.light_dark and game.alignment(me) is Team.DARK):
             return k
         self._absorb_findings(game, me, k)
         k.sheriff_doubt, k.sheriff_why = self._sheriff_doubt(game, me, k)
@@ -252,6 +254,25 @@ class BotController(Controller):
 
     def _analyze_base(self, game: Game, me: Player) -> Knowledge:
         claims = game.seer_claims()
+        if game.light_dark:
+            if me.role is Role.LIGHT_SEER:
+                wolf = {s for s, label in self.identity_checks.items() if label == "狼人"}
+                good = {me.seat} | {s for s, label in self.identity_checks.items() if label != "狼人"}
+                return Knowledge(good, wolf, None, claims)
+            dark_seer_hidden = me.role is Role.DARK_SEER and not game.dark_seer_awake
+            if me.role in DARK_PACK or (me.role is Role.DARK_SEER and game.dark_seer_awake):
+                dark = {p.seat for p in game.players.values() if p.role in DARK_ROLES}
+                known_dark = {s for s in dark if s != next((p.seat for p in game.players.values()
+                                                            if p.role is Role.DARK_SEER), None)}
+                if game.dark_seer_awake:
+                    known_dark = dark
+                good = set(game.players) - dark
+                return Knowledge(good, known_dark, None, claims)
+            if dark_seer_hidden:
+                known = {seat for seat, label in self.identity_checks.items()}
+                good = {seat for seat, label in self.identity_checks.items() if label != "狼人"}
+                wolf = {seat for seat, label in self.identity_checks.items() if label == "狼人"}
+                return Knowledge(good, wolf, None, claims)
         if me.is_wolf:
             wolves = {p.seat for p in game.players.values() if p.is_wolf}
             return Knowledge(set(game.players) - wolves, wolves, None, claims)
@@ -521,13 +542,17 @@ class BotController(Controller):
         return self.rng.choice(options) if options else None
 
     def choose_kill(self, game: Game, me: Player) -> int | None:
-        good = [p.seat for p in game.alive() if not p.is_wolf]
+        good = [p.seat for p in game.alive() if not game.is_enemy(p)]
+        if game.light_dark and me.role is Role.DARK_DREAMER:
+            good = [s for s in good if s != me.seat]
         if not good:
             return None
-        hunters = {s for s in good if game.claimed_role(s) is Role.HUNTER}
+        hunters = {s for s in good if game.claimed_role(s) in (Role.HUNTER, Role.LIGHT_HUNTER)}
         claims = game.seer_claims()
         real_seers = [c for c in claims if c in good] + \
                      [c for c in game.claims_of(Role.LANTERN_SEER) if c in good]
+        if game.light_dark:
+            real_seers += [p.seat for p in game.alive() if p.role is Role.LIGHT_SEER]
         witches = [s for s in good if game.claimed_role(s) is Role.WITCH]
         golds = [t for c in real_seers for t, w in game.claims.get(c, {}).get("checks", {}).items()
                  if not w and t in good]
@@ -539,6 +564,15 @@ class BotController(Controller):
         return self.rng.choice([s for s in good if s not in hunters] or good)
 
     def witch_action(self, game: Game, me: Player, victim: int | None):
+        if game.light_dark and me.role is Role.DARK_WITCH:
+            if game.night_no != 2 or game.dark_poison_used:
+                return None, None
+            targets = [p.seat for p in game.alive() if p.role in LIGHT_ROLES]
+            if not targets:
+                return None, None
+            k = self.analyze(game, me)
+            score = self.suspicion(game, me, k)
+            return "poison", self._top(score, targets) or self.rng.choice(targets)
         if victim is not None and game.can_witch_save(me, victim):
             k = self.analyze(game, me)
             if (game.night_no == 1 and self.rng.random() < 0.9) or victim == k.trusted \
@@ -562,6 +596,8 @@ class BotController(Controller):
         pool = [s for s in options if s not in self.checks and s not in self.raw] or options
         if not pool:
             return None
+        if game.light_dark and me.role in (Role.LIGHT_SEER, Role.DARK_SEER):
+            return self.rng.choice(pool)
         if game.claim_race:                 # 四人競選：優先驗警上宣稱預言家身份的人
             rivals = [c for c in pool if game.claimed_role(c) in (Role.SEER, Role.LANTERN_SEER)]
             if rivals:
@@ -577,16 +613,19 @@ class BotController(Controller):
         else:
             self.checks[target] = is_wolf
 
+    def on_identity_check(self, game: Game, me: Player, target: int, identity: str) -> None:
+        self.identity_checks[target] = identity
+
     # ------------------------------------------------------------ 白天
     def speak(self, game: Game, me: Player) -> Speech:
         speech = self._speech(game, me, last=False)
-        if self.P.detective and not me.is_wolf:
+        if self.P.detective and not game.is_enemy(me):
             self._add_findings(game, me, speech)
         return speech
 
     def last_words(self, game: Game, me: Player) -> Speech:
         speech = self._speech(game, me, last=True)
-        if self.P.detective and not me.is_wolf:
+        if self.P.detective and not game.is_enemy(me):
             self._add_findings(game, me, speech)
         return speech
 
@@ -595,7 +634,7 @@ class BotController(Controller):
 
     def _speech(self, game: Game, me: Player, last: bool) -> Speech:
         k = self.analyze(game, me)
-        if me.is_wolf:
+        if game.is_enemy(me):
             return self._wolf_speech(game, me, k, last)
         score = self.suspicion(game, me, k)
         top = self._top(score)
@@ -617,6 +656,11 @@ class BotController(Controller):
                 accuse = (alive_wolves or rivals or [top])[0]
                 text = "對跳的那位是悍跳狼！" if rivals else ""
                 return Speech(me.seat, Role.SEER, dict(self.checks), accuse, text)
+
+        if me.role is Role.LIGHT_SEER and self.identity_checks:
+            target, identity = next(reversed(self.identity_checks.items()))
+            return Speech(me.seat, Role.LIGHT_SEER, accuse=target,
+                          text=f"我昨晚查驗 {target}號，結果是【{identity}】")
 
         if last:
             text = f"請相信 {k.trusted}號 預言家" if k.trusted else "大家加油"
@@ -681,7 +725,7 @@ class BotController(Controller):
 
     # ------------------------------------------------------------ 狼人白天策略
     def _wolf_speech(self, game: Game, me: Player, k: Knowledge, last: bool) -> Speech:
-        good_alive = [p.seat for p in game.alive() if not p.is_wolf]
+        good_alive = [p.seat for p in game.alive() if not game.is_enemy(p)]
         fakes = game.wolf_plan.get("fake_seers", ())
         if me.seat in fakes:
             card = game.wolf_plan.get("fake_seer_roles", {}).get(me.seat) or game.wolf_plan.get("fake_seer_role") or Role.SEER
@@ -739,7 +783,7 @@ class BotController(Controller):
 
     def vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
         k = self.analyze(game, me)
-        if me.is_wolf:
+        if game.is_enemy(me):
             key = ("vote", game.night_no)
             if game.wolf_plan.get(key) not in candidates:
                 game.wolf_plan[key] = self.wolf_target(game, k)
@@ -756,8 +800,11 @@ class BotController(Controller):
 
     def hunter_shoot(self, game: Game, me: Player) -> int | None:
         k = self.analyze(game, me)
-        if me.is_wolf:  # 狼王爪：帶走最有威脅的好人
-            good = [p.seat for p in game.alive() if not p.is_wolf]
+        if game.light_dark and me.role is Role.DARK_HUNTER:
+            targets = [p.seat for p in game.alive() if p.role in LIGHT_ROLES and p.role is not Role.LIGHT_SEER]
+            return self.rng.choice(targets) if targets else None
+        if game.is_enemy(me):  # 狼王爪：帶走最有威脅的好人
+            good = [p.seat for p in game.alive() if not game.is_enemy(p)]
             claims = game.seer_claims()
             threats = [c for c in claims if c in good] + \
                       [s for s in good if game.claimed_role(s) in (Role.WITCH, Role.DREAMER, Role.MERCHANT)]
@@ -774,10 +821,16 @@ class BotController(Controller):
 
     # ------------------------------------------------------------ 新角色
     def choose_dream(self, game: Game, me: Player) -> int | None:
-        options = [s for s in game.alive_seats() if s != me.seat]
+        options = [s for s in game.alive_seats()
+                   if s != me.seat or (game.light_dark and me.role is Role.LIGHT_DREAMER)]
         if not options:
             return None
         k = self.analyze(game, me)
+        if game.light_dark and me.role is Role.LIGHT_DREAMER:
+            wolves = [s for s in k.wolf if s in options]
+            if wolves:
+                return self.rng.choice(wolves)
+            return self.rng.choice(options)
         if game.last_dream in k.wolf and game.last_dream in options:
             return game.last_dream               # 連夢兩晚，把確定的狼夢死
         certain = [s for s in k.wolf if s in options]
@@ -833,15 +886,15 @@ class BotController(Controller):
     def run_for_sheriff(self, game: Game, me: Player) -> bool:
         if game.claim_race and me.seat in game.claim_race_candidates:
             return True
-        if me.role is Role.SEER and self.checks:
+        if me.role in (Role.SEER, Role.LIGHT_SEER, Role.DARK_SEER) and (self.checks or self.identity_checks):
             return self.rng.random() < 0.9          # 真預言家上警拿警徽
-        if me.is_wolf and me.seat in game.wolf_plan.get("fake_seers", ()):
+        if game.is_enemy(me) and me.seat in game.wolf_plan.get("fake_seers", ()):
             return True                             # 悍跳狼一定上警搶警徽
-        return self.rng.random() < self.P.run_sheriff + (0.05 if me.is_wolf else 0)
+        return self.rng.random() < self.P.run_sheriff + (0.05 if game.is_enemy(me) else 0)
 
     def sheriff_vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
         k = self.analyze(game, me)
-        if me.is_wolf:
+        if game.is_enemy(me):
             wolves = [c for c in candidates if c in k.wolf]
             if wolves:
                 return wolves[0]
@@ -859,7 +912,7 @@ class BotController(Controller):
         if not alive:
             return None
         k = self.analyze(game, me)
-        if me.is_wolf:
+        if game.is_enemy(me):
             mates = [s for s in alive if s in k.wolf]
             return self.rng.choice(mates) if mates and self.rng.random() < 0.6 else None
         good = [s for s in alive if s in k.good]
@@ -875,6 +928,8 @@ class BotController(Controller):
         return self.rng.choice(["left", "right"])
 
     def self_explode(self, game: Game, me: Player) -> bool:
+        if game.light_dark and me.role in DARK_ROLES:
+            return me.role is not Role.DARK_DREAMER and self.rng.random() < 0.04 * self.P.explode
         wolves_alive = sum(p.is_wolf for p in game.alive())
         if wolves_alive < 2 or game.night_no > 1 and self.rng.random() < 0.5:
             return False
@@ -895,7 +950,7 @@ class BotController(Controller):
         return self.rng.choice([s for s in game.alive_seats() if s != me.seat])
 
     def choose_charm(self, game: Game, me: Player) -> int | None:
-        good = [p.seat for p in game.alive() if not p.is_wolf and p.seat != game.last_charm]
+        good = [p.seat for p in game.alive() if not game.is_enemy(p) and p.seat != me.seat]
         if not good:
             return None
         claims = game.seer_claims()

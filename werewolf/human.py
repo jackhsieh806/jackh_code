@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .engine import ITEMS, Controller, Game, Player, Speech
-from .roles import ROLE_DESCRIPTIONS, Role
+from .roles import DARK_PACK, LIGHT_ROLES, ROLE_DESCRIPTIONS, Role, Team
 
 
 def ask(prompt: str) -> str:
@@ -37,9 +37,12 @@ class HumanController(Controller):
 
     def setup(self, game: Game, me: Player) -> None:
         print("\n" + "=" * 50)
-        print(f"🎴 你是 {me.seat}號，身份：【{me.role.value}】（{me.role.team.value}）")
+        print(f"🎴 你是 {me.seat}號，身份：【{me.role.value}】（{game.alignment(me).value}）")
         print(f"   {ROLE_DESCRIPTIONS[me.role]}")
-        if me.is_wolf:
+        if game.light_dark and me.role in DARK_PACK:
+            mates = [p.seat for p in game.players.values() if p.role in DARK_PACK and p.seat != me.seat]
+            print(f"   黑暗隊友：{'、'.join(map(str, mates)) or '無'}號")
+        elif me.is_wolf:
             mates = [p.seat for p in game.players.values() if p.is_wolf and p.seat != me.seat]
             print(f"   你的狼隊友：{'、'.join(map(str, mates)) or '無'}號")
             kings = [f"{p.seat}號({p.role.value})" for p in game.players.values()
@@ -59,11 +62,29 @@ class HumanController(Controller):
         return ask_seat("今晚要守護誰", options)
 
     def choose_kill(self, game: Game, me: Player) -> int | None:
+        if game.light_dark:
+            mates = [p.seat for p in game.alive() if p.role in DARK_PACK and p.seat != me.seat]
+            if game.dark_seer_awake and me.role is not Role.DARK_SEER:
+                mates += [p.seat for p in game.alive() if p.role is Role.DARK_SEER]
+            print(f"\n🌑 黑暗陣營請睜眼。存活隊友：{'、'.join(map(str, mates)) or '只剩你'}號")
+            options = [p.seat for p in game.alive() if game.alignment(p) is not Team.DARK]
+            if me.role is not Role.DARK_DREAMER:
+                options.append(me.seat)
+            return ask_seat("今晚要殺誰（0=空刀）", options)
         mates = [p.seat for p in game.alive() if p.is_wolf and p.seat != me.seat]
         print(f"\n🐺 狼人請睜眼。存活的狼隊友：{'、'.join(map(str, mates)) or '只剩你'}")
         return ask_seat("今晚要殺誰（0=空刀）", game.alive_seats())
 
     def witch_action(self, game: Game, me: Player, victim: int | None):
+        if game.light_dark and me.role is Role.DARK_WITCH:
+            if game.night_no != 2 or game.dark_poison_used:
+                return None, None
+            options = [p.seat for p in game.alive() if p.role in LIGHT_ROLES]
+            if not options:
+                return None, None
+            print("\n🧪 黑暗女巫只能在第二夜毒殺光明陣營玩家。")
+            target = ask_seat("要毒殺誰（0=不使用）", options)
+            return ("poison", target) if target is not None else (None, None)
         print(f"\n🧪 女巫請睜眼。解藥：{'有' if game.antidote else '已用'}，"
               f"毒藥：{'有' if game.poison else '已用'}")
         if game.antidote:
@@ -85,6 +106,10 @@ class HumanController(Controller):
         return None, None
 
     def choose_check(self, game: Game, me: Player) -> int | None:
+        if game.light_dark and me.role in (Role.LIGHT_SEER, Role.DARK_SEER):
+            label = "光明預言家" if me.role is Role.LIGHT_SEER else "黑暗預言家"
+            print(f"\n🔮 {label}請睜眼。今晚可查驗真實身份。")
+            return ask_seat("今晚要查驗誰", game.check_options(me), allow_none=False)
         label = "燈影預言家" if me.role is Role.LANTERN_SEER else "預言家"
         print(f"\n🔮 {label}請睜眼。", end="")
         if self.checks:
@@ -108,6 +133,9 @@ class HumanController(Controller):
         if game.has_lantern and me.role in (Role.SEER, Role.LANTERN_SEER):
             note = "（你不知道自己是正確還是反向查驗，結果可能是反的）"
         print(f"  👉 {target}號 是 {'🐺 狼人' if is_wolf else '😇 好人'}{note}")
+
+    def on_identity_check(self, game: Game, me: Player, target: int, identity: str) -> None:
+        print(f"  👉 你查驗 {target}號，顯示身份：【{identity}】")
 
     # ------------------------------------------------------------ 白天
     def speak(self, game: Game, me: Player) -> Speech:
@@ -144,6 +172,11 @@ class HumanController(Controller):
 
     def hunter_shoot(self, game: Game, me: Player) -> int | None:
         others = [s for s in game.alive_seats() if s != me.seat]
+        if game.light_dark and me.role is Role.DARK_HUNTER:
+            others = [s for s in others if game.players[s].role is not Role.LIGHT_SEER]
+            return ask_seat("黑暗獵人要帶走誰（0=不發動；不能帶走光明預言家）", others)
+        if game.light_dark and me.role is Role.LIGHT_HUNTER:
+            return ask_seat("光明獵人要開槍帶走誰（0=不發動）", others)
         if me.role is Role.HUNTER:
             print("\n🔫 你是獵人，可以開槍帶走一名玩家。")
             return ask_seat("要開槍帶走誰（0=不開槍）", others)
@@ -156,6 +189,9 @@ class HumanController(Controller):
         print(f"\n☠️  你{cause}，不能發動技能。")
 
     def choose_dream(self, game: Game, me: Player) -> int | None:
+        if game.light_dark and me.role is Role.LIGHT_DREAMER:
+            print(f"\n💤 光明攝夢人請睜眼。上一晚攝夢：{game.light_dream_last or '無'}；可自守。")
+            return ask_seat("今晚要對誰攝夢", game.alive_seats(), allow_none=False)
         print(f"\n💤 攝夢人請睜眼。上一晚的夢遊者：{game.last_dream or '無'}"
               "（連續兩晚選同一人會讓他出局）")
         return ask_seat("今晚讓誰夢遊", [s for s in game.alive_seats() if s != me.seat],
@@ -224,6 +260,10 @@ class HumanController(Controller):
               "從下一晚起和狼人一起行動。")
 
     def choose_charm(self, game: Game, me: Player) -> int | None:
+        if game.light_dark and me.role is Role.DARK_DREAMER:
+            targets = [p.seat for p in game.alive()
+                       if p.seat != me.seat and game.alignment(p) is not Team.DARK]
+            return ask_seat("黑暗攝夢人今晚要迷魅誰", targets, allow_none=False)
         print(f"\n💋 狼美人：上一晚迷魅 {game.last_charm or '無'}（不能連續兩晚同一人）。你出局時被迷魅的人會一起出局。")
         return ask_seat("今晚要迷魅誰（0=不迷魅）",
                         [s for s in game.alive_seats() if s != me.seat and s != game.last_charm])
