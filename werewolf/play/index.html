@@ -2033,6 +2033,14 @@ function currentRoles() {
   return ROLE_ORDER.flatMap(r => Array(S.custom[r] || 0).fill(r));
 }
 function customProblem(roles) {
+  if (roles.some(r => LIGHT.has(r) || DARK.has(r))) {
+    const light = roles.filter(r => LIGHT.has(r)).length;
+    const dark = roles.filter(r => DARK.has(r)).length;
+    const villagers = roles.filter(r => r === "VILLAGER").length;
+    if (roles.length !== 15 || light !== 5 || dark !== 5 || villagers !== 5 || roles.some(r => !LIGHT.has(r) && !DARK.has(r) && r !== "VILLAGER"))
+      return "光明與黑暗對決 3.0 需配置光明 5 人、黑暗 5 人、平民 5 人，共 15 人。";
+    return null;
+  }
   const wolves = roles.filter(r => WOLVES.has(r)).length;
   if (roles.length < 5 || roles.length > 18) return `目前 ${roles.length} 人，需要 5～18 人。`;
   if (!wolves || wolves === roles.length) return "至少要有 1 個狼人陣營和 1 個好人陣營。";
