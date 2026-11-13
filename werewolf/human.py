@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .engine import ITEMS, Controller, Game, Player, Speech
-from .roles import DARK_PACK, LIGHT_ROLES, ROLE_DESCRIPTIONS, Role, Team
+from .roles import DARK_PACK, ROLE_DESCRIPTIONS, Role
 
 
 def ask(prompt: str) -> str:
@@ -67,10 +67,9 @@ class HumanController(Controller):
             if game.dark_seer_awake and me.role is not Role.DARK_SEER:
                 mates += [p.seat for p in game.alive() if p.role is Role.DARK_SEER]
             print(f"\n🌑 黑暗陣營請睜眼。存活隊友：{'、'.join(map(str, mates)) or '只剩你'}號")
-            options = [p.seat for p in game.alive() if game.alignment(p) is not Team.DARK]
-            if me.role is not Role.DARK_DREAMER:
-                options.append(me.seat)
-            return ask_seat("今晚要殺誰（0=空刀）", options)
+            # 除黑暗攝夢人外都可以刀（可以自刀）；不能只列出非黑暗玩家，那會洩漏黑暗預言家
+            options = [p.seat for p in game.alive() if p.role is not Role.DARK_DREAMER]
+            return ask_seat("今晚要殺誰（0=空刀；黑暗攝夢人不能被刀）", options)
         mates = [p.seat for p in game.alive() if p.is_wolf and p.seat != me.seat]
         print(f"\n🐺 狼人請睜眼。存活的狼隊友：{'、'.join(map(str, mates)) or '只剩你'}")
         return ask_seat("今晚要殺誰（0=空刀）", game.alive_seats())
@@ -79,10 +78,10 @@ class HumanController(Controller):
         if game.light_dark and me.role is Role.DARK_WITCH:
             if game.night_no != 2 or game.dark_poison_used:
                 return None, None
-            options = [p.seat for p in game.alive() if p.role in LIGHT_ROLES]
+            options = [s for s in game.alive_seats() if s != me.seat]   # 不能只列出光明職業，那會洩漏身分
             if not options:
                 return None, None
-            print("\n🧪 黑暗女巫只能在第二夜毒殺光明陣營玩家。")
+            print("\n🧪 黑暗女巫只有一瓶毒藥，只能在第二夜使用。")
             target = ask_seat("要毒殺誰（0=不使用）", options)
             return ("poison", target) if target is not None else (None, None)
         print(f"\n🧪 女巫請睜眼。解藥：{'有' if game.antidote else '已用'}，"
@@ -173,8 +172,7 @@ class HumanController(Controller):
     def hunter_shoot(self, game: Game, me: Player) -> int | None:
         others = [s for s in game.alive_seats() if s != me.seat]
         if game.light_dark and me.role is Role.DARK_HUNTER:
-            others = [s for s in others if game.players[s].role is not Role.LIGHT_SEER]
-            return ask_seat("黑暗獵人要帶走誰（0=不發動；不能帶走光明預言家）", others)
+            return ask_seat("黑暗獵人要帶走誰（0=不發動；帶不走光明獵人）", others)
         if game.light_dark and me.role is Role.LIGHT_HUNTER:
             return ask_seat("光明獵人要開槍帶走誰（0=不發動）", others)
         if me.role is Role.HUNTER:
@@ -261,8 +259,7 @@ class HumanController(Controller):
 
     def choose_charm(self, game: Game, me: Player) -> int | None:
         if game.light_dark and me.role is Role.DARK_DREAMER:
-            targets = [p.seat for p in game.alive()
-                       if p.seat != me.seat and game.alignment(p) is not Team.DARK]
+            targets = [s for s in game.alive_seats() if s != me.seat]   # 只排除黑暗陣營會洩漏黑暗預言家
             return ask_seat("黑暗攝夢人今晚要迷魅誰", targets, allow_none=False)
         print(f"\n💋 狼美人：上一晚迷魅 {game.last_charm or '無'}（不能連續兩晚同一人）。你出局時被迷魅的人會一起出局。")
         return ask_seat("今晚要迷魅誰（0=不迷魅）",

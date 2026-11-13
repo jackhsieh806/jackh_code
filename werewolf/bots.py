@@ -551,8 +551,6 @@ class BotController(Controller):
         claims = game.seer_claims()
         real_seers = [c for c in claims if c in good] + \
                      [c for c in game.claims_of(Role.LANTERN_SEER) if c in good]
-        if game.light_dark:
-            real_seers += [p.seat for p in game.alive() if p.role is Role.LIGHT_SEER]
         witches = [s for s in good if game.claimed_role(s) is Role.WITCH]
         golds = [t for c in real_seers for t, w in game.claims.get(c, {}).get("checks", {}).items()
                  if not w and t in good]
@@ -563,16 +561,26 @@ class BotController(Controller):
                 return self.rng.choice(group)
         return self.rng.choice([s for s in good if s not in hunters] or good)
 
+    def _light_targets(self, game: Game, me: Player) -> list[int]:
+        """黑暗電腦挑目標：只看公開宣稱與自己的懷疑，不偷看真實身分。"""
+        k = self.analyze(game, me)
+        pool = [p.seat for p in game.alive() if p.seat != me.seat and p.seat not in k.wolf]
+        claimed = [s for s in pool if game.claimed_role(s) in LIGHT_ROLES]
+        if claimed:
+            return claimed
+        score = self.suspicion(game, me, k)          # 懷疑度低＝看起來像好人
+        pool.sort(key=lambda s: score.get(s, 0))
+        return pool[:3]
+
     def witch_action(self, game: Game, me: Player, victim: int | None):
         if game.light_dark and me.role is Role.DARK_WITCH:
             if game.night_no != 2 or game.dark_poison_used:
                 return None, None
-            targets = [p.seat for p in game.alive() if p.role in LIGHT_ROLES]
+            # 只能靠公開資訊：優先毒跳光明職業的人，否則照自己的判斷挑一個非隊友
+            targets = self._light_targets(game, me)
             if not targets:
                 return None, None
-            k = self.analyze(game, me)
-            score = self.suspicion(game, me, k)
-            return "poison", self._top(score, targets) or self.rng.choice(targets)
+            return "poison", self.rng.choice(targets)
         if victim is not None and game.can_witch_save(me, victim):
             k = self.analyze(game, me)
             if (game.night_no == 1 and self.rng.random() < 0.9) or victim == k.trusted \
@@ -658,9 +666,12 @@ class BotController(Controller):
                 return Speech(me.seat, Role.SEER, dict(self.checks), accuse, text)
 
         if me.role is Role.LIGHT_SEER and self.identity_checks:
+            # 報出全部查驗（狼人=查殺），只歸票驗到的狼，其他照自己的判斷
+            checks = {t: idt == "狼人" for t, idt in self.identity_checks.items()}
+            wolves = [t for t, w in checks.items() if w and game.players[t].alive]
             target, identity = next(reversed(self.identity_checks.items()))
-            return Speech(me.seat, Role.LIGHT_SEER, accuse=target,
-                          text=f"我昨晚查驗 {target}號，結果是【{identity}】")
+            return Speech(me.seat, Role.LIGHT_SEER, checks, (wolves or [top])[0],
+                          f"我昨晚查驗 {target}號，結果是【{identity}】")
 
         if last:
             text = f"請相信 {k.trusted}號 預言家" if k.trusted else "大家加油"
@@ -801,7 +812,9 @@ class BotController(Controller):
     def hunter_shoot(self, game: Game, me: Player) -> int | None:
         k = self.analyze(game, me)
         if game.light_dark and me.role is Role.DARK_HUNTER:
-            targets = [p.seat for p in game.alive() if p.role in LIGHT_ROLES and p.role is not Role.LIGHT_SEER]
+            # 帶不走光明獵人：避開跳光明獵人的人（只能看公開宣稱）
+            targets = [s for s in self._light_targets(game, me)
+                       if game.claimed_role(s) is not Role.LIGHT_HUNTER]
             return self.rng.choice(targets) if targets else None
         if game.is_enemy(me):  # 狼王爪：帶走最有威脅的好人
             good = [p.seat for p in game.alive() if not game.is_enemy(p)]

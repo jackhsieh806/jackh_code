@@ -313,18 +313,18 @@ const DESC = {
   KNIGHT: "白天輪到你發言時可以翻牌決鬥一人（整局一次）：對方是狼就出局並立刻天黑；是好人你就出局。",
   VILLAGE_GIRL: "整局一次查驗，投過票後的夜晚才能用。準不準看你的票（優先看警長票）：警長票投狼或放逐票投好人 → 正確；警長票投好人或放逐票投狼 → 相反。",
   VILLAGER: "沒有技能，靠聽發言、找矛盾、投票找出狼人。",
-  LIGHT_SEER: "每晚查驗一名玩家的真實身份；暗陣營隊員顯示為狼人。",
-  LIGHT_WITCH: "有一瓶解藥和一瓶毒藥。不能自救；首夜受刀可存活，第二夜使用解藥後會出局。",
-  LIGHT_KNIGHT: "白天可決鬥一次：暗陣營或平民出局；光明神職技能封鎖一夜；撞黑暗騎士則自己反傷出局。",
-  LIGHT_DREAMER: "每晚可選擇一人（可選自己）攝夢；目標免疫暗陣營夜刀，連續兩晚選同一人則出局。",
-  LIGHT_HUNTER: "出局時可開槍帶走一人。",
-  DARK_SEER: "每晚查驗身份；黑暗隊友全滅後加入狼隊。黑暗騎士決鬥你時，當晚加入狼隊。",
-  DARK_WITCH: "只有一瓶毒藥，限第二夜使用，只能毒光明陣營角色。",
-  DARK_KNIGHT: "白天可決鬥一次：平民出局；光明神職技能封鎖一夜；撞光明騎士反傷；撞黑暗預言家使其當晚加入狼隊。",
-  DARK_DREAMER: "每晚迷魅一人；出局時迷魅目標一同出局。騎士決鬥或光明獵人開槍造成的出局不觸發迷魅。",
-  DARK_HUNTER: "被放逐時可帶走一人，不能帶走光明預言家；被毒、迷魅或騎士決鬥出局不能發動。",
+  LIGHT_SEER: "每晚查驗一名玩家的真實身分；黑暗女巫、騎士、攝夢人、獵人都顯示為「狼人」。驗到黑暗預言家時，看到的是他當晚查驗對象的身分（不是黑暗預言家本人）。",
+  LIGHT_WITCH: "一瓶解藥、一瓶毒藥，各用一次；解藥不能自救。第一夜被狼刀中可以存活；第二晚使用毒藥後會自動陣亡。",
+  LIGHT_KNIGHT: "白天發言時可決鬥一次（自己不會死）：平民 → 平民出局；光明神職 → 技能封鎖一晚；黑暗角色 → 直接出局；黑暗騎士 → 自己反傷出局。有人出局就直接天黑，被決鬥死亡的人可以留遺言。",
+  LIGHT_DREAMER: "每晚可選一人攝夢，可自守；當晚免疫狼刀、女巫毒藥和黑暗攝夢人的魅惑；連續兩晚攝夢同一人會讓他出局。夢到黑暗攝夢人則魅惑不發動，夢到黑暗獵人則他不能開槍。",
+  LIGHT_HUNTER: "被毒、被狼刀、被攝夢夢亡、被魅惑連帶出局都可以開槍，帶走一名玩家。",
+  DARK_SEER: "每晚查驗一名玩家的真實身分；回歸狼隊前不和其他黑暗角色見面。其他黑暗角色全部出局、或被黑暗騎士決鬥後，加入狼隊參與夜晚擊殺。可以自爆。",
+  DARK_WITCH: "只有一瓶毒藥，只能在第二夜使用；可自爆、自刀。",
+  DARK_KNIGHT: "白天發言時可決鬥一次（自己不會死）：平民 → 平民出局；光明神職 → 技能封鎖一晚；黑暗預言家 → 當晚回歸狼隊；光明騎士 → 自己反傷出局。可自爆、自刀。",
+  DARK_DREAMER: "每晚魅惑一名玩家；出局時魅惑對象仍存活就一同出局（被光明騎士決鬥或被攝夢時不發動）。最後出局時魅惑帶走最後一名光明或平民，黑暗仍然獲勝。不能自爆、不能被自刀。",
+  DARK_HUNTER: "白天被放逐時可以帶走一人，但帶不走光明獵人；被騎士決鬥、被毒、被攝夢時不能開槍。可自爆、自刀。",
 };
-const CAUSE = { wolf: "被狼殺", poison: "被毒死", vote: "被放逐", shot: "被獵人帶走", claw: "被狼王爪帶走", dream: "夢遊出局", trade: "交易失敗", explode: "自爆", charm: "被迷魅一同出局", reflect: "被虎姑婆反傷", duel: "被騎士決鬥", duel_fail: "決鬥失敗" };
+const CAUSE = { wolf: "被狼殺", poison: "被毒死", vote: "被放逐", shot: "被獵人帶走", claw: "被狼王爪帶走", dream: "夢遊出局", trade: "交易失敗", explode: "自爆", charm: "被迷魅一同出局", reflect: "被虎姑婆反傷", duel: "被騎士決鬥", duel_fail: "決鬥失敗", backlash: "使用毒藥後陣亡" };
 const board = (w, gods, v, king) => [...(king ? [king] : []), ...Array(w).fill("WEREWOLF"), ...gods, ...Array(v).fill("VILLAGER")];
 const PRESETS = [
   { name: "9 人局", desc: "3 狼｜預言家、女巫、獵人｜3 平民", roles: board(3, ["SEER", "WITCH", "HUNTER"], 3) },
@@ -376,7 +376,7 @@ class Game {
     this.lightDark = this.players.some(p => LIGHT.has(p.role) || DARK.has(p.role));
     this.duelUsed = new Set(); this.duelTargets = new Set(); this.duelDay = null;
     this.skillSuppressedUntil = new Map(); this.darkSeerAwake = false; this.darkCharm = null; this.darkPoisonUsed = false;
-    this.lightDreamLast = null;
+    this.lightDreamLast = null; this.hunterJammedDay = new Map(); this.electionPending = false; this.electionPostponed = false;
     this.knightGold = new Set();  // 騎士決鬥失敗而證實是好人的人（騎金）
     this.badgeFrom = new Map();   // 新警長 -> 把警徽交給他的前任警長
     this.findings = [];           // 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
@@ -407,7 +407,7 @@ class Game {
         const roles = Object.keys(seers);
         const realRole = roles[Math.floor(Math.random() * roles.length)];
         this.claimRaceSeers = new Set([seers[realRole]]);
-        const wolfCount = Math.random() < 0.5 ? 1 : 2;
+        const wolfCount = Math.min(Math.random() < 0.5 ? 1 : 2, wolves.length);  // 自訂板子可能只有 1 隻狼
         const wolfPool = [...wolves];
         const chosenWolves = [];
         while (chosenWolves.length < wolfCount) chosenWolves.push(take(wolfPool));
@@ -429,7 +429,8 @@ class Game {
   claimedRole(s) { return this.claims.get(s)?.role ?? null; }
   seerClaims() {
     const m = new Map();
-    for (const [s, c] of this.claims) if (c.role === "SEER") m.set(s, new Map(c.checks));
+    const roles = this.lightDark ? ["SEER", "LIGHT_SEER"] : ["SEER"];
+    for (const [s, c] of this.claims) if (roles.includes(c.role)) m.set(s, new Map(c.checks));
     return m;
   }
   canWitchSave(witch, victim) {
@@ -494,8 +495,9 @@ class Game {
   checkWinner() {
     const alive = this.alive();
     if (this.lightDark) {
-      if (!alive.some(p => this.alignment(p) === "DARK")) return "LIGHT";
+      // 屠神或屠民優先：魅惑連動帶走最後一名光明或平民時，黑暗仍然獲勝
       if (!this.players.some(p => p.alive && LIGHT.has(p.role)) || !this.players.some(p => p.alive && p.role === "VILLAGER")) return "DARK";
+      if (!alive.some(p => this.alignment(p) === "DARK")) return "LIGHT";
       return null;
     }
     if (!alive.some(p => WOLVES.has(p.role))) return "GOOD";
@@ -563,53 +565,68 @@ class Game {
       if (alive.has(t)) { dream = t; repeat = t === this.lightDreamLast; this.secret(`光明攝夢人 ${dreamer.seat}號 攝夢 ${t}號${repeat ? "（連續兩晚）" : ""}`); }
       this.lightDreamLast = dream;
     }
+    rec.dream = dream;
     const darkDreamer = this.aliveWithRole("DARK_DREAMER");
     if (darkDreamer && !suppressed(darkDreamer)) {
       const t = await this.ctrl[darkDreamer.seat].chooseCharm(this, darkDreamer);
-      if (alive.has(t) && t !== darkDreamer.seat) { this.darkCharm = t; this.secret(`黑暗攝夢人 ${darkDreamer.seat}號 迷魅 ${t}號`); }
+      if (alive.has(t) && t !== darkDreamer.seat) {
+        // 被攝夢的人免疫魅惑；黑暗攝夢人自己被攝夢時魅惑不發動
+        if (dream === t || dream === darkDreamer.seat) { this.darkCharm = null; this.secret(`黑暗攝夢人 ${darkDreamer.seat}號 迷魅 ${t}號，但被光明攝夢人擋下`); }
+        else { this.darkCharm = t; this.secret(`黑暗攝夢人 ${darkDreamer.seat}號 迷魅 ${t}號`); }
+      }
     }
+    const darkHunter = this.aliveWithRole("DARK_HUNTER");
+    if (darkHunter && dream === darkHunter.seat) this.hunterJammedDay.set(darkHunter.seat, n);  // 隔天被放逐也不能開槍
     const pack = this.activeDarkPack();
     if (pack.length) {
       const leader = pack.find(p => this.ctrl[p.seat].isHuman) || pack[0];
       let t = await this.ctrl[leader.seat].chooseKill(this, leader);
-      if (alive.has(t) && this.alignment(this.p(t)) === "DARK" && (t !== leader.seat || leader.role === "DARK_DREAMER")) t = null;
+      if (alive.has(t) && this.p(t).role === "DARK_DREAMER") t = null;  // 除黑暗攝夢人外，黑暗角色都可以被自刀
       rec.kill = alive.has(t) ? t : null;
       this.secret(rec.kill == null ? "黑暗陣營空刀" : `黑暗陣營（${pack.map(p => p.seat).join("、")}號）殺 ${rec.kill}號`);
     }
     const lightWitch = this.aliveWithRole("LIGHT_WITCH"), darkWitch = this.aliveWithRole("DARK_WITCH");
-    let lightAction = null;
+    let lightPoisoned = false;
     if (lightWitch && !suppressed(lightWitch)) {
       const [action, target] = await this.ctrl[lightWitch.seat].witchAction(this, lightWitch, this.antidote ? rec.kill : null);
-      lightAction = action;
       if (action === "save" && this.canWitchSave(lightWitch, rec.kill)) { rec.saved = true; this.antidote = false; this.secret(`光明女巫 ${lightWitch.seat}號 使用解藥`); }
-      else if (action === "poison" && alive.has(target)) { rec.poison = target; this.poison = false; this.secret(`光明女巫 ${lightWitch.seat}號 毒了 ${target}號`); }
+      else if (action === "poison" && this.poison && alive.has(target)) { rec.poison = target; this.poison = false; lightPoisoned = true; this.secret(`光明女巫 ${lightWitch.seat}號 毒了 ${target}號`); }
     }
-    if (darkWitch && n === 2 && !suppressed(darkWitch)) {
-      const [, target] = await this.ctrl[darkWitch.seat].witchAction(this, darkWitch, null);
-      if (alive.has(target) && LIGHT.has(this.p(target).role)) {
+    if (darkWitch && n === 2 && !this.darkPoisonUsed && !suppressed(darkWitch)) {
+      const [action, target] = await this.ctrl[darkWitch.seat].witchAction(this, darkWitch, null);
+      if (action === "poison" && alive.has(target)) {  // 一瓶毒藥、只能在第二夜用，可以毒任何人
         this.darkPoisonUsed = true;
         if (rec.poison == null) rec.poison = target; else rec.extraPoison = target;
         this.secret(`黑暗女巫 ${darkWitch.seat}號 毒了 ${target}號`);
       }
     }
-    for (const role of ["LIGHT_SEER", "DARK_SEER"]) {
+    // 黑暗預言家先驗：光明預言家驗到黑暗預言家時，會看到他當晚查驗對象的身分
+    let darkSeerTarget = null;
+    for (const role of ["DARK_SEER", "LIGHT_SEER"]) {
       const seer = this.aliveWithRole(role); if (!seer || suppressed(seer)) continue;
-      const options = this.aliveSeats().filter(s => s !== seer.seat);
+      const options = this.checkOptions(seer);
       const t = options.length ? await this.ctrl[seer.seat].chooseCheck(this, seer) : null;
       if (!options.includes(t)) continue;
-      const r = this.p(t).role;
-      const identity = role === "LIGHT_SEER" ? (DARK_PACK.has(r) ? "狼人" : R[r]) : (!this.darkSeerAwake && (DARK_PACK.has(r) || r === "VILLAGER") ? "狼人" : R[r]);
+      let identity;
+      if (role === "DARK_SEER") { darkSeerTarget = t; identity = R[this.p(t).role]; }
+      else {
+        const shown = this.p(t).role === "DARK_SEER" ? darkSeerTarget : t;
+        if (shown == null) identity = "看不出身分（他今晚沒有查驗）";
+        else { const r = this.p(shown).role; identity = DARK_PACK.has(r) ? "狼人" : R[r]; }
+      }
       rec.identityCheck = [t, identity];
       await this.ctrl[seer.seat].onIdentityCheck(this, seer, t, identity);
       this.secret(`${R[role]} ${seer.seat}號 查驗 ${t}號 → ${identity}`);
     }
     rec.deaths = new Map();
     if (rec.kill != null && !rec.saved) rec.deaths.set(rec.kill, "wolf");
-    if (dream != null && rec.deaths.get(dream) === "wolf") rec.deaths.delete(dream);  // 強攝只擋夜刀，不擋毒藥
     for (const t of [rec.poison, rec.extraPoison]) if (t != null) rec.deaths.set(t, "poison");
-    if (repeat && dream != null) rec.deaths.set(dream, "dream");
-    if (n === 1 && lightWitch && rec.deaths.get(lightWitch.seat) === "wolf") rec.deaths.delete(lightWitch.seat);
-    if (n === 2 && lightWitch && lightAction === "save" && !rec.deaths.has(lightWitch.seat)) rec.deaths.set(lightWitch.seat, "poison");
+    if (dream != null) {
+      if (repeat) rec.deaths.set(dream, "dream");  // 連續兩晚攝夢同一人 → 出局
+      else if (["wolf", "poison"].includes(rec.deaths.get(dream))) { rec.deaths.delete(dream); this.secret(`${dream}號 被攝夢，免疫今晚的狼刀和毒藥`); }
+    }
+    if (n === 1 && lightWitch && rec.deaths.get(lightWitch.seat) === "wolf") { rec.deaths.delete(lightWitch.seat); this.secret(`光明女巫 ${lightWitch.seat}號 首夜受刀後存活`); }
+    if (n === 2 && lightWitch && lightPoisoned && !rec.deaths.has(lightWitch.seat)) { rec.deaths.set(lightWitch.seat, "backlash"); this.secret(`光明女巫 ${lightWitch.seat}號 第二晚使用毒藥後陣亡`); }
     if (darkDreamer && rec.deaths.has(darkDreamer.seat) && alive.has(this.darkCharm) && !rec.deaths.has(this.darkCharm)) rec.deaths.set(this.darkCharm, "charm");
     for (const [s, c] of rec.deaths) await this.markDead(s, c);
     this.nights.push(rec); return rec;
@@ -802,7 +819,7 @@ class Game {
     const n = this.nightNo;
     this.days.push({ day: n, speeches: [], votes: new Map(), pkVotes: new Map(), exiled: null, events: [], exploded: null });
     this.io.phase("day", `第 ${n} 天`, "天亮了");
-    if (n === 1 && this.rules.sheriff && !this.lightDark) await this.runElection();  // 先競選警長，再公布死訊
+    if (this.rules.sheriff && (n === 1 || this.electionPending)) { this.electionPending = false; await this.runElection(); }  // 先競選警長，再公布死訊
     const dead = [...rec.deaths.keys()].sort(bySeat);
     this.say(dead.length ? `昨晚死亡的是：${dead.map(s => s + "號").join("、")}` : "昨晚是平安夜，沒有人死亡。", "event");
     this.io.update(this);
@@ -838,8 +855,14 @@ class Game {
     for (const s of running) {
       const p = this.p(s);
       if (await this.tryExplode(p)) {
-        this.say("警長競選中有人自爆，警徽流失。", "event");
-        this.sheriffLog.push(`${s}號 警上自爆，警徽流失`);
+        if (this.lightDark && !this.electionPostponed) {  // 雙爆才吞警徽
+          this.electionPostponed = this.electionPending = true;
+          this.say("警長競選中有人自爆，警長競選延到明天。", "event");
+          this.sheriffLog.push(`${s}號 警上自爆，警長競選延到隔天`);
+        } else {
+          this.say("警長競選中有人自爆，警徽流失。", "event");
+          this.sheriffLog.push(`${s}號 警上自爆，警徽流失${this.lightDark ? "（雙爆吞警徽）" : ""}`);
+        }
         this.phase = "day"; return;
       }
       const sp = await this.ctrl[s].speak(this, p);
@@ -861,7 +884,7 @@ class Game {
     if (leaders.length !== 1) { this.say("沒有人勝出，警徽流失。", "event"); this.sheriffLog.push("警徽流失（平票）"); }
     else {
       this.sheriff = leaders[0];
-      this.sheriffLog.push(`第 1 天 ${this.sheriff}號 當選警長`);
+      this.sheriffLog.push(`第 ${this.nightNo} 天 ${this.sheriff}號 當選警長`);
       this.say(`${this.sheriff}號 當選警長！投票算 1.5 票，決定發言方向並最後發言。`, "event");
     }
     this.phase = "day";
@@ -1021,7 +1044,7 @@ class Game {
   async kill(s, cause) {
     await this.markDead(s, cause);
     const c = this.lightDark ? this.darkCharm : this.charm;
-    const charmDeath = this.lightDark ? this.p(s).role === "DARK_DREAMER" && !["duel", "shot"].includes(cause) : this.p(s).role === "WOLF_BEAUTY" && cause !== "duel";
+    const charmDeath = this.lightDark ? this.p(s).role === "DARK_DREAMER" && cause !== "duel" : this.p(s).role === "WOLF_BEAUTY" && cause !== "duel";
     if (charmDeath && c != null && this.p(c).alive) {
       this.say(`${c}號 被${this.lightDark ? "黑暗攝夢人" : "狼美人"}迷魅，一同出局。`, "event");
       await this.markDead(c, "charm");
@@ -1045,12 +1068,14 @@ class Game {
       if (knight.role === "LIGHT_KNIGHT") {
         if (LIGHT.has(target.role)) { this.skillSuppressedUntil.set(t, this.nightNo + 1); this.say(`${knight.seat}號 光明騎士決鬥光明神職，技能封鎖一夜。`, "event"); return null; }
         if (target.role === "DARK_KNIGHT") { this.say(`${knight.seat}號 光明騎士撞上黑暗騎士，反傷出局。`, "event"); await this.kill(knight.seat, "duel_fail"); return false; }
-        await this.kill(t, "duel"); await this.deathTrigger(t, "duel"); this.say(`${knight.seat}號 光明騎士決鬥，${t}號出局。`, "event"); return true;
+        this.say(`${knight.seat}號 光明騎士決鬥，${t}號出局。`, "event"); await this.kill(t, "duel");
+        if (this.checkWinner() == null) await this.lastWords(t);  // 被決鬥死亡的玩家可以留遺言
+        await this.deathTrigger(t, "duel"); return true;
       }
       if (target.role === "LIGHT_KNIGHT") { this.say(`${knight.seat}號 黑暗騎士撞上光明騎士，反傷出局。`, "event"); await this.kill(knight.seat, "duel_fail"); return false; }
       if (target.role === "DARK_SEER") { this.darkSeerAwake = true; this.say(`黑暗騎士決鬥 ${t}號，黑暗預言家當晚加入狼隊。`, "event"); return null; }
       if (LIGHT.has(target.role)) { this.skillSuppressedUntil.set(t, this.nightNo + 1); this.say(`${knight.seat}號 黑暗騎士封鎖 ${t}號技能一夜。`, "event"); return null; }
-      if (target.role === "VILLAGER") { await this.kill(t, "duel"); this.say(`${knight.seat}號 黑暗騎士決鬥，${t}號平民出局。`, "event"); return true; }
+      if (target.role === "VILLAGER") { this.say(`${knight.seat}號 黑暗騎士決鬥，${t}號平民出局。`, "event"); await this.kill(t, "duel"); if (this.checkWinner() == null) await this.lastWords(t); return true; }
       this.say(`${knight.seat}號 黑暗騎士決鬥 ${t}號，沒有人出局。`, "event"); return null;
     }
     if (this.knightUsed) return null;
@@ -1075,16 +1100,17 @@ class Game {
   async deathTrigger(s, cause) {
     const p = this.p(s);
     const specialHunter = this.lightDark && ["LIGHT_HUNTER", "DARK_HUNTER"].includes(p.role);
-    if (specialHunter && p.role === "DARK_HUNTER" && cause !== "vote") return;
+    if (specialHunter && p.role === "DARK_HUNTER" && (cause !== "vote" || this.hunterJammedDay.get(s) === this.nightNo)) return;  // 前一晚被攝夢則不能開槍
+    if (specialHunter && p.role === "LIGHT_HUNTER" && this.phase === "night" && (this.skillSuppressedUntil.get(s) || 0) >= this.nightNo) return;
     const hunter = ["HUNTER", "LIGHT_HUNTER", "DARK_HUNTER"].includes(p.role);
     const shots = hunter ? 1 : (this.claws[s] || 0);
     if (shots <= 0) return;
     const c = this.ctrl[s];
-    if (cause === "poison" || cause === "dream" || (p.role === "DARK_HUNTER" && ["charm", "duel"].includes(cause))) { await c.hunterPoisoned(this, p); this.secret(`${s}號 因${CAUSE[cause]}，不能發動技能`); return; }
+    if ((cause === "poison" || cause === "dream") && !(this.lightDark && p.role === "LIGHT_HUNTER")) { await c.hunterPoisoned(this, p); this.secret(`${s}號 因${CAUSE[cause]}，不能發動技能`); return; }
     for (let i = 0; i < shots; i++) {
       const t = await c.hunterShoot(this, p);
       if (t == null || t === s || !this.p(t).alive) { if (!p.revealed) this.secret(`${s}號 選擇不發動技能`); return; }
-      if (this.lightDark && p.role === "DARK_HUNTER" && this.p(t).role === "LIGHT_SEER") { this.secret(`黑暗獵人 ${s}號 不能帶走光明預言家`); return; }
+      if (this.lightDark && p.role === "DARK_HUNTER" && this.p(t).role === "LIGHT_HUNTER") { this.secret(`黑暗獵人 ${s}號 帶不走光明獵人`); return; }
       if (!hunter) this.claws[s]--;
       p.revealed = true;
       const label = p.role === "WEREWOLF" ? "狼人（親傳狼王爪）" : R[p.role];
@@ -1118,7 +1144,7 @@ class Game {
       const day = prev && prev.role === sp.claim ? prev.day : this.nightNo;  // 第一次跳這個身份是第幾天
       this.claims.set(s, { role: sp.claim, checks, day });
     }
-    if (sp.checks.size && ["SEER", "LANTERN"].includes(this.claimedRole(s))) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
+    if (sp.checks.size && ["SEER", "LANTERN", "LIGHT_SEER"].includes(this.claimedRole(s))) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
     if (this.today) this.today.speeches.push(sp);
     for (const f of sp.findings || []) this.findings.push({ ...f, speaker: s, day: this.nightNo });
   }
@@ -1132,7 +1158,7 @@ const PERSONALITY_KEYS = Object.keys(PERSONALITIES).filter(k => PERSONALITIES[k]
 
 // ================================================================ 電腦玩家
 class Bot {
-  constructor(personality = null) { this.personality = personality; this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); this.reasons = new Map(); }
+  constructor(personality = null) { this.personality = personality; this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); this.reasons = new Map(); this.identityChecks = new Map(); }
   setup(g, me) {
     this.P = this.personality || PERSONALITIES.rational;
     for (const p of g.players) this.pref[p.seat] = Math.random();
@@ -1297,6 +1323,20 @@ class Bot {
   }
   analyzeBase(g, me) {
     const claims = g.seerClaims();
+    if (g.lightDark) {
+      const fromChecks = withMe => {
+        const wolf = new Set([...this.identityChecks].filter(([, l]) => l === "狼人").map(([t]) => t));
+        const good = new Set([...(withMe ? [me.seat] : []), ...[...this.identityChecks].filter(([, l]) => l !== "狼人").map(([t]) => t)]);
+        return { good, wolf, trusted: null, claims };
+      };
+      if (me.role === "LIGHT_SEER") return fromChecks(true);
+      if (DARK_PACK.has(me.role) || (me.role === "DARK_SEER" && g.darkSeerAwake)) {
+        const dark = new Set(g.players.filter(p => DARK.has(p.role)).map(p => p.seat));
+        const known = g.darkSeerAwake ? dark : new Set([...dark].filter(s => g.p(s).role !== "DARK_SEER"));
+        return { good: new Set(g.players.map(p => p.seat).filter(s => !dark.has(s))), wolf: known, trusted: null, claims };
+      }
+      if (me.role === "DARK_SEER") return fromChecks(false);
+    }
     if (isWolf(me)) {
       const wolf = new Set(g.players.filter(isWolf).map(p => p.seat));
       return { good: new Set(g.players.map(p => p.seat).filter(s => !wolf.has(s))), wolf, trusted: null, claims };
@@ -1529,9 +1569,10 @@ class Bot {
     return opts.length ? choice(opts) : null;
   }
   chooseKill(g, me) {
-    const good = g.alive().filter(p => !g.isEnemy(p)).map(p => p.seat);
+    let good = g.alive().filter(p => !g.isEnemy(p)).map(p => p.seat);
+    if (g.lightDark && me.role === "DARK_DREAMER") good = good.filter(s => s !== me.seat);
     if (!good.length) return null;
-    const hunters = new Set(good.filter(s => g.claimedRole(s) === "HUNTER"));
+    const hunters = new Set(good.filter(s => ["HUNTER", "LIGHT_HUNTER"].includes(g.claimedRole(s))));
     const claims = g.seerClaims();
     const real = [...[...claims.keys()].filter(c => good.includes(c)), ...[...g.claimsOf("LANTERN").keys()].filter(c => good.includes(c))];
     const witches = good.filter(s => g.claimedRole(s) === "WITCH");
@@ -1544,10 +1585,20 @@ class Bot {
     const pool = good.filter(s => !hunters.has(s));
     return choice(pool.length ? pool : good);
   }
+  // 黑暗電腦挑目標：只看公開宣稱與自己的懷疑，不偷看真實身分
+  lightTargets(g, me) {
+    const k = this.analyze(g, me);
+    const pool = g.aliveSeats().filter(s => s !== me.seat && !k.wolf.has(s));
+    const claimed = pool.filter(s => LIGHT.has(g.claimedRole(s)));
+    if (claimed.length) return claimed;
+    const score = this.suspicion(g, me, k);
+    return pool.sort((a, b) => (score.get(a) || 0) - (score.get(b) || 0)).slice(0, 3);
+  }
   witchAction(g, me, victim) {
     if (me.role === "DARK_WITCH") {
       if (g.nightNo !== 2 || g.darkPoisonUsed) return [null, null];
-      const opts = g.alive().filter(p => LIGHT.has(p.role)).map(p => p.seat);
+      // 只能靠公開資訊：優先毒跳光明職業的人，否則照自己的判斷挑一個非隊友
+      const opts = this.lightTargets(g, me);
       return opts.length ? ["poison", choice(opts)] : [null, null];
     }
     if (victim != null && g.canWitchSave(me, victim)) {
@@ -1564,7 +1615,7 @@ class Bot {
     return [null, null];
   }
   chooseCheck(g, me) {
-    if (g.lightDark) { const opts = g.aliveSeats().filter(s => s !== me.seat); return opts.length ? choice(opts) : null; }
+    if (g.lightDark) { const opts = g.checkOptions(me); return opts.length ? choice(opts) : null; }
     const opts = g.checkOptions(me);  // 可能被虎姑婆誘導限制
     let pool = opts.filter(s => !this.checks.has(s) && !this.raw.has(s));
     if (!pool.length) pool = opts;
@@ -1580,15 +1631,15 @@ class Bot {
     if (g.hasLantern && (me.role === "SEER" || me.role === "LANTERN")) this.raw.set(t, w);  // 不知道自己準不準
     else this.checks.set(t, w);
   }
-  onIdentityCheck(g, me, t, identity) { this.checks.set(t, identity); }
+  onIdentityCheck(g, me, t, identity) { this.identityChecks.set(t, identity); }
   speak(g, me) {
     const sp = this.speech(g, me, false);
-    if (this.P.detective && !isWolf(me)) this.addFindings(g, me, sp);
+    if (this.P.detective && !g.isEnemy(me)) this.addFindings(g, me, sp);
     return sp;
   }
   lastWords(g, me) {
     const sp = this.speech(g, me, true);
-    if (this.P.detective && !isWolf(me)) this.addFindings(g, me, sp);
+    if (this.P.detective && !g.isEnemy(me)) this.addFindings(g, me, sp);
     return sp;
   }
   accusedToday(g, me) { return !!g.today && g.today.speeches.some(sp => sp.accuse === me.seat); }
@@ -1610,6 +1661,13 @@ class Bot {
         const accuse = [...aliveWolves, ...rivals, top][0];
         return mkSpeech(me.seat, { claim: "SEER", checks: new Map(this.checks), accuse, text: rivals.length ? "對跳的那位是悍跳狼！" : "" });
       }
+    }
+    if (me.role === "LIGHT_SEER" && this.identityChecks.size) {
+      // 報出全部查驗（狼人=查殺），只歸票驗到的狼，其他照自己的判斷
+      const checks = new Map([...this.identityChecks].map(([t, l]) => [t, l === "狼人"]));
+      const wolves = [...checks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
+      const [t, l] = [...this.identityChecks].pop();
+      return mkSpeech(me.seat, { claim: "LIGHT_SEER", checks, accuse: [...wolves, top][0], text: `我昨晚查驗 ${t}號，結果是【${l}】` });
     }
     if (last) {
       let text = k.trusted != null ? `請相信 ${k.trusted}號 預言家` : "大家加油";
@@ -1686,13 +1744,8 @@ class Bot {
     return good.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a);
   }
   vote(g, me, cands) {
-    if (g.lightDark) {
-      const pool = cands.filter(s => me.role === "VILLAGER" ? Math.random() < 0.5 ? g.alignment(g.p(s)) === "DARK" : g.alignment(g.p(s)) === "LIGHT" :
-        (g.alignment(me) === "DARK" ? LIGHT.has(g.p(s).role) || g.p(s).role === "VILLAGER" : g.alignment(g.p(s)) === "DARK"));
-      return pool.length ? choice(pool) : null;
-    }
     const k = this.analyze(g, me);
-    if (isWolf(me)) {
+    if (g.isEnemy(me)) {
       const key = "vote" + g.nightNo;
       if (!cands.includes(g.wolfPlan[key])) g.wolfPlan[key] = this.wolfTarget(g);
       const t = g.wolfPlan[key];
@@ -1705,13 +1758,13 @@ class Bot {
     return top != null && score.get(top) < this.P.voteBar ? null : top;  // 不夠可疑就棄票
   }
   hunterShoot(g, me) {
-    if (g.lightDark) {
-      const pool = g.alive().filter(p => p.seat !== me.seat && (me.role === "LIGHT_HUNTER" ? g.isEnemy(p) : (LIGHT.has(p.role) || p.role === "VILLAGER") && p.role !== "LIGHT_SEER")).map(p => p.seat);
+    if (g.lightDark && me.role === "DARK_HUNTER") {  // 帶不走光明獵人：避開跳光明獵人的人（只能看公開宣稱）
+      const pool = this.lightTargets(g, me).filter(s => g.claimedRole(s) !== "LIGHT_HUNTER");
       return pool.length ? choice(pool) : null;
     }
     const k = this.analyze(g, me);
-    if (isWolf(me)) {  // 狼王爪：帶走最有威脅的好人
-      const good = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
+    if (g.isEnemy(me)) {  // 狼王爪：帶走最有威脅的好人
+      const good = g.alive().filter(p => !g.isEnemy(p)).map(p => p.seat);
       const claims = g.seerClaims();
       const threats = [...[...claims.keys()].filter(c => good.includes(c)), ...good.filter(s => ["WITCH", "DREAMER", "MERCHANT"].includes(g.claimedRole(s)))];
       return threats.length ? threats[0] : (good.length ? choice(good) : null);
@@ -1726,6 +1779,10 @@ class Bot {
     const opts = g.aliveSeats().filter(s => me.role === "LIGHT_DREAMER" || s !== me.seat);
     if (!opts.length) return null;
     const k = this.analyze(g, me);
+    if (g.lightDark && me.role === "LIGHT_DREAMER") {
+      const wolves = [...k.wolf].filter(s => opts.includes(s));
+      return choice(wolves.length ? wolves : opts);
+    }
     if (k.wolf.has(g.lastDream) && opts.includes(g.lastDream)) return g.lastDream;  // 連夢處決確定的狼
     const certain = [...k.wolf].filter(s => opts.includes(s));
     if (certain.length && Math.random() < 0.5) return certain[0];
@@ -1830,13 +1887,13 @@ class Bot {
   }
   runForSheriff(g, me) {
     if (g.claimRace && g.claimRaceCandidates.has(me.seat)) return true;
-    if (me.role === "SEER" && this.checks.size) return Math.random() < 0.9;  // 真預言家上警
-    if (isWolf(me) && (g.wolfPlan.fakeSeers || []).includes(me.seat)) return true;  // 悍跳狼搶警徽
-    return Math.random() < this.P.runSheriff + (isWolf(me) ? 0.05 : 0);
+    if (["SEER", "LIGHT_SEER", "DARK_SEER"].includes(me.role) && (this.checks.size || this.identityChecks.size)) return Math.random() < 0.9;  // 真預言家上警
+    if (g.isEnemy(me) && (g.wolfPlan.fakeSeers || []).includes(me.seat)) return true;  // 悍跳狼搶警徽
+    return Math.random() < this.P.runSheriff + (g.isEnemy(me) ? 0.05 : 0);
   }
   sheriffVote(g, me, cands) {
     const k = this.analyze(g, me);
-    if (isWolf(me)) {
+    if (g.isEnemy(me)) {
       const wolves = cands.filter(c => k.wolf.has(c));
       if (wolves.length) return wolves[0];
       const real = new Set(g.seerClaims().keys());
@@ -1853,7 +1910,7 @@ class Bot {
     const alive = g.aliveSeats().filter(s => s !== me.seat);
     if (!alive.length) return null;
     const k = this.analyze(g, me);
-    if (isWolf(me)) {
+    if (g.isEnemy(me)) {
       const mates = alive.filter(s => k.wolf.has(s));
       return mates.length && Math.random() < 0.6 ? choice(mates) : null;
     }
@@ -1867,6 +1924,7 @@ class Bot {
   }
   chooseDirection() { return Math.random() < 0.5 ? "left" : "right"; }
   selfExplode(g, me) {
+    if (g.lightDark && DARK.has(me.role)) return me.role !== "DARK_DREAMER" && Math.random() < 0.04 * this.P.explode;
     const wolvesAlive = g.alive().filter(isWolf).length;
     if (wolvesAlive < 2 || (g.nightNo > 1 && Math.random() < 0.5)) return false;
     const claims = g.seerClaims();
@@ -1898,13 +1956,13 @@ class Human {
   chooseKill(g, me) {
     const enemyTeam = g.lightDark ? "黑暗" : "狼";
     const mates = g.lightDark ? g.activeDarkPack().filter(p => p.seat !== me.seat).map(p => p.seat) : g.alive().filter(p => isWolf(p) && p.seat !== me.seat).map(p => p.seat);
-    const seats = g.lightDark ? g.aliveSeats().filter(s => !g.isEnemy(g.p(s)) || (s === me.seat && me.role !== "DARK_DREAMER")) : g.aliveSeats();
+    const seats = g.lightDark ? g.aliveSeats().filter(s => g.p(s).role !== "DARK_DREAMER") : g.aliveSeats();  // 除黑暗攝夢人外都可以刀（可以自刀）
     return this.ui.pickSeat({ title: `${enemyTeam}陣營：今晚要殺誰？`, note: `存活的隊友：${mates.length ? mates.join("、") + "號" : "無"}`, seats, none: "空刀", mark: mates });
   }
   async witchAction(g, me, victim) {
     if (me.role === "DARK_WITCH") {
       if (g.nightNo !== 2 || g.darkPoisonUsed) { this.ui.say("黑暗女巫只有第二夜能使用毒藥。", "private"); return [null, null]; }
-      const t = await this.ui.pickSeat({ title: "黑暗女巫：選擇要毒的光明陣營玩家", seats: g.alive().filter(p => LIGHT.has(p.role)).map(p => p.seat), none: "不使用毒藥" });
+      const t = await this.ui.pickSeat({ title: "黑暗女巫：要毒殺誰？", note: "黑暗女巫只有一瓶毒藥，只能在第二夜使用。", seats: g.aliveSeats().filter(s => s !== me.seat), none: "不使用毒藥" });
       return t == null ? [null, null] : ["poison", t];
     }
     const potions = `解藥：${g.antidote ? "有" : "已用"}　毒藥：${g.poison ? "有" : "已用"}`;
@@ -1942,7 +2000,7 @@ class Human {
   }
   hunterShoot(g, me) {
     const others = g.aliveSeats().filter(s => s !== me.seat);
-    if (g.lightDark && me.role === "DARK_HUNTER") return this.ui.pickSeat({ title: "黑暗獵人：被放逐後要帶走誰？（不能選光明預言家）", seats: others.filter(s => g.p(s).role !== "LIGHT_SEER"), none: "不發動" });
+    if (g.lightDark && me.role === "DARK_HUNTER") return this.ui.pickSeat({ title: "黑暗獵人：被放逐後要帶走誰？", note: "帶不走光明獵人。", seats: others, none: "不發動" });
     if (g.lightDark && me.role === "LIGHT_HUNTER") return this.ui.pickSeat({ title: "光明獵人：要開槍帶走誰？", seats: others, none: "不開槍" });
     if (me.role === "HUNTER") return this.ui.pickSeat({ title: "獵人：要開槍帶走誰？", seats: others, none: "不開槍" });
     return this.ui.pickSeat({ title: "狼王爪：要帶走誰？", note: `剩 ${g.claws[me.seat] || 0} 次`, seats: others, none: "不發動" });

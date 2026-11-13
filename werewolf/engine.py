@@ -24,6 +24,7 @@ DEATH_CAUSES = {
     "reflect": "被虎姑婆反傷",
     "duel": "被騎士決鬥",
     "duel_fail": "決鬥失敗以死謝罪",
+    "backlash": "使用毒藥後陣亡",
 }
 
 ITEMS = {"check": "查驗", "poison": "毒藥", "guard": "守護"}
@@ -241,6 +242,9 @@ class Game:
         self.dark_poison_used = False
         self.light_dream: int | None = None
         self.light_dream_last: int | None = None
+        self.hunter_jammed_day: dict[int, int] = {}   # 黑暗獵人被攝夢的那一天不能開槍
+        self.election_postponed = False                # 光明與黑暗：第一次警上自爆 → 警長競選延到隔天
+        self.election_pending = False
         self.knight_gold: set[int] = set()   # 騎士決鬥失敗而證實是好人的人（騎金）
         # 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張是反向查驗
         self.has_lantern = any(p.role is Role.LANTERN_SEER for p in self.players.values())
@@ -321,7 +325,8 @@ class Game:
 
     def seer_claims(self) -> dict[int, dict[int, bool]]:
         """所有跳過預言家的人及其宣稱的查驗（包含已死亡的人）。"""
-        return {s: dict(c["checks"]) for s, c in self.claims.items() if c["role"] is Role.SEER}
+        seer_roles = (Role.SEER, Role.LIGHT_SEER) if self.light_dark else (Role.SEER,)
+        return {s: dict(c["checks"]) for s, c in self.claims.items() if c["role"] in seer_roles}
 
     def can_witch_save(self, witch: Player, victim: int | None) -> bool:
         if victim is None or not self.antidote:
@@ -394,11 +399,12 @@ class Game:
     def check_winner(self) -> Team | None:
         alive = self.alive()
         if self.light_dark:
-            if not any(self.alignment(p) is Team.DARK for p in alive):
-                return Team.LIGHT
+            # 屠神或屠民優先：黑暗攝夢人最後出局、魅惑連動帶走最後一名光明或平民時，黑暗仍然獲勝
             if (not any(p.alive and p.role in LIGHT_GODS for p in self.players.values())
                     or not any(p.alive and p.role is Role.VILLAGER for p in self.players.values())):
                 return Team.DARK
+            if not any(self.alignment(p) is Team.DARK for p in alive):
+                return Team.LIGHT
             return None
         if not any(p.role.team is Team.WOLF for p in alive):  # 真狼全滅（轉狼的野孩子不用出局）
             return Team.GOOD
@@ -744,16 +750,23 @@ class Game:
         if dark_dreamer and self.skill_suppressed_until.get(dark_dreamer.seat, 0) < n:
             target = self.controllers[dark_dreamer.seat].choose_charm(self, dark_dreamer)
             if target in alive and target != dark_dreamer.seat:
-                self.dark_charm = target
-                self.secret(f"黑暗攝夢人({dark_dreamer.seat}號) 迷魅 {target}號")
+                if dream_target in (target, dark_dreamer.seat):
+                    # 被攝夢的人免疫魅惑；黑暗攝夢人自己被攝夢時魅惑不發動
+                    self.dark_charm = None
+                    self.secret(f"黑暗攝夢人({dark_dreamer.seat}號) 迷魅 {target}號，但被光明攝夢人擋下")
+                else:
+                    self.dark_charm = target
+                    self.secret(f"黑暗攝夢人({dark_dreamer.seat}號) 迷魅 {target}號")
+        dark_hunter = self.alive_with_role(Role.DARK_HUNTER)
+        if dark_hunter and dream_target == dark_hunter.seat:
+            self.hunter_jammed_day[dark_hunter.seat] = n   # 隔天被放逐也不能開槍
 
         wolves = self.active_dark_pack()
         if wolves:
             leader = next((p for p in wolves if self.controllers[p.seat].is_human), wolves[0])
             target = self.controllers[leader.seat].choose_kill(self, leader)
-            if target in alive and self.alignment(self.players[target]) is Team.DARK:
-                if target != leader.seat or leader.role is Role.DARK_DREAMER:
-                    target = None
+            if target in alive and self.players[target].role is Role.DARK_DREAMER:
+                target = None          # 自刀：除黑暗攝夢人外，黑暗角色都可以被自刀
             rec.kill = target if target in alive else None
             self.secret(f"黑暗陣營({ '、'.join(str(p.seat) for p in wolves)}號) 殺 {rec.kill}號" if rec.kill else "黑暗陣營空刀")
 
@@ -761,6 +774,7 @@ class Game:
         dark_witch = self.alive_with_role(Role.DARK_WITCH)
         light_action = light_target = None
         dark_action = dark_target = None
+        light_poisoned = False
         if light_witch and self.skill_suppressed_until.get(light_witch.seat, 0) < n:
             light_action, light_target = self.controllers[light_witch.seat].witch_action(
                 self, light_witch, rec.kill if self.antidote else None)
@@ -768,14 +782,15 @@ class Game:
                 rec.saved = True
                 self.antidote = False
                 self.secret(f"光明女巫({light_witch.seat}號) 使用解藥救人")
-            elif light_action == "poison" and light_target in alive:
+            elif light_action == "poison" and self.poison and light_target in alive:
                 rec.poison = light_target
                 self.poison = False
+                light_poisoned = True
                 self.secret(f"光明女巫({light_witch.seat}號) 毒了 {light_target}號")
-        if dark_witch and n == 2 and self.skill_suppressed_until.get(dark_witch.seat, 0) < n:
+        if dark_witch and n == 2 and not self.dark_poison_used \
+                and self.skill_suppressed_until.get(dark_witch.seat, 0) < n:
             dark_action, dark_target = self.controllers[dark_witch.seat].witch_action(self, dark_witch, None)
-            if dark_action == "poison" and dark_target in alive \
-                    and self.players[dark_target].role in LIGHT_ROLES:
+            if dark_action == "poison" and dark_target in alive:   # 一瓶毒藥、只能在第二夜用，可以毒任何人
                 self.dark_poison_used = True
                 if rec.poison is None:
                     rec.poison = dark_target
@@ -783,8 +798,9 @@ class Game:
                     rec.extra_poison = dark_target
                 self.secret(f"黑暗女巫({dark_witch.seat}號) 毒了 {dark_target}號")
 
-        seer_roles = (Role.LIGHT_SEER, Role.DARK_SEER)
-        for role in seer_roles:
+        # 黑暗預言家先驗：光明預言家驗到黑暗預言家時，會看到他當晚查驗對象的身分
+        dark_seer_target = None
+        for role in (Role.DARK_SEER, Role.LIGHT_SEER):
             seer = self.alive_with_role(role)
             if not seer or self.skill_suppressed_until.get(seer.seat, 0) >= n:
                 continue
@@ -792,13 +808,18 @@ class Game:
             target = self.controllers[seer.seat].choose_check(self, seer) if options else None
             if target not in options:
                 continue
-            target_role = self.players[target].role
-            if role is Role.LIGHT_SEER:
-                identity = "狼人" if target_role in DARK_PACK else target_role.value
-            elif not self.dark_seer_awake and target_role in (*DARK_PACK, Role.VILLAGER):
-                identity = "狼人"
+            if role is Role.DARK_SEER:
+                dark_seer_target = target
+                identity = self.players[target].role.value          # 黑暗預言家看到真實身分
             else:
-                identity = target_role.value
+                shown = target
+                if self.players[target].role is Role.DARK_SEER:
+                    shown = dark_seer_target
+                if shown is None:
+                    identity = "看不出身分（他今晚沒有查驗）"
+                else:
+                    shown_role = self.players[shown].role
+                    identity = "狼人" if shown_role in DARK_PACK else shown_role.value
             rec.identity_check = (target, identity)
             self.controllers[seer.seat].on_identity_check(self, seer, target, identity)
             self.secret(f"{role.value}({seer.seat}號) 查驗 {target}號 → {identity}")
@@ -806,19 +827,21 @@ class Game:
         rec.deaths = {}
         if rec.kill is not None and not rec.saved:
             rec.deaths[rec.kill] = "wolf"
-        if dream_target is not None and rec.deaths.get(dream_target) == "wolf":
-            rec.deaths.pop(dream_target, None)  # 強攝只擋黑暗夜刀，不擋毒藥
         for target in (rec.poison, rec.extra_poison):
             if target is not None:
                 rec.deaths[target] = "poison"
-        if dream_repeat and dream_target is not None:
-            rec.deaths[dream_target] = "dream"
+        if dream_target is not None:
+            if dream_repeat:
+                rec.deaths[dream_target] = "dream"      # 連續兩晚攝夢同一人 → 出局
+            elif rec.deaths.get(dream_target) in ("wolf", "poison"):
+                rec.deaths.pop(dream_target)            # 強攝：當晚免疫狼刀和毒藥
+                self.secret(f"{dream_target}號 被攝夢，免疫今晚的狼刀和毒藥")
         if n == 1 and light_witch and rec.deaths.get(light_witch.seat) == "wolf":
             rec.deaths.pop(light_witch.seat, None)
             self.secret(f"光明女巫({light_witch.seat}號) 首夜受刀後存活")
-        if n == 2 and light_witch and light_action == "save" and light_witch.seat not in rec.deaths:
-            rec.deaths[light_witch.seat] = "poison"
-            self.secret(f"光明女巫({light_witch.seat}號) 使用解藥後出局")
+        if n == 2 and light_witch and light_poisoned and light_witch.seat not in rec.deaths:
+            rec.deaths[light_witch.seat] = "backlash"
+            self.secret(f"光明女巫({light_witch.seat}號) 第二晚使用毒藥後陣亡")
         if dark_dreamer and dark_dreamer.seat in rec.deaths and self.dark_charm in alive \
                 and self.dark_charm not in rec.deaths:
             rec.deaths[self.dark_charm] = "charm"
@@ -833,7 +856,8 @@ class Game:
         day = DayRecord(n)
         self.days.append(day)
         self.say(f"\n☀️  ===== 第 {n} 天 ===== 天亮了")
-        if n == 1 and self.rules.sheriff and not self.light_dark:
+        if self.rules.sheriff and (n == 1 or self.election_pending):
+            self.election_pending = False
             self.run_election()  # 真人局習慣：先競選警長，再公布昨晚死訊
         if not rec.deaths:
             self.say("昨晚是平安夜，沒有人死亡。")
@@ -874,8 +898,13 @@ class Game:
         for seat in running:
             p = self.players[seat]
             if self._try_explode(p):
-                self.say("警長競選中有人自爆，警徽流失。")
-                self.sheriff_log.append(f"{seat}號 警上自爆，警徽流失")
+                if self.light_dark and not self.election_postponed:
+                    self.election_postponed = self.election_pending = True   # 雙爆才吞警徽
+                    self.say("警長競選中有人自爆，警長競選延到明天。")
+                    self.sheriff_log.append(f"{seat}號 警上自爆，警長競選延到隔天")
+                else:
+                    self.say("警長競選中有人自爆，警徽流失。")
+                    self.sheriff_log.append(f"{seat}號 警上自爆，警徽流失" + ("（雙爆吞警徽）" if self.light_dark else ""))
                 self.phase = "day"
                 return
             speech = self.controllers[seat].speak(self, p)
@@ -897,7 +926,7 @@ class Game:
             self.sheriff_log.append("警徽流失（平票）")
         else:
             self.sheriff = leaders[0]
-            self.sheriff_log.append(f"第1天 {self.sheriff}號 當選警長")
+            self.sheriff_log.append(f"第{self.night_no}天 {self.sheriff}號 當選警長")
             self.say(f"🎖  {self.sheriff}號 當選警長！（投票算 1.5 票，決定發言方向並最後發言）")
         self.phase = "day"
 
@@ -1079,7 +1108,7 @@ class Game:
             self.say(f"💔 {c}號 被狼美人迷魅，一同出局。")
             self._mark_dead(c, "charm")
             self._death_trigger(c, "charm")
-        if p.role is Role.DARK_DREAMER and cause not in ("duel", "shot") \
+        if p.role is Role.DARK_DREAMER and cause != "duel" \
                 and self.dark_charm is not None and self.players[self.dark_charm].alive:
             self.say(f"💔 {self.dark_charm}號 被黑暗攝夢人迷魅，一同出局。")
             self._mark_dead(self.dark_charm, "charm")
@@ -1143,6 +1172,8 @@ class Game:
                 if target.role in DARK_ROLES or target.role is Role.VILLAGER:
                     self.say(f"⚔️  {knight.seat}號 光明騎士決鬥 {t}號：目標出局。")
                     self._kill(t, "duel")
+                    if self.check_winner() is None:
+                        self._last_words(t)       # 被決鬥死亡的玩家可以留遺言
                     self._death_trigger(t, "duel")
                     return True
             else:
@@ -1161,6 +1192,8 @@ class Game:
                 if target.role is Role.VILLAGER:
                     self.say(f"⚔️  {knight.seat}號 黑暗騎士決鬥 {t}號：目標出局。")
                     self._kill(t, "duel")
+                    if self.check_winner() is None:
+                        self._last_words(t)       # 被決鬥死亡的玩家可以留遺言
                     return True
             self.say(f"⚔️  {knight.seat}號 {knight.role.value}決鬥 {t}號，沒有人出局。")
             return None
@@ -1188,14 +1221,18 @@ class Game:
         """獵人開槍、狼王／覺醒狼王／親傳隊友發動狼王爪。"""
         p = self.players[seat]
         special_hunter = self.light_dark and p.role in (Role.LIGHT_HUNTER, Role.DARK_HUNTER)
-        if special_hunter and p.role is Role.DARK_HUNTER and cause != "vote":
-            return
+        if special_hunter and p.role is Role.DARK_HUNTER and (
+                cause != "vote" or self.hunter_jammed_day.get(seat) == self.night_no):
+            return   # 黑暗獵人只有白天被放逐能開槍；前一晚被攝夢則不能
+        if special_hunter and p.role is Role.LIGHT_HUNTER and self.phase == "night" \
+                and self.skill_suppressed_until.get(seat, 0) >= self.night_no:
+            return   # 被決鬥封鎖技能的那一晚出局不能開槍（白天恢復）
         shots = 1 if p.role is Role.HUNTER or special_hunter else self.claws.get(seat, 0)
         if shots <= 0:
             return
         ctrl = self.controllers[seat]
-        if cause in ("poison", "dream"):
-            ctrl.hunter_poisoned(self, p)
+        if cause in ("poison", "dream") and not (self.light_dark and p.role is Role.LIGHT_HUNTER):
+            ctrl.hunter_poisoned(self, p)   # 光明獵人被毒、夢亡、被魅惑出局都可以開槍
             self.secret(f"{seat}號 因{DEATH_CAUSES[cause]}，不能發動技能")
             return
         hunter = p.role in (Role.HUNTER, Role.LIGHT_HUNTER, Role.DARK_HUNTER)
@@ -1206,8 +1243,8 @@ class Game:
                     self.secret(f"{seat}號 選擇不發動技能")
                 return
             if self.light_dark and p.role is Role.DARK_HUNTER \
-                    and self.players[t].role is Role.LIGHT_SEER:
-                self.secret(f"黑暗獵人({seat}號) 不能帶走光明預言家")
+                    and self.players[t].role is Role.LIGHT_HUNTER:
+                self.secret(f"黑暗獵人({seat}號) 帶不走光明獵人")
                 return
             if not hunter:
                 self.claws[seat] -= 1
@@ -1245,7 +1282,7 @@ class Game:
             checks = dict(prev["checks"]) if prev and prev["role"] is speech.claim else {}
             day = prev["day"] if prev and prev["role"] is speech.claim else self.night_no
             self.claims[seat] = {"role": speech.claim, "checks": checks, "day": day}   # day：第一次跳這個身份是第幾天
-        if speech.checks and self.claimed_role(seat) in (Role.SEER, Role.LANTERN_SEER):
+        if speech.checks and self.claimed_role(seat) in (Role.SEER, Role.LANTERN_SEER, Role.LIGHT_SEER):
             self.claims[seat]["checks"].update(speech.checks)
         if self.today is not None:
             self.today.speeches.append(speech)
