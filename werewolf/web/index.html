@@ -407,7 +407,7 @@ class Game {
         const roles = Object.keys(seers);
         const realRole = roles[Math.floor(Math.random() * roles.length)];
         this.claimRaceSeers = new Set([seers[realRole]]);
-        const wolfCount = Math.random() < 0.5 ? 1 : 2;
+        const wolfCount = Math.min(Math.random() < 0.5 ? 1 : 2, wolves.length);  // 自訂板子可能只有 1 隻狼
         const wolfPool = [...wolves];
         const chosenWolves = [];
         while (chosenWolves.length < wolfCount) chosenWolves.push(take(wolfPool));

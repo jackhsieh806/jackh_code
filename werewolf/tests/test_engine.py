@@ -948,10 +948,168 @@ class DetectiveTest(unittest.TestCase):
         self.assertGreater(hits, 15)
 
 
+# 座位：1 光明預言家、2 光明女巫、3 光明騎士、4 光明攝夢人、5 光明獵人、
+#       6 黑暗預言家、7 黑暗女巫、8 黑暗騎士、9 黑暗攝夢人、10 黑暗獵人、11-15 平民
+LD_BOARD = [Role.LIGHT_SEER, Role.LIGHT_WITCH, Role.LIGHT_KNIGHT, Role.LIGHT_DREAMER, Role.LIGHT_HUNTER,
+            Role.DARK_SEER, Role.DARK_WITCH, Role.DARK_KNIGHT, Role.DARK_DREAMER, Role.DARK_HUNTER,
+            V, V, V, V, V]
+
+
+def ld_game(overrides=None, rules=None):
+    """光明與黑暗對決：預設所有人都不行動，只有 overrides 指定的決策會發生。"""
+    ctrls = {}
+    for seat in range(1, 16):
+        b = idle(choose_charm=lambda g, m: None, knight_duel=lambda g, m: None,
+                 self_explode=lambda g, m: False, hunter_shoot=lambda g, m: None)
+        b.update((overrides or {}).get(seat, {}))
+        ctrls[seat] = Scripted(**b)
+    g = quiet_game(LD_BOARD, ctrls, rules=rules)
+    g.setup()
+    return g
+
+
+class LightDarkTest(unittest.TestCase):
+    """照「光明與黑暗對決 3.0」海報逐條驗證。"""
+
+    def test_light_witch_dies_after_poisoning_on_night_two(self):
+        g = ld_game({2: {"witch_action": lambda g, m, v: ("poison", 11) if g.night_no == 2 else (None, None)}})
+        g.run_night()
+        rec = g.run_night()
+        self.assertEqual(rec.deaths, {11: "poison", 2: "backlash"})
+
+    def test_light_witch_survives_saving_on_night_two(self):
+        g = ld_game({7: {"choose_kill": lambda g, m: 11 if g.night_no == 2 else None},   # 7 號帶頭出刀
+                     2: {"witch_action": lambda g, m, v: ("save", None) if g.night_no == 2 else (None, None)}})
+        g.run_night()
+        rec = g.run_night()
+        self.assertTrue(rec.saved)
+        self.assertEqual(rec.deaths, {})
+
+    def test_light_witch_survives_first_night_knife(self):
+        g = ld_game({7: {"choose_kill": lambda g, m: 2}})
+        self.assertEqual(g.run_night().deaths, {})
+
+    def test_dream_blocks_knife_and_poison_but_twice_kills(self):
+        g = ld_game({4: {"choose_dream": lambda g, m: 11}, 7: {"choose_kill": lambda g, m: 11}})
+        self.assertEqual(g.run_night().deaths, {})                 # 擋狼刀
+        g = ld_game({4: {"choose_dream": lambda g, m: 11 if g.night_no == 2 else 12},
+                     7: {"witch_action": lambda g, m, v: ("poison", 11)}})
+        g.run_night()
+        self.assertEqual(g.run_night().deaths, {})                 # 擋毒藥
+        g = ld_game({4: {"choose_dream": lambda g, m: 11}})
+        g.run_night()
+        self.assertEqual(g.run_night().deaths, {11: "dream"})      # 連續兩晚
+
+    def test_dream_blocks_charm(self):
+        g = ld_game({4: {"choose_dream": lambda g, m: 11}, 9: {"choose_charm": lambda g, m: 11}})
+        g.run_night()
+        self.assertIsNone(g.dark_charm)                            # 被攝夢的人免疫魅惑
+        g = ld_game({4: {"choose_dream": lambda g, m: 9}, 9: {"choose_charm": lambda g, m: 11}})
+        g.run_night()
+        self.assertIsNone(g.dark_charm)                            # 黑暗攝夢人被攝夢，魅惑不發動
+
+    def test_light_hunter_shoots_after_poison(self):
+        g = ld_game({7: {"witch_action": lambda g, m, v: ("poison", 5)},
+                     5: {"hunter_shoot": lambda g, m: 8}})
+        g.run_night()
+        g.run_dawn(g.run_night())
+        self.assertEqual(g.players[5].death_cause, "poison")
+        self.assertEqual(g.players[8].death_cause, "shot")
+
+    def test_dark_hunter_cannot_take_light_hunter(self):
+        g = ld_game({10: {"hunter_shoot": lambda g, m: 5}})
+        g.days.append(DayRecord(1))
+        g.night_no = 1
+        g._kill(10, "vote")
+        g._death_trigger(10, "vote")
+        self.assertTrue(g.players[5].alive)
+
+    def test_dark_hunter_jammed_after_being_dreamed(self):
+        g = ld_game({4: {"choose_dream": lambda g, m: 10}, 10: {"hunter_shoot": lambda g, m: 11}})
+        g.run_night()
+        g.days.append(DayRecord(1))
+        g._kill(10, "vote")
+        g._death_trigger(10, "vote")
+        self.assertTrue(g.players[11].alive)
+
+    def test_light_seer_checking_dark_seer_sees_his_target(self):
+        seen = {}
+        g = ld_game({6: {"choose_check": lambda g, m: 9},
+                     1: {"choose_check": lambda g, m: 6,
+                         "on_identity_check": lambda g, m, t, idt: seen.setdefault(t, idt)}})
+        g.run_night()
+        self.assertEqual(seen, {6: "狼人"})                       # 黑暗預言家驗的是黑暗攝夢人
+
+    def test_dark_seer_sees_true_identity(self):
+        seen = {}
+        g = ld_game({6: {"choose_check": lambda g, m: 11,
+                         "on_identity_check": lambda g, m, t, idt: seen.setdefault(t, idt)}})
+        g.run_night()
+        self.assertEqual(seen, {11: "平民"})
+
+    def test_dark_witch_can_poison_a_villager(self):
+        g = ld_game({7: {"witch_action": lambda g, m, v: ("poison", 11)}})
+        g.run_night()
+        self.assertEqual(g.run_night().deaths, {11: "poison"})
+
+    def test_charm_fires_when_dark_dreamer_is_shot(self):
+        g = ld_game({9: {"choose_charm": lambda g, m: 11}})
+        g.run_night()
+        g.days.append(DayRecord(1))
+        g._kill(9, "shot")
+        self.assertEqual(g.players[11].death_cause, "charm")
+
+    def test_charm_does_not_fire_after_light_knight_duel(self):
+        g = ld_game({9: {"choose_charm": lambda g, m: 11}, 3: {"knight_duel": lambda g, m: 9}})
+        g.run_night()
+        g.days.append(DayRecord(1))
+        g._try_duel(g.players[3])
+        self.assertEqual(g.players[9].death_cause, "duel")
+        self.assertTrue(g.players[11].alive)
+
+    def test_dark_wins_when_last_dreamer_takes_last_villager(self):
+        g = ld_game()
+        for s in (6, 7, 8, 10, 12, 13, 14, 15):
+            g.players[s].alive = False
+        g.dark_charm = 11
+        g.days.append(DayRecord(1))
+        g._kill(9, "vote")                                         # 最後一名黑暗出局，魅惑帶走最後一名平民
+        self.assertIs(g.check_winner(), Team.DARK)
+
+    def test_pack_can_knife_a_dark_teammate_but_not_the_dreamer(self):
+        g = ld_game({7: {"choose_kill": lambda g, m: 8}})
+        self.assertEqual(g.run_night().deaths, {8: "wolf"})
+        g = ld_game({7: {"choose_kill": lambda g, m: 9}})
+        self.assertIsNone(g.run_night().kill)
+
+    def test_duel_victim_leaves_last_words_then_night(self):
+        g = ld_game({3: {"knight_duel": lambda g, m: 7}})           # 決鬥黑暗女巫（決鬥黑暗騎士會反傷）
+        g.run_night()
+        g.days.append(DayRecord(1))
+        self.assertTrue(g._try_duel(g.players[3]))                  # True = 直接天黑
+        self.assertTrue(any(sp.seat == 7 and sp.last_words for sp in g.today.speeches))
+
+    def test_light_dark_has_sheriff_and_double_explode_destroys_badge(self):
+        def boom(g, m):
+            return g.phase == "election" and m.seat == 7
+        ctrls = {s: {"run_for_sheriff": lambda g, m: m.seat in (1, 7), "self_explode": boom,
+                     "sheriff_vote": lambda g, m, c: 1} for s in range(1, 16)}
+        g = ld_game(ctrls, rules=Rules(sheriff=True, self_explode=True, smart_bots=0))
+        g.run_dawn(g.run_night())
+        self.assertTrue(g.election_postponed)                      # 第一次警上自爆：延到隔天
+        self.assertIsNone(g.sheriff)
+        for s in range(1, 16):
+            g.controllers[s].self_explode = lambda g_, m: g_.phase == "election" and m.seat == 8
+            g.controllers[s].run_for_sheriff = lambda g_, m: m.seat in (1, 8)
+        g.run_dawn(g.run_night())
+        self.assertIsNone(g.sheriff)
+        self.assertIn("雙爆吞警徽", g.sheriff_log[-1])
+
+
 class SimulationTest(unittest.TestCase):
     def test_many_bot_games_finish(self):
         rng = random.Random(42)
-        results = {Team.GOOD: 0, Team.WOLF: 0, None: 0}
+        results = {Team.GOOD: 0, Team.WOLF: 0, Team.LIGHT: 0, Team.DARK: 0, None: 0}
         for key, (_, roles) in PRESETS.items():
             for _ in range(150):
                 seed = rng.randrange(1 << 30)
@@ -960,6 +1118,8 @@ class SimulationTest(unittest.TestCase):
                 results[g.play()] += 1
         self.assertGreater(results[Team.GOOD], 0)
         self.assertGreater(results[Team.WOLF], 0)
+        self.assertGreater(results[Team.LIGHT], 0)     # 光明與黑暗對決板
+        self.assertGreater(results[Team.DARK], 0)
 
 
 if __name__ == "__main__":

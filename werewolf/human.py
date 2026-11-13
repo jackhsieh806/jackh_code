@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .engine import ITEMS, Controller, Game, Player, Speech
-from .roles import DARK_PACK, LIGHT_ROLES, ROLE_DESCRIPTIONS, Role, Team
+from .roles import DARK_PACK, ROLE_DESCRIPTIONS, Role, Team
 
 
 def ask(prompt: str) -> str:
@@ -79,10 +79,10 @@ class HumanController(Controller):
         if game.light_dark and me.role is Role.DARK_WITCH:
             if game.night_no != 2 or game.dark_poison_used:
                 return None, None
-            options = [p.seat for p in game.alive() if p.role in LIGHT_ROLES]
+            options = [s for s in game.alive_seats() if s != me.seat]   # 不能只列出光明職業，那會洩漏身分
             if not options:
                 return None, None
-            print("\n🧪 黑暗女巫只能在第二夜毒殺光明陣營玩家。")
+            print("\n🧪 黑暗女巫只有一瓶毒藥，只能在第二夜使用。")
             target = ask_seat("要毒殺誰（0=不使用）", options)
             return ("poison", target) if target is not None else (None, None)
         print(f"\n🧪 女巫請睜眼。解藥：{'有' if game.antidote else '已用'}，"
@@ -173,8 +173,7 @@ class HumanController(Controller):
     def hunter_shoot(self, game: Game, me: Player) -> int | None:
         others = [s for s in game.alive_seats() if s != me.seat]
         if game.light_dark and me.role is Role.DARK_HUNTER:
-            others = [s for s in others if game.players[s].role is not Role.LIGHT_SEER]
-            return ask_seat("黑暗獵人要帶走誰（0=不發動；不能帶走光明預言家）", others)
+            return ask_seat("黑暗獵人要帶走誰（0=不發動；帶不走光明獵人）", others)
         if game.light_dark and me.role is Role.LIGHT_HUNTER:
             return ask_seat("光明獵人要開槍帶走誰（0=不發動）", others)
         if me.role is Role.HUNTER:
