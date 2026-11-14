@@ -428,13 +428,15 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   const blankPlayer = (seat, name = '') => ({
     seat, name, mark: 'none', alive: true, death: null, sheriff: false, claim: '', notes: {}, kgold: false,
   });
-  const blankState = (boardId = 'std12', names) => ({
+  const MIN_SEATS = 6;
+  const MAX_SEATS = 18;
+  const blankState = (boardId = 'std12', names, seats = BOARDS[boardId].seats) => ({
     board: boardId,
     day: 1,
     mySeat: null,
     myRole: '',
     mentor: null,
-    players: Array.from({ length: BOARDS[boardId].seats }, (_, i) => blankPlayer(i + 1, names ? names[i] || '' : '')),
+    players: Array.from({ length: seats }, (_, i) => blankPlayer(i + 1, names ? names[i] || '' : '')),
     checks: [],
     votes: [],
     memo: '',
@@ -453,8 +455,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       if (raw) {
         const s = JSON.parse(raw);
         const boardId = s && BOARDS[s.board] ? s.board : 'std12';
-        if (s && Array.isArray(s.players) && s.players.length === BOARDS[boardId].seats) {
-          return Object.assign(blankState(boardId), s, { board: boardId });
+        if (s && Array.isArray(s.players) && s.players.length >= MIN_SEATS && s.players.length <= MAX_SEATS) {
+          return Object.assign(blankState(boardId, null, s.players.length), s, { board: boardId });
         }
       }
     } catch (e) { /* storage unavailable */ }
@@ -562,7 +564,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   // ---------- day ----------
   function renderDay() {
     $('dayLabel').textContent = `第 ${state.day} 天`;
-    $('boardLabel').textContent = B().name;
+    $('boardLabel').textContent = B().name + (N() !== B().seats ? `・改為 ${N()} 人` : '');
   }
   function changeDay(delta) {
     if (state.day + delta < 1) return;
@@ -1044,7 +1046,7 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     const wolves = group('wolf');
     return `<div class="card"><h3>目前判斷</h3>
       ${line('🔴 狼', wolves)}
-      <div class="hint" style="padding:2px 0 6px">狼坑：已標 ${wolves.length} / ${B().wolfSlots}（${esc(B().wolfCount)}）</div>
+      <div class="hint" style="padding:2px 0 6px">${N() === B().seats ? `狼坑：已標 ${wolves.length} / ${B().wolfSlots}（${esc(B().wolfCount)}）` : `狼坑：已標 ${wolves.length}（改為 ${N()} 人，狼的數量以你們實際的配置為準）`}</div>
       ${line('🟡 存疑', group('sus'))}
       ${line('🟢 好人', group('good'))}
       ${line('存活', alive)}
@@ -1060,7 +1062,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
         <h3>${esc(b.name)}</h3>
         <h4 class="wolf-side">狼人陣營</h4><div class="opt-group">${list(b.setup.wolf)}</div>
         <h4 class="good-side">好人陣營</h4><div class="opt-group">${list(b.setup.good)}</div>
-        <div class="hint" style="margin-top:12px">要換板子：按上方「新的一局」。</div>
+        ${N() !== b.seats ? `<div class="warn" style="margin-top:12px">這局改為 ${N()} 人（板子原本是 ${b.seats} 人），下面的配置和勝利條件只供參考，以你們實際的配置為準。</div>` : ''}
+        <div class="hint" style="margin-top:12px">要換板子或人數：按上方「新的一局」。</div>
       </div>
       ${b.roleInfo ? `<div class="card rules"><h3>角色技能</h3>
         <h4 class="wolf-side">狼人陣營</h4>${info(b.roleInfo.wolf)}
@@ -1151,6 +1154,8 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       <div class="opt-group" id="ngBoard">
         ${Object.entries(BOARDS).map(([id, b]) => `<button data-board="${id}" class="${id === state.board ? 'on' : ''}">${esc(b.name)}</button>`).join('')}
       </div>
+      <div class="field-label">人數</div>
+      <div class="opt-group" id="ngSeats"></div>
       <div class="sheet-foot">
         <button id="ngCancel">取消</button>
         <button id="ngKeep">清空，但保留名字</button>
@@ -1160,14 +1165,29 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     $('overlay').classList.add('open');
     $('ngCancel').onclick = closeSheet;
     let boardId = state.board;
+    let seats = N();
+    const renderSeatsPicker = () => {
+      const list = [];
+      for (let n = MIN_SEATS; n <= MAX_SEATS; n++) list.push(n);
+      $('ngSeats').innerHTML = list.map((n) => `<button data-seats="${n}" class="${n === seats ? 'on' : ''}">${n}${n === BOARDS[boardId].seats ? '（板子）' : ''}</button>`).join('');
+    };
+    renderSeatsPicker();
     $('ngBoard').onclick = (e) => {
       const b = e.target.closest('button');
       if (!b) return;
       boardId = b.dataset.board;
+      seats = BOARDS[boardId].seats;
       [...$('ngBoard').children].forEach((x) => x.classList.toggle('on', x === b));
+      renderSeatsPicker();
     };
-    $('ngKeep').onclick = () => { state = blankState(boardId, state.players.map((p) => p.name)); save(); clearDoodle(); closeSheet(); };
-    $('ngAll').onclick = () => { state = blankState(boardId); save(); clearDoodle(); closeSheet(); };
+    $('ngSeats').onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      seats = Number(b.dataset.seats);
+      renderSeatsPicker();
+    };
+    $('ngKeep').onclick = () => { state = blankState(boardId, state.players.map((p) => p.name), seats); save(); clearDoodle(); closeSheet(); };
+    $('ngAll').onclick = () => { state = blankState(boardId, null, seats); save(); clearDoodle(); closeSheet(); };
   });
 
   // ---------- privacy cover ----------
