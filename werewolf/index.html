@@ -21,16 +21,12 @@
   --muted: #9095ad;
   --accent: #8b9cff;
   --good: #3fbf7f;
-  --good-bg: rgba(63, 191, 127, .16);
   --wolf: #ff5c6c;
   --wolf-bg: rgba(255, 92, 108, .16);
-  --sus: #f2b84b;
-  --sus-bg: rgba(242, 184, 75, .16);
-  --gold: #ffd166;
   --radius: 14px;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -38,33 +34,23 @@ body {
   font-size: 16px;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
   overscroll-behavior: none;
 }
-textarea, input { -webkit-user-select: text; user-select: text; }
 button {
   font: inherit;
   color: inherit;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 10px 14px;
-  min-height: 44px;
+  padding: 8px 12px;
+  min-height: 42px;
   cursor: pointer;
 }
 button:active { transform: scale(.97); }
-button.primary { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
+button.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
 button.danger { color: var(--wolf); }
-button.ghost { background: transparent; }
-select, input[type=text], textarea {
-  font: inherit;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 12px;
-  min-height: 44px;
-}
-textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
+.hint { color: var(--muted); font-size: 13px; }
 
 /* ---------- layout ---------- */
 .app {
@@ -73,149 +59,57 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
   height: 100%;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--line);
-  flex-wrap: wrap;
-}
+.topbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .topbar h1 { font-size: 18px; margin: 0 auto 0 0; white-space: nowrap; }
 .day-stepper { display: flex; align-items: center; gap: 6px; }
-.day-stepper button { min-width: 44px; padding: 8px; }
-.day-label { min-width: 72px; text-align: center; font-weight: 600; }
-.main {
-  flex: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  min-height: 0;
-}
-@media (max-width: 860px), (orientation: portrait) {
-  .main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow-y: auto; }
-  .side { border-left: none !important; border-top: 1px solid var(--line); }
-}
-.board { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; }
-.doodle { flex: 1; min-height: 340px; display: flex; flex-direction: column; margin-top: 14px; }
-.doodle-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
-.doodle-bar .title { font-size: 14px; font-weight: 600; flex-basis: 100%; }
-.doodle-bar button, .color-pick { min-height: 40px; padding: 6px 12px; }
-.doodle-bar button.on, .color-pick.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
+.day-stepper button { min-width: 42px; padding: 6px; }
+.day-label { min-width: 68px; text-align: center; font-weight: 600; }
+.toolbar { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.tool-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tool-row .label { font-size: 13px; color: var(--muted); margin-right: 2px; }
 .pen-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 4px; border: 2px solid #fff; }
-.color-pick { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.color-pick { display: inline-flex; align-items: center; gap: 6px; min-height: 42px; padding: 6px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.color-pick.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
 .color-pick input { width: 26px; height: 26px; padding: 0; border: none; border-radius: 50%; background: none; cursor: pointer; }
 .color-pick input::-webkit-color-swatch-wrapper { padding: 0; }
 .color-pick input::-webkit-color-swatch { border: 2px solid #fff; border-radius: 50%; }
-.canvas-wrap { flex: 1; position: relative; min-height: 260px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
-#doodle { position: absolute; inset: 0; width: 100%; height: 100%; background: #fff; touch-action: pan-x pan-y; cursor: crosshair; }
-.side { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.canvas-wrap { flex: 1; position: relative; margin: 10px 12px 12px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); min-height: 0; }
+#doodle { position: absolute; inset: 0; width: 100%; height: 100%; background: #fff; touch-action: none; cursor: crosshair; }
+.stamp-layer { position: absolute; inset: 0; pointer-events: none; }
 
-/* ---------- seats ---------- */
-.mode-bar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.seg button { border: none; border-radius: 0; background: transparent; padding: 8px 14px; }
-.seg button.on { background: var(--accent); color: #11131c; font-weight: 600; }
-.hint { color: var(--muted); font-size: 13px; }
-.seats { display: grid; grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr)); gap: 10px; }
-.seat-gap { visibility: hidden; }
-.table-mid {
-  grid-column: 1 / -1;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-  padding: 6px 0;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
+/* ---------- stamps ---------- */
+.stamp {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 3px 10px; border-radius: 999px; border: 2px solid transparent;
+  font-size: 15px; font-weight: 700; line-height: 1.3; white-space: nowrap;
+  touch-action: none; cursor: grab; box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
 }
-.seat {
-  position: relative;
-  background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 8px 8px;
-  min-height: 118px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  text-align: center;
-  cursor: pointer;
-  transition: transform .08s;
-}
-.seat:active { transform: scale(.96); }
-.seat .num { font-size: clamp(22px, 3.2vw, 30px); font-weight: 700; line-height: 1; }
-.seat .name { font-size: 13px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 17px; }
-.seat .badges { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
-.badge { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: var(--panel-2); white-space: nowrap; }
-.seat .badge { white-space: normal; max-width: 100%; line-height: 1.3; }
-.badge.mentor { background: rgba(255, 209, 102, .18); color: var(--gold); }
-.badge.claim { background: rgba(139, 156, 255, .2); color: #c5cdff; }
-.badge.gold { background: var(--good-bg); color: var(--good); }
-.badge.silver { background: rgba(201, 209, 227, .16); color: #c9d1e3; }
-.badge.kill { background: var(--wolf-bg); color: var(--wolf); }
-.seat.good { border-color: var(--good); background: linear-gradient(var(--good-bg), var(--good-bg)), var(--panel); }
-.seat.wolf { border-color: var(--wolf); background: linear-gradient(var(--wolf-bg), var(--wolf-bg)), var(--panel); }
-.seat.sus { border-color: var(--sus); background: linear-gradient(var(--sus-bg), var(--sus-bg)), var(--panel); }
-.seat.dead { opacity: .45; }
-.seat.dead .num { text-decoration: line-through; }
-.seat .me { position: absolute; top: 6px; left: 8px; font-size: 11px; color: var(--accent); font-weight: 700; }
-.seat .sheriff { position: absolute; top: 4px; right: 8px; color: var(--gold); font-size: 16px; }
-.seat .mark-icon { font-size: 13px; min-height: 17px; }
-.legend { display: flex; gap: 14px; margin-top: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
-.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 5px; vertical-align: -1px; }
+.stamp-layer .stamp { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; }
+.palette .stamp { min-height: 36px; }
+.stamp.dragging { position: fixed; transform: translate(-50%, -50%) scale(1.1); z-index: 40; pointer-events: none; opacity: .9; }
+.stamp.leaving { opacity: .35; }
+.s-up { background: #4c6ef5; color: #fff; }
+.s-gold { background: #f2b400; color: #2b2100; }
+.s-silver { background: #c9d1e3; color: #1d2333; border-color: #8e97ad; }
+.s-wolf { background: #e03131; color: #fff; }
+.s-sus { background: #f76707; color: #fff; }
+.s-good { background: #2f9e44; color: #fff; }
+.s-kill { background: #fff; color: #e03131; border-color: #e03131; }
 
-/* ---------- side tabs ---------- */
-.tabs { display: flex; border-bottom: 1px solid var(--line); }
-.tabs button { flex: 1; border: none; border-radius: 0; background: transparent; color: var(--muted); border-bottom: 3px solid transparent; }
-.tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-.tab-body { padding: 16px; overflow-y: auto; flex: 1; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+/* ---------- sheet ---------- */
+.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; z-index: 20; }
+.overlay.open { display: flex; align-items: center; justify-content: center; }
+.sheet {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+  width: min(640px, calc(100% - 32px)); max-height: calc(100% - 48px); overflow-y: auto; padding: 18px;
+}
+.sheet h3 { margin-top: 0; }
+.sheet-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.opt-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.field-label { color: var(--muted); font-size: 13px; margin: 14px 0 6px; }
+.card { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
 .card h3 { margin: 0 0 10px; font-size: 15px; }
-.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.row + .row { margin-top: 8px; }
-.empty { color: var(--muted); font-size: 14px; text-align: center; padding: 20px 0; }
-.list-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
-.list-item:first-child { border-top: none; }
-.list-item .grow { flex: 1; }
-.x-btn { min-height: 34px; min-width: 34px; padding: 4px 8px; font-size: 13px; color: var(--muted); }
-.seer-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-.seer-col { background: var(--panel-2); border-radius: 10px; padding: 10px; }
-.seer-col h4 { margin: 0 0 6px; font-size: 14px; }
-.res-good { color: var(--good); font-weight: 600; }
-.res-wolf { color: var(--wolf); font-weight: 600; }
-.res-silver { color: #c9d1e3; font-weight: 600; }
-.warn { background: var(--wolf-bg); color: var(--wolf); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
-
-/* ---------- votes ---------- */
-.ballot { display: grid; grid-template-columns: 48px 1fr; gap: 6px; align-items: center; padding: 5px 0; border-top: 1px solid var(--line); }
-.ballot:first-of-type { border-top: none; }
-.ballot .voter { font-weight: 700; text-align: center; }
-.chips { display: grid; grid-template-columns: repeat(var(--cols, 12), minmax(0, 1fr)); gap: 3px; }
-.chip { min-height: 36px; min-width: 36px; padding: 4px 6px; font-size: 14px; border-radius: 8px; }
-.chips .chip { min-width: 0; padding: 4px 0; }
-.chip.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 700; }
-.chip.dim { opacity: .35; }
-.chip.out { opacity: .6; border-style: dashed; text-decoration: line-through; }
-.el-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
-.el-row:first-child { border-top: none; }
-.el-row b { min-width: 74px; }
-.el-row input { flex: 1; min-width: 0; min-height: 38px; padding: 6px 10px; }
-.lt { width: 100%; border-collapse: collapse; font-size: 13px; }
-.lt th, .lt td { padding: 6px 4px; border-top: 1px solid var(--line); text-align: center; }
-.lt th { color: var(--muted); font-weight: 500; border-top: none; }
-.lt td:first-child { font-weight: 700; }
-.lt .both { font-weight: 700; }
-.world { padding: 8px 10px; border-radius: 10px; background: var(--panel-2); margin-top: 8px; font-size: 14px; line-height: 1.5; }
-.world.bad { box-shadow: inset 3px 0 0 var(--wolf); }
-.world.ok { box-shadow: inset 3px 0 0 var(--good); }
-.tally { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
-.tally-row { display: flex; gap: 8px; font-size: 14px; align-items: baseline; }
-.tally-row b { min-width: 46px; }
-.tally-row .bar { height: 8px; background: var(--accent); border-radius: 4px; align-self: center; }
-.vote-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.vote-head .grow { flex: 1; font-weight: 600; }
-.pair { display: flex; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
-.pair:first-child { border-top: none; }
+.badge { font-size: 13px; padding: 4px 8px; border-radius: 6px; background: var(--panel-2); white-space: nowrap; }
 .rules h4 { margin: 14px 0 6px; font-size: 15px; }
 .rules h4.wolf-side { color: var(--wolf); }
 .rules h4.good-side { color: var(--good); }
@@ -223,33 +117,6 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 .rules dt { font-weight: 600; margin-top: 10px; }
 .rules dd { margin: 3px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; white-space: pre-line; }
 .rules .order { font-size: 15px; line-height: 1.7; }
-
-/* ---------- sheet ---------- */
-.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; z-index: 20; }
-.overlay.open { display: flex; align-items: center; justify-content: center; }
-.sheet {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  width: min(620px, calc(100% - 32px));
-  max-height: calc(100% - 48px);
-  overflow-y: auto;
-  padding: 18px;
-}
-.sheet-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-.sheet-head .big { font-size: 34px; font-weight: 700; }
-.sheet-head input { flex: 1; min-width: 0; }
-.field-label { color: var(--muted); font-size: 13px; margin: 14px 0 6px; }
-.opt-group { display: flex; flex-wrap: wrap; gap: 6px; }
-.opt-group button { padding: 8px 12px; }
-.opt-group button.on { background: var(--accent); color: #11131c; border-color: var(--accent); font-weight: 600; }
-.opt-group button.on.good { background: var(--good); border-color: var(--good); }
-.opt-group button.on.wolf { background: var(--wolf); border-color: var(--wolf); }
-.opt-group button.on.silver { background: #c9d1e3; border-color: #c9d1e3; }
-.opt-group button.on.sus { background: var(--sus); border-color: var(--sus); }
-.history { font-size: 14px; color: var(--muted); line-height: 1.6; }
-.history .day-note { white-space: pre-wrap; color: var(--text); }
-.sheet-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 /* ---------- privacy cover ---------- */
 .cover {
@@ -270,52 +137,29 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       <div class="day-label" id="dayLabel">第 1 天</div>
       <button id="dayUp" aria-label="下一天">＋</button>
     </div>
+    <button id="rulesBtn">📖 板子</button>
     <button id="hideBtn" title="遮住螢幕，避免被偷看">🙈 遮住</button>
     <button id="newGameBtn">新的一局</button>
   </header>
 
-  <div class="main">
-    <section class="board">
-      <div class="mode-bar">
-        <div class="seg" id="modeSeg">
-          <button data-mode="detail" class="on">點擊看詳細</button>
-          <button data-mode="quick">快速標記</button>
-        </div>
-        <span class="hint" id="modeHint">點座位打開詳細筆記</span>
-      </div>
-      <div class="seats" id="seats"></div>
-      <div class="legend">
-        <span><i style="background:var(--good)"></i>好人</span>
-        <span><i style="background:var(--wolf)"></i>狼</span>
-        <span><i style="background:var(--sus)"></i>存疑</span>
-        <span>★ 警長</span>
-        <span>銀水 = 被女巫救</span>
-        <span>劃線 = 出局</span>
-      </div>
-      <div class="doodle">
-        <div class="doodle-bar" id="doodleBar">
-          <span class="title">✏️ 塗鴉區・<span id="doodleDay">第 1 天</span> <span class="hint">（用 Apple Pencil 畫，手指可以捲動；每天一頁）</span></span>
-          <button data-pen="#111111" class="on"><span class="pen-dot" style="background:#111111"></span>黑</button>
-          <button data-pen="#1e5bd8"><span class="pen-dot" style="background:#1e5bd8"></span>藍</button>
-          <button data-pen="#d92b2b"><span class="pen-dot" style="background:#d92b2b"></span>紅</button>
-          <label class="color-pick" id="colorPick"><input type="color" id="penColor" value="#2e9e5b" aria-label="自訂顏色">自訂</label>
-          <button data-pen="eraser">🧽 橡皮擦</button>
-          <button data-doodle="undo" aria-label="復原">↶ 復原</button>
-          <button data-doodle="clear" class="danger">清空</button>
-        </div>
-        <div class="canvas-wrap" id="canvasWrap"><canvas id="doodle"></canvas></div>
-      </div>
-    </section>
+  <div class="toolbar">
+    <div class="tool-row" id="toolRow">
+      <button data-pen="#111111" class="on"><span class="pen-dot" style="background:#111111"></span>黑</button>
+      <button data-pen="#1e5bd8"><span class="pen-dot" style="background:#1e5bd8"></span>藍</button>
+      <button data-pen="#d92b2b"><span class="pen-dot" style="background:#d92b2b"></span>紅</button>
+      <label class="color-pick" id="colorPick"><input type="color" id="penColor" value="#2e9e5b" aria-label="自訂顏色">自訂</label>
+      <button data-pen="eraser">🧽 橡皮擦</button>
+      <button data-act="undo">↶ 復原</button>
+      <button data-act="clear" class="danger">清空</button>
+    </div>
+    <div class="tool-row palette" id="palette">
+      <span class="label">圖章（用 Apple Pencil 拖到畫布）</span>
+    </div>
+  </div>
 
-    <aside class="side">
-      <nav class="tabs" id="tabs">
-        <button data-tab="checks" class="on">查驗</button>
-        <button data-tab="votes">投票</button>
-        <button data-tab="memo">我的筆記</button>
-        <button data-tab="rules">板子</button>
-      </nav>
-      <div class="tab-body" id="tabBody"></div>
-    </aside>
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="doodle"></canvas>
+    <div class="stamp-layer" id="stampLayer"></div>
   </div>
 </div>
 
@@ -326,10 +170,10 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
 (() => {
   'use strict';
 
-  const STORE_KEY = 'werewolf-notes-v1';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  // Each board sets the seat count, the roles people can claim, death causes,
-  // which roles report checks, and the rules shown in the 板子 tab.
+  // The rules shown under 📖 板子.
   const BOARDS = {
     std12: {
       name: '12人 標準局（預女獵白）',
@@ -415,645 +259,316 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       win: { wolf: '五神（預、女、騎、守、獵）全部出局，或「四民＋燈影預言家」全部出局。', good: '五狼全部出局。' },
     },
   };
-  const MARKS = [
-    { id: 'none', label: '未定', icon: '' },
-    { id: 'good', label: '好人', icon: '🟢 好人' },
-    { id: 'wolf', label: '狼', icon: '🔴 狼' },
-    { id: 'sus', label: '存疑', icon: '🟡 存疑' },
-  ];
-  const VOTE_KINDS = ['放逐投票', '警長競選', 'PK 投票'];
-  const QUICK_TAGS = ['發言好', '發言差', '劃水', '聊爆', '倒鉤', '衝鋒', '站邊', '踩人', '保人', '像預言家', '像狼'];
+
+  const STAMPS = {
+    up: { label: '上警', cls: 's-up' },
+    gold: { label: '金水', cls: 's-gold' },
+    silver: { label: '銀水', cls: 's-silver' },
+    wolf: { label: '🐺 狼', cls: 's-wolf' },
+    sus: { label: '❓ 懷疑', cls: 's-sus' },
+    good: { label: '好人', cls: 's-good' },
+    kill: { label: '查殺', cls: 's-kill' },
+  };
 
   // ---------- state ----------
-  const blankPlayer = (seat, name = '') => ({
-    seat, name, mark: 'none', alive: true, death: null, sheriff: false, claim: '', notes: {}, kgold: false,
-  });
-  const blankState = (boardId = 'std12', names) => ({
-    board: boardId,
-    day: 1,
-    mySeat: null,
-    myRole: '',
-    mentor: null,
-    players: Array.from({ length: BOARDS[boardId].seats }, (_, i) => blankPlayer(i + 1, names ? names[i] || '' : '')),
-    checks: [],
-    votes: [],
-    memo: '',
-    // 上警紀錄：up[seat] = 'up'（上警）或 'out'（退水）；flows[seat] = 他報的警徽流
-    election: { up: {}, flows: {} },
-    // 燈影分析：哪兩位拿「預言家牌」和「燈影預言家牌」（null = 依查驗紀錄自動判斷）
-    lamp: { seer: null, lantern: null },
-  });
-
-  let state = load();
-  let ui = { mode: 'detail', tab: 'checks', openVote: null, sheetSeat: null };
-
-  function load() {
+  // Game: which board's rules to show and which day it is.
+  // Pages: one drawing per day — strokes (tool, points in CSS px) plus stamps (kind, x, y).
+  const GAME_KEY = 'werewolf-draw-game-v1';
+  const PAGES_KEY = 'werewolf-draw-pages-v1';
+  const load = (key, fallback) => {
     try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (raw) {
-        const s = JSON.parse(raw);
-        const boardId = s && BOARDS[s.board] ? s.board : 'std12';
-        if (s && Array.isArray(s.players) && s.players.length === BOARDS[boardId].seats) {
-          return Object.assign(blankState(boardId), s, { board: boardId });
-        }
-      }
-    } catch (e) { /* storage unavailable */ }
-    return blankState();
-  }
-  function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
-  }
-  const P = (seat) => state.players[seat - 1];
-  const B = () => BOARDS[state.board];
-  // 天數是累積的：看第 N 天時，只顯示第 1～N 天記下的查驗、投票和出局。
-  const checksSoFar = () => state.checks.filter((c) => c.day <= state.day);
-  const votesSoFar = () => state.votes.filter((v) => v.day <= state.day);
-  const aliveNow = (p) => p.alive || !!(p.death && p.death.day > state.day);
-  const laterNote = (n, what) => (n ? `<div class="hint" style="margin:0 0 10px">另有 ${n} 筆第 ${state.day} 天之後的${what}，切到後面的天數才會顯示。</div>` : '');
-  const N = () => state.players.length;
-  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const seatLabel = (seat) => {
-    const p = P(seat);
-    return p.name ? `${seat}號(${esc(p.name)})` : `${seat}號`;
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) { return fallback; }
   };
-  const $ = (id) => document.getElementById(id);
-
-  // Reports: 預言家/村姑 checks give 金水 or 查殺; a 女巫 reporting who she saved gives 銀水.
-  const RESULTS = {
-    good: { label: '金水', cls: 'res-good' },
-    wolf: { label: '查殺', cls: 'res-wolf' },
-    silver: { label: '銀水', cls: 'res-silver' },
+  const store = (key, value) => {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* ignore */ }
   };
-  const reporters = () => [...B().checkers, '女巫'];
-  const verb = (c) => (c.by === '女巫' ? '救' : '驗');
-  const resultSpan = (c) => `<span class="${RESULTS[c.result].cls}">${RESULTS[c.result].label}</span>`;
 
-  // ---------- seats ----------
-  // Table order: first half across the top left→right, the rest across the bottom right→left,
-  // so neighbours sit next to each other (12人: 1–6 / 12–7, 15人: 1–8 / 15–9).
-  function seatOrder() {
-    const n = N();
-    const cols = Math.ceil(n / 2);
-    const top = Array.from({ length: cols }, (_, i) => i + 1);
-    const bottom = Array.from({ length: n - cols }, (_, i) => n - i);
-    while (bottom.length < cols) bottom.unshift(0);
-    return { cols, order: top.concat(bottom) };
+  let game = load(GAME_KEY, null);
+  let pages = load(PAGES_KEY, null);
+  if (!game || !BOARDS[game.board]) {
+    // Carry over the board and day from the earlier notebook, if any.
+    const old = load('werewolf-notes-v1', {}) || {};
+    game = { board: BOARDS[old.board] ? old.board : 'std12', day: old.day > 0 ? old.day : 1 };
+  }
+  if (!pages || typeof pages !== 'object') {
+    // Earlier doodles (one stroke list per day) become this version's pages.
+    pages = {};
+    const oldDoodle = load('werewolf-doodle-v2', null);
+    if (oldDoodle && typeof oldDoodle === 'object') {
+      Object.entries(oldDoodle).forEach(([d, strokes]) => {
+        if (Array.isArray(strokes) && strokes.length) pages[d] = { strokes, stamps: [] };
+      });
+    }
+  }
+  const page = () => (pages[game.day] = pages[game.day] || { strokes: [], stamps: [] });
+  const saveGame = () => store(GAME_KEY, game);
+  const savePages = () => store(PAGES_KEY, pages);
+
+  // Undo history per day (in memory): snapshots of the page before each change.
+  const history = {};
+  function remember() {
+    const h = (history[game.day] = history[game.day] || []);
+    h.push(JSON.stringify(page()));
+    if (h.length > 60) h.shift();
+  }
+  function undo() {
+    const h = history[game.day];
+    if (!h || !h.length) return;
+    pages[game.day] = JSON.parse(h.pop());
+    savePages();
+    renderPage();
   }
 
-  function renderSeats() {
-    const { cols, order } = seatOrder();
-    $('seats').style.setProperty('--cols', cols);
-    const html = order.map((seat, idx) => {
-      const mid = idx === cols ? '<div class="table-mid">桌子</div>' : '';
-      if (!seat) return `${mid}<div class="seat-gap"></div>`;
-      const p = P(seat);
-      const cls = ['seat', p.mark !== 'none' ? p.mark : '', aliveNow(p) ? '' : 'dead'].join(' ');
-      const badges = [];
-      if (p.claim) badges.push(`<span class="badge claim">跳${esc(p.claim)}</span>`);
-      const gold = checksSoFar().filter((c) => c.target === seat && c.result === 'good').length;
-      const kill = checksSoFar().filter((c) => c.target === seat && c.result === 'wolf').length;
-      if (gold) badges.push(`<span class="badge gold">金水${gold > 1 ? '×' + gold : ''}</span>`);
-      if (kill) badges.push(`<span class="badge kill">查殺${kill > 1 ? '×' + kill : ''}</span>`);
-      const silver = checksSoFar().filter((c) => c.target === seat && c.result === 'silver').length;
-      if (silver) badges.push(`<span class="badge silver">銀水${silver > 1 ? '×' + silver : ''}</span>`);
-      if (!aliveNow(p) && p.death) badges.push(`<span class="badge">D${p.death.day} ${esc(p.death.cause)}</span>`);
-      if (p.kgold) badges.push('<span class="badge gold">騎金</span>');
-      const up = state.election.up[seat];
-      if (up) badges.push(`<span class="badge">${up === 'up' ? '上警' : '退水'}</span>`);
-      if (state.myRole === '野孩子' && state.mentor === seat) badges.push('<span class="badge mentor">我的榜樣</span>');
-      const mark = MARKS.find((m) => m.id === p.mark);
-      return `${mid}<div class="${cls}" data-seat="${seat}">
-        ${state.mySeat === seat ? '<span class="me">我</span>' : ''}
-        ${p.sheriff ? '<span class="sheriff">★</span>' : ''}
-        <div class="num">${seat}</div>
-        <div class="name">${esc(p.name)}</div>
-        <div class="mark-icon">${mark.icon}</div>
-        <div class="badges">${badges.join('')}</div>
-      </div>`;
-    }).join('');
-    $('seats').innerHTML = html;
-  }
+  // ---------- canvas ----------
+  const PEN_WIDTH = 3;
+  const ERASER_WIDTH = 26;
+  const canvas = $('doodle');
+  const ctx = canvas.getContext('2d');
+  let tool = '#111111';
+  let current = null;
+  let pointerId = null;
 
-  $('seats').addEventListener('click', (e) => {
-    const el = e.target.closest('.seat');
-    if (!el) return;
-    const seat = Number(el.dataset.seat);
-    if (ui.mode === 'quick') {
-      const p = P(seat);
-      const i = MARKS.findIndex((m) => m.id === p.mark);
-      p.mark = MARKS[(i + 1) % MARKS.length].id;
-      commit();
+  function strokeStyle(st) {
+    const eraser = st.tool === 'eraser';
+    ctx.globalCompositeOperation = eraser ? 'destination-out' : 'source-over';
+    ctx.strokeStyle = eraser ? '#000' : st.tool;
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.lineWidth = eraser ? ERASER_WIDTH : PEN_WIDTH;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  }
+  function drawStroke(st) {
+    const pts = st.points;
+    if (!pts.length) return;
+    strokeStyle(st);
+    ctx.beginPath();
+    if (pts.length === 1) {
+      ctx.arc(pts[0][0], pts[0][1], ctx.lineWidth / 2, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.stroke();
+  }
+  function redrawCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    page().strokes.forEach(drawStroke);
+  }
+  function sizeCanvas() {
+    const r = $('canvasWrap').getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(r.width * dpr));
+    const h = Math.max(1, Math.round(r.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+      redrawCanvas();
+    }
+  }
+  const pointAt = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [Math.round((e.clientX - r.left) * 10) / 10, Math.round((e.clientY - r.top) * 10) / 10];
+  };
+
+  // Only the Apple Pencil (or a mouse) draws and moves stamps; finger and palm touches are ignored.
+  const isFinger = (e) => e.pointerType === 'touch';
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (isFinger(e) || pointerId !== null) return;
+    e.preventDefault();
+    remember();
+    pointerId = e.pointerId;
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* keep drawing without capture */ }
+    current = { tool, points: [pointAt(e)] };
+    page().strokes.push(current);
+    drawStroke(current);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pointerId || !current) return;
+    e.preventDefault();
+    const pts = current.points;
+    const events = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
+    strokeStyle(current);
+    events.forEach((ev) => {
+      const prev = pts[pts.length - 1];
+      const p = pointAt(ev);
+      if (p[0] === prev[0] && p[1] === prev[1]) return;
+      pts.push(p);
+      ctx.beginPath();
+      ctx.moveTo(prev[0], prev[1]);
+      ctx.lineTo(p[0], p[1]);
+      ctx.stroke();
+    });
+  });
+  const endStroke = (e) => {
+    if (e.pointerId !== pointerId) return;
+    pointerId = null;
+    current = null;
+    savePages();
+  };
+  canvas.addEventListener('pointerup', endStroke);
+  canvas.addEventListener('pointercancel', endStroke);
+
+  // ---------- stamps ----------
+  const stampEl = (kind) => {
+    const el = document.createElement('div');
+    el.className = `stamp ${STAMPS[kind].cls}`;
+    el.textContent = STAMPS[kind].label;
+    el.dataset.kind = kind;
+    return el;
+  };
+  function renderStamps() {
+    const layer = $('stampLayer');
+    layer.innerHTML = '';
+    page().stamps.forEach((s, i) => {
+      const el = stampEl(s.kind);
+      el.style.left = `${s.x}px`;
+      el.style.top = `${s.y}px`;
+      el.dataset.index = i;
+      layer.appendChild(el);
+    });
+  }
+  function renderPage() {
+    redrawCanvas();
+    renderStamps();
+  }
+  const inCanvas = (x, y) => {
+    const r = $('canvasWrap').getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  };
+  const toCanvas = (x, y) => {
+    const r = $('canvasWrap').getBoundingClientRect();
+    return { x: Math.round(x - r.left), y: Math.round(y - r.top) };
+  };
+
+  // Drag a stamp from the palette onto the page.
+  const palette = $('palette');
+  Object.keys(STAMPS).forEach((kind) => {
+    const el = stampEl(kind);
+    el.title = `把「${STAMPS[kind].label}」拖到畫布`;
+    palette.appendChild(el);
+  });
+  let drag = null;
+  palette.addEventListener('pointerdown', (e) => {
+    const src = e.target.closest('.stamp');
+    if (!src || isFinger(e) || drag) return;
+    e.preventDefault();
+    const ghost = stampEl(src.dataset.kind);
+    ghost.classList.add('dragging');
+    ghost.style.left = `${e.clientX}px`;
+    ghost.style.top = `${e.clientY}px`;
+    document.body.appendChild(ghost);
+    drag = { from: 'palette', kind: src.dataset.kind, ghost, pointerId: e.pointerId };
+    try { src.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  });
+
+  // Move a stamp already on the page; drop it outside the page (or tap it with the eraser) to remove it.
+  $('stampLayer').addEventListener('pointerdown', (e) => {
+    const el = e.target.closest('.stamp');
+    if (!el || isFinger(e) || drag) return;
+    e.preventDefault();
+    const i = Number(el.dataset.index);
+    if (tool === 'eraser') {
+      remember();
+      page().stamps.splice(i, 1);
+      savePages();
+      renderStamps();
+      return;
+    }
+    drag = { from: 'page', index: i, el, pointerId: e.pointerId };
+    try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  });
+
+  document.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    if (drag.from === 'palette') {
+      drag.ghost.style.left = `${e.clientX}px`;
+      drag.ghost.style.top = `${e.clientY}px`;
     } else {
-      openSheet(seat);
+      const p = toCanvas(e.clientX, e.clientY);
+      drag.el.style.left = `${p.x}px`;
+      drag.el.style.top = `${p.y}px`;
+      drag.el.classList.toggle('leaving', !inCanvas(e.clientX, e.clientY));
+      drag.moved = true;
+    }
+  });
+  const endDrag = (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const inside = e.type === 'pointerup' && inCanvas(e.clientX, e.clientY);
+    const p = toCanvas(e.clientX, e.clientY);
+    if (drag.from === 'palette') {
+      drag.ghost.remove();
+      if (inside) {
+        remember();
+        page().stamps.push({ kind: drag.kind, x: p.x, y: p.y });
+      }
+    } else if (drag.moved) {
+      remember();
+      if (inside) Object.assign(page().stamps[drag.index], p);
+      else page().stamps.splice(drag.index, 1);
+    }
+    drag = null;
+    savePages();
+    renderStamps();
+  };
+  document.addEventListener('pointerup', endDrag);
+  document.addEventListener('pointercancel', endDrag);
+
+  // ---------- tools ----------
+  function selectTool(t, el) {
+    tool = t;
+    document.querySelectorAll('#toolRow [data-pen], #colorPick').forEach((x) => x.classList.toggle('on', x === el));
+  }
+  $('penColor').addEventListener('input', (e) => selectTool(e.target.value, $('colorPick')));
+  $('penColor').addEventListener('click', (e) => selectTool(e.target.value, $('colorPick')));
+  $('toolRow').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.pen) { selectTool(b.dataset.pen, b); return; }
+    if (b.dataset.act === 'undo') undo();
+    if (b.dataset.act === 'clear') {
+      const pg = page();
+      if (!pg.strokes.length && !pg.stamps.length) return;
+      if (!confirm(`清空第 ${game.day} 天這一頁（筆跡和圖章）？`)) return;
+      remember();
+      pages[game.day] = { strokes: [], stamps: [] };
+      savePages();
+      renderPage();
     }
   });
 
-  $('modeSeg').addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    ui.mode = b.dataset.mode;
-    [...$('modeSeg').children].forEach((x) => x.classList.toggle('on', x === b));
-    $('modeHint').textContent = ui.mode === 'quick'
-      ? '點座位循環切換：未定 → 好人 → 狼 → 存疑'
-      : '點座位打開詳細筆記';
-  });
-
-  // ---------- day ----------
-  function renderDay() {
-    $('dayLabel').textContent = `第 ${state.day} 天`;
-    $('boardLabel').textContent = B().name;
+  // ---------- days ----------
+  function renderHeader() {
+    $('dayLabel').textContent = `第 ${game.day} 天`;
+    $('boardLabel').textContent = BOARDS[game.board].name;
   }
   function changeDay(delta) {
-    if (state.day + delta < 1) return;
-    state.day += delta;
-    doodle.current = null;
-    doodle.pointerId = null;
-    commit();
-    redrawDoodle();
+    if (game.day + delta < 1) return;
+    game.day += delta;
+    current = null;
+    pointerId = null;
+    saveGame();
+    renderHeader();
+    renderPage();
   }
   $('dayUp').addEventListener('click', () => changeDay(1));
   $('dayDown').addEventListener('click', () => changeDay(-1));
 
-  // ---------- player sheet ----------
-  function openSheet(seat) {
-    ui.sheetSeat = seat;
-    renderSheet();
-    $('overlay').classList.add('open');
-  }
-  function closeSheet() {
-    ui.sheetSeat = null;
-    $('overlay').classList.remove('open');
-    render();
-  }
+  // ---------- sheets: rules and new game ----------
+  const openSheet = (html) => { $('sheet').innerHTML = html; $('overlay').classList.add('open'); };
+  const closeSheet = () => $('overlay').classList.remove('open');
   $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) closeSheet(); });
 
-  function voteHistoryFor(seat) {
-    const lines = [];
-    votesSoFar().forEach((v) => {
-      const t = v.ballots[seat];
-      if (t === undefined) return;
-      lines.push(`D${v.day} ${v.kind}：投 ${t === 0 ? '棄票' : t + '號'}`);
-    });
-    return lines;
-  }
-
-  function renderSheet() {
-    const seat = ui.sheetSeat;
-    if (!seat) return;
-    const p = P(seat);
-    const opt = (group, value, label, on, extra = '') =>
-      `<button data-group="${group}" data-value="${esc(value)}" class="${on ? 'on' : ''} ${extra}">${label}</button>`;
-
-    const pastNotes = Object.keys(p.notes)
-      .map(Number)
-      .filter((d) => d !== state.day && p.notes[d] && p.notes[d].trim())
-      .sort((a, b) => a - b)
-      .map((d) => `<div><b>第 ${d} 天：</b><span class="day-note">${esc(p.notes[d])}</span></div>`)
-      .join('');
-    const checksBy = checksSoFar().filter((c) => c.seer === seat)
-      .map((c) => `N${c.day} ${c.by && c.by !== '預言家' ? esc(c.by) + ' ' : ''}${verb(c)} ${c.target}號 → ${resultSpan(c)}`);
-    const checksOn = checksSoFar().filter((c) => c.target === seat)
-      .map((c) => `${c.seer}號 在 N${c.day} 給 ${resultSpan(c)}`);
-    const votes = voteHistoryFor(seat);
-
-    $('sheet').innerHTML = `
-      <div class="sheet-head">
-        <div class="big">${seat}號</div>
-        <input type="text" id="nameInput" placeholder="名字（選填）" value="${esc(p.name)}" maxlength="12">
-      </div>
-
-      <div class="field-label">我覺得他是</div>
-      <div class="opt-group">
-        ${MARKS.map((m) => opt('mark', m.id, m.label, p.mark === m.id, m.id)).join('')}
-      </div>
-
-      <div class="field-label">他跳的身分</div>
-      <div class="opt-group">
-        ${opt('claim', '', '沒跳', !p.claim)}
-        ${B().roles.map((r) => opt('claim', r, r, p.claim === r)).join('')}
-      </div>
-
-      <div class="field-label">狀態</div>
-      <div class="opt-group">
-        ${opt('alive', '1', '存活', p.alive)}
-        ${B().causes.map((c) => opt('death', c, c, !p.alive && p.death && p.death.cause === c)).join('')}
-      </div>
-      ${!p.alive && p.death && p.death.day > state.day ? `<div class="hint" style="margin-top:6px">他在第 ${p.death.day} 天出局；現在看的是第 ${state.day} 天，所以座位上還顯示存活。</div>` : ''}
-      <div class="opt-group" style="margin-top:8px">
-        ${opt('sheriff', '1', '★ 警長', p.sheriff)}
-        ${opt('me', '1', '這是我', state.mySeat === seat)}
-        ${B().knight ? opt('kgold', '1', '騎金', p.kgold) : ''}
-      </div>
-      ${B().knight ? '<div class="hint" style="margin-top:6px">騎金＝騎士決鬥他之後騎士出局，證實他是好人。</div>' : ''}
-
-      <div class="field-label">第 ${state.day} 天發言筆記</div>
-      <div class="opt-group" style="margin-bottom:8px">
-        ${QUICK_TAGS.map((t) => `<button data-tag="${esc(t)}" class="chip">${t}</button>`).join('')}
-      </div>
-      <textarea id="noteInput" placeholder="例如：站邊 3 號、踩 8 號、說自己是平民…">${esc(p.notes[state.day] || '')}</textarea>
-
-      ${pastNotes ? `<div class="field-label">之前的筆記</div><div class="history">${pastNotes}</div>` : ''}
-      ${checksBy.length ? `<div class="field-label">他報的查驗／銀水</div><div class="history">${checksBy.join('<br>')}</div>` : ''}
-      ${checksOn.length ? `<div class="field-label">別人給他的查驗／銀水</div><div class="history">${checksOn.join('<br>')}</div>` : ''}
-      ${state.election.up[seat] ? `<div class="field-label">上警</div><div class="history">${state.election.up[seat] === 'up' ? '上警' : '上警後退水'}${state.election.flows[seat] ? `：<span class="day-note">${esc(state.election.flows[seat])}</span>` : ''}</div>` : ''}
-      ${votes.length ? `<div class="field-label">投票紀錄</div><div class="history">${votes.join('<br>')}</div>` : ''}
-
-      <div class="sheet-foot"><button class="primary" id="sheetDone">完成</button></div>
-    `;
-  }
-
-  $('sheet').addEventListener('input', (e) => {
-    const p = P(ui.sheetSeat);
-    if (e.target.id === 'nameInput') p.name = e.target.value.trim();
-    if (e.target.id === 'noteInput') p.notes[state.day] = e.target.value;
-    save();
-  });
-
-  $('sheet').addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.id === 'sheetDone') { closeSheet(); return; }
-    const p = P(ui.sheetSeat);
-    if (b.dataset.tag) {
-      const ta = $('noteInput');
-      const cur = ta.value;
-      ta.value = cur + (cur && !/[\s、，,]$/.test(cur) ? '、' : '') + b.dataset.tag;
-      p.notes[state.day] = ta.value;
-      save();
-      ta.focus();
-      return;
-    }
-    const v = b.dataset.value;
-    switch (b.dataset.group) {
-      case 'mark': p.mark = v; break;
-      case 'claim': p.claim = v; break;
-      case 'alive': p.alive = true; p.death = null; break;
-      case 'death': p.alive = false; p.death = { day: state.day, cause: v }; break;
-      case 'sheriff': {
-        const was = p.sheriff;
-        state.players.forEach((x) => { x.sheriff = false; });
-        p.sheriff = !was;
-        break;
-      }
-      case 'me': state.mySeat = state.mySeat === ui.sheetSeat ? null : ui.sheetSeat; break;
-      case 'kgold': p.kgold = !p.kgold; if (p.kgold) p.mark = 'good'; break;
-      default: return;
-    }
-    save();
-    renderSheet();
-  });
-
-  // ---------- tabs ----------
-  $('tabs').addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    ui.tab = b.dataset.tab;
-    $('tabBody').scrollTop = 0;
-    [...$('tabs').children].forEach((x) => x.classList.toggle('on', x === b));
-    renderTab();
-  });
-
-  function seatOptions(selected, { allowNone = false } = {}) {
-    let html = allowNone ? '<option value="">—</option>' : '';
-    for (let s = 1; s <= N(); s++) {
-      html += `<option value="${s}" ${selected === s ? 'selected' : ''}>${seatLabel(s)}</option>`;
-    }
-    return html;
-  }
-
-  function renderTab() {
-    const body = $('tabBody');
-    if (ui.tab === 'checks') body.innerHTML = checksHTML();
-    else if (ui.tab === 'votes') body.innerHTML = votesHTML();
-    else if (ui.tab === 'memo') body.innerHTML = memoHTML();
-    else body.innerHTML = rulesHTML();
-  }
-
-  // ---------- checks ----------
-  let checkDraft = { seer: null, target: null, result: 'good', by: '預言家' };
-
-  function checksHTML() {
-    const shown = checksSoFar();
-    const seers = [...new Set(shown.map((c) => c.seer))];
-    const conflicts = [];
-    for (let t = 1; t <= N(); t++) {
-      const rs = shown.filter((c) => c.target === t);
-      if (rs.some((c) => c.result === 'good') && rs.some((c) => c.result === 'wolf')) {
-        const who = rs.filter((c) => c.result !== 'silver').map((c) => `${c.seer}號說${RESULTS[c.result].label}`).join('、');
-        conflicts.push(`${t}號 結果矛盾：${who}${B().lantern ? '（燈影板一正一反，矛盾是正常的，請看下方燈影分析）' : ''}`);
-      }
-    }
-    if (B().lantern) {
-      shown.filter((c) => B().checkers.includes(c.by)).forEach((c) => {
-        const t = P(c.target);
-        const why = t.kgold ? '騎金' : (t.claim === '騎士' ? '翻牌騎士' : '');
-        if (why) conflicts.push(`${c.seer}號 報驗了 ${c.target}號（${why}）：規則不能驗${why}，這個查驗可疑`);
-      });
-    }
-    const cols = seers.map((s) => {
-      const items = shown.filter((c) => c.seer === s).sort((a, b) => a.day - b.day);
-      const roles = [...new Set(items.map((c) => c.by || '預言家'))].join('/');
-      return `<div class="seer-col">
-        <h4>${seatLabel(s)}（${esc(roles)}）${aliveNow(P(s)) ? '' : '（已出局）'}</h4>
-        ${items.map((c) => `<div class="list-item">
-          <span class="grow">N${c.day} ${verb(c)} ${seatLabel(c.target)} → ${resultSpan(c)}</span>
-          <button class="x-btn" data-del-check="${c.id}" aria-label="刪除">✕</button>
-        </div>`).join('')}
-      </div>`;
-    }).join('');
-
-    return `
-      <div class="card">
-        <h3>新增查驗／銀水（誰報的）</h3>
-        <div class="row"><div class="opt-group">
-          ${reporters().map((r) => `<button data-ck-by="${esc(r)}" class="${checkDraft.by === r ? 'on' : ''}">${r}</button>`).join('')}
-        </div></div>
-        <div class="row">
-          <select id="ckSeer">${seatOptions(checkDraft.seer, { allowNone: true })}</select>
-          <span>${checkDraft.by === '女巫' ? '救' : '驗'}</span>
-          <select id="ckTarget">${seatOptions(checkDraft.target, { allowNone: true })}</select>
-        </div>
-        <div class="row">
-          <div class="opt-group">
-            ${checkDraft.by === '女巫'
-              ? '<button class="on silver" disabled>銀水 (被女巫救)</button>'
-              : `<button data-ck-result="good" class="${checkDraft.result === 'good' ? 'on good' : ''}">金水 (好人)</button>
-            <button data-ck-result="wolf" class="${checkDraft.result === 'wolf' ? 'on wolf' : ''}">查殺 (狼)</button>`}
-          </div>
-          <span class="hint">第 ${state.day} 晚</span>
-          <button class="primary" id="ckAdd">加入</button>
-        </div>
-        ${checkDraft.by === '女巫' ? '<div class="hint" style="margin-top:8px">銀水＝女巫說她救了誰（那晚被狼刀、被救活的人）。女巫可能是假跳，銀水不一定是好人。</div>' : ''}
-      </div>
-      ${laterNote(state.checks.length - shown.length, '查驗')}
-      ${conflicts.map((c) => `<div class="warn">⚠️ ${c}</div>`).join('')}
-      ${seers.length > 1 ? '<div class="hint" style="margin-bottom:8px">有 ' + seers.length + ' 人報查驗，並排比較：</div>' : ''}
-      ${seers.length ? `<div class="seer-cols">${cols}</div>` : '<div class="empty">還沒有查驗或銀水紀錄</div>'}
-      ${B().lantern ? lanternHTML() : ''}
-    `;
-  }
-
-  // 燈影預言家板：兩張預言家牌一張正確、一張反向。分別假設兩種情況（兩個世界），
-  // 推出每個被驗的人在各世界的身分，並和已知事實、你的標記比對。
-  const flip = (r) => (r === 'good' ? 'wolf' : 'good');
-  const lampPick = (role, key) => {
-    if (state.lamp[key]) return state.lamp[key];
-    const c = state.checks.find((x) => x.by === role);
-    return c ? c.seer : null;
-  };
-  // 已確定的身分：騎金是好人；自爆、被騎士決鬥出局的是狼
-  const knownFact = (seat) => {
-    const p = P(seat);
-    if (p.kgold) return 'good';
-    if (p.death && p.death.day <= state.day && (p.death.cause === '自爆' || p.death.cause === '被騎士決鬥')) return 'wolf';
-    return null;
-  };
-
-  function lanternHTML() {
-    const sSeat = lampPick('預言家', 'seer');
-    const lSeat = lampPick('燈影預言家', 'lantern');
-    const pickers = `<div class="row">
-        <span>預言家牌</span><select id="lampSeer">${seatOptions(sSeat, { allowNone: true })}</select>
-        <span>燈影牌</span><select id="lampLantern">${seatOptions(lSeat, { allowNone: true })}</select>
-      </div>`;
-    const head = `<div class="card"><h3>燈影分析：兩個世界</h3>
-      <div class="hint" style="margin-bottom:8px">兩張預言家牌一張正確、一張反向。選出跳這兩張牌的人，看每個被驗的人在兩種情況下各是什麼身分。</div>
-      ${pickers}`;
-    if (!sSeat || !lSeat || sSeat === lSeat) {
-      return `${head}<div class="empty">選好兩位不同的人（或先用「預言家」「燈影預言家」記錄查驗），就會出現分析。</div></div>`;
-    }
-    const reports = (seat) => {
-      const m = {};
-      checksSoFar().filter((c) => c.seer === seat && c.result !== 'silver').forEach((c) => { (m[c.target] = m[c.target] || []).push(c.result); });
-      return m;
-    };
-    const rS = reports(sSeat);
-    const rL = reports(lSeat);
-    const targets = [...new Set([...Object.keys(rS), ...Object.keys(rL)].map(Number))].sort((a, b) => a - b);
-    const label = (r) => (r === 'good' ? '<span class="res-good">好人</span>' : r === 'wolf' ? '<span class="res-wolf">狼</span>' : '<span class="res-wolf">矛盾</span>');
-    const reportLabel = (arr) => (arr ? arr.map((r) => RESULTS[r].label).join('、') : '—');
-    // 世界 A：預言家牌正確、燈影牌反向；世界 B：反過來
-    const identity = (t, worldA) => {
-      const ids = [
-        ...(rS[t] || []).map((r) => (worldA ? r : flip(r))),
-        ...(rL[t] || []).map((r) => (worldA ? flip(r) : r)),
-      ];
-      return ids.every((x) => x === ids[0]) ? ids[0] : 'conflict';
-    };
-    const stats = { A: { hard: [], soft: [] }, B: { hard: [], soft: [] } };
-    const rows = targets.map((t) => {
-      const cells = ['A', 'B'].map((w) => {
-        const id = identity(t, w === 'A');
-        const fact = knownFact(t);
-        const mark = P(t).mark === 'good' || P(t).mark === 'wolf' ? P(t).mark : null;
-        let extra = '';
-        if (id === 'conflict') stats[w].hard.push(`${t}號 兩人結果對不上`);
-        else if (fact && fact !== id) { stats[w].hard.push(`${t}號 已確定是${fact === 'good' ? '好人' : '狼'}`); extra = ' ⚠️'; }
-        else if (mark && mark !== id) { stats[w].soft.push(t); extra = ' <span class="hint">≠標記</span>'; }
-        return { id, html: label(id) + extra };
-      });
-      const both = cells[0].id === cells[1].id && cells[0].id !== 'conflict'
-        ? `<span class="both">都是${label(cells[0].id)}</span>` : '<span class="hint">看哪個世界</span>';
-      return `<tr><td>${t}</td><td>${reportLabel(rS[t])}</td><td>${reportLabel(rL[t])}</td><td>${cells[0].html}</td><td>${cells[1].html}</td><td>${both}</td></tr>`;
-    }).join('');
-    const sameBoth = targets.filter((t) => identity(t, true) === 'conflict' && identity(t, false) === 'conflict');
-    const world = (w, title) => {
-      const st = stats[w];
-      const cls = st.hard.length ? 'bad' : 'ok';
-      return `<div class="world ${cls}"><b>${title}</b><br>
-        ${st.hard.length ? `❌ 不可能的地方：${st.hard.map(esc).join('；')}` : '✅ 和已確定的事實沒有衝突'}
-        ${st.soft.length ? `<br><span class="hint">和你的標記不同：${st.soft.map((x) => x + '號').join('、')}</span>` : ''}</div>`;
-    };
-    return `${head}
-      ${sameBoth.length ? `<div class="warn" style="margin-top:10px">⚠️ ${sameBoth.map((t) => t + '號').join('、')} 兩人報了一樣的結果。兩張牌一正一反，真的查驗應該相反，所以其中一人可能是悍跳狼。</div>` : ''}
-      ${targets.length ? `<table class="lt" style="margin-top:10px">
-        <tr><th>號碼</th><th>${sSeat}號報</th><th>${lSeat}號報</th><th>世界A</th><th>世界B</th><th>結論</th></tr>
-        ${rows}
-      </table>
-      ${world('A', `世界A：${sSeat}號（預言家牌）正確，${lSeat}號（燈影牌）反向`)}
-      ${world('B', `世界B：${lSeat}號（燈影牌）正確，${sSeat}號（預言家牌）反向`)}
-      <div class="hint" style="margin-top:8px">已確定的身分：騎金＝好人；自爆、被騎士決鬥出局＝狼。這個分析假設兩人都真的拿到預言家牌；如果有狼悍跳，結果會亂掉。</div>`
-      : '<div class="empty">這兩位還沒有報查驗。</div>'}
-    </div>`;
-  }
-
-  $('tabBody').addEventListener('change', (e) => {
-    if (e.target.id === 'ckSeer') checkDraft.seer = Number(e.target.value) || null;
-    if (e.target.id === 'ckTarget') checkDraft.target = Number(e.target.value) || null;
-    if (e.target.id === 'mentorInput') { state.mentor = Number(e.target.value) || null; commit(); }
-    if (e.target.id === 'lampSeer') { state.lamp.seer = Number(e.target.value) || null; commit(); }
-    if (e.target.id === 'lampLantern') { state.lamp.lantern = Number(e.target.value) || null; commit(); }
-    if (e.target.id === 'elSheriff') {
-      const seat = Number(e.target.value) || null;
-      state.players.forEach((x) => { x.sheriff = x.seat === seat; });
-      commit();
-    }
-  });
-
-  // ---------- votes ----------
-  function tally(v) {
-    const counts = {};
-    Object.entries(v.ballots).forEach(([voter, target]) => {
-      if (!target) return;
-      const weight = v.kind === '放逐投票' && v.sheriff === Number(voter) ? 1.5 : 1;
-      if (!counts[target]) counts[target] = { n: 0, voters: [] };
-      counts[target].n += weight;
-      counts[target].voters.push(Number(voter));
-    });
-    return Object.entries(counts)
-      .map(([t, c]) => ({ target: Number(t), n: c.n, voters: c.voters.sort((a, b) => a - b) }))
-      .sort((a, b) => b.n - a.n);
-  }
-
-  function similarPairs() {
-    const pairs = [];
-    for (let a = 1; a <= N(); a++) {
-      for (let b = a + 1; b <= N(); b++) {
-        let same = 0;
-        let both = 0;
-        votesSoFar().forEach((v) => {
-          const ta = v.ballots[a];
-          const tb = v.ballots[b];
-          if (ta === undefined || tb === undefined) return;
-          both++;
-          if (ta && ta === tb) same++;
-        });
-        if (same >= 2) pairs.push({ a, b, same, both });
-      }
-    }
-    return pairs.sort((x, y) => y.same - x.same || x.both - y.both).slice(0, 10);
-  }
-
-  function votesHTML() {
-    const rounds = [...votesSoFar()].reverse().map((v) => {
-      const open = ui.openVote === v.id;
-      const t = tally(v);
-      const max = t.length ? t[0].n : 1;
-      const abstain = Object.entries(v.ballots).filter(([, x]) => x === 0).map(([s]) => s);
-      const tallyHTML = t.map((r) => `<div class="tally-row">
-          <b>${r.target}號</b><span>${r.n} 票</span>
-          <span class="bar" style="width:${Math.round((r.n / max) * 80)}px"></span>
-          <span class="hint">← ${r.voters.join(', ')}</span>
-        </div>`).join('') + (abstain.length ? `<div class="tally-row hint">棄票：${abstain.join(', ')}</div>` : '');
-
-      // 警長競選：只有警下能投，只能投給還在警上的人
-      const ups = state.election.up;
-      const isElection = v.kind === '警長競選' && Object.keys(ups).length > 0;
-      let ballots = '';
-      if (open) {
-        ballots = state.players.map((p) => {
-          if (isElection && ups[p.seat]) {
-            return `<div class="ballot" style="opacity:.55"><div class="voter">${p.seat}</div><div class="hint">${ups[p.seat] === 'up' ? '警上（不能投票）' : '退水（不能投票）'}</div></div>`;
-          }
-          const cur = v.ballots[p.seat];
-          const chips = [`<button class="chip ${cur === 0 ? 'on' : ''}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="0">棄</button>`];
-          for (let s = 1; s <= N(); s++) {
-            if (s === p.seat) continue;
-            if (isElection && ups[s] !== 'up') continue;
-            chips.push(`<button class="chip ${cur === s ? 'on' : ''} ${aliveNow(P(s)) ? '' : 'dim'}" data-ballot="${v.id}" data-voter="${p.seat}" data-target="${s}">${s}</button>`);
-          }
-          return `<div class="ballot" style="${aliveNow(p) ? '' : 'opacity:.45'}">
-            <div class="voter">${p.seat}</div><div class="chips" style="--cols:${Math.max(chips.length, 6)}">${chips.join('')}</div></div>`;
-        }).join('');
-      }
-      return `<div class="card">
-        <div class="vote-head" data-toggle-vote="${v.id}">
-          <span class="grow">第 ${v.day} 天 · ${esc(v.kind)}</span>
-          <span class="hint">${open ? '收起' : '編輯'}</span>
-          <button class="x-btn" data-del-vote="${v.id}" aria-label="刪除">✕</button>
-        </div>
-        ${t.length || abstain.length ? `<div class="tally">${tallyHTML}</div>` : (open ? '' : '<div class="hint" style="margin-top:6px">還沒填票</div>')}
-        ${open ? `<div class="hint" style="margin:12px 0 6px">左邊是投票的人，點他投給誰（再點一次取消）${isElection ? '。依上警紀錄，只有警下能投、只能投給警上的人' : ''}</div>${ballots}` : ''}
-      </div>`;
-    }).join('');
-
-    const pairs = similarPairs();
-    const pairsHTML = pairs.length ? `<div class="card"><h3>票型分析：常投同一人</h3>
-      ${pairs.map((x) => `<div class="pair"><span>${seatLabel(x.a)} ＆ ${seatLabel(x.b)}</span><span class="hint">${x.same} / ${x.both} 輪相同</span></div>`).join('')}
-      <div class="hint" style="margin-top:8px">票型一致的人可能是同陣營，留意狼隊抱團。</div></div>` : '';
-
-    return `
-      ${electionHTML()}
-      <div class="card">
-        <h3>新增一輪投票（第 ${state.day} 天）</h3>
-        <div class="opt-group">
-          ${VOTE_KINDS.map((k) => `<button data-new-vote="${k}">${k}</button>`).join('')}
-        </div>
-      </div>
-      ${pairsHTML}
-      ${laterNote(state.votes.length - votesSoFar().length, '投票')}
-      ${rounds || '<div class="empty">還沒有投票紀錄</div>'}
-    `;
-  }
-
-  function electionHTML() {
-    const el = state.election;
-    const chips = state.players.map((p) => {
-      const st = el.up[p.seat];
-      return `<button class="chip ${st === 'up' ? 'on' : st === 'out' ? 'out' : ''}" data-el-seat="${p.seat}">${p.seat}</button>`;
-    }).join('');
-    const cands = state.players.filter((p) => el.up[p.seat]);
-    const rows = cands.map((p) => `<div class="el-row">
-        <b>${seatLabel(p.seat)}${el.up[p.seat] === 'out' ? ' <span class="hint">退水</span>' : ''}</b>
-        <input type="text" data-flow="${p.seat}" value="${esc(el.flows[p.seat] || '')}" placeholder="警徽流／跳什麼，例：跳預言家，先驗 5 再驗 9">
-      </div>`).join('');
-    const sheriff = state.players.find((p) => p.sheriff);
-    return `<div class="card">
-      <h3>警長競選（上警紀錄）</h3>
-      <div class="hint" style="margin-bottom:8px">點號碼切換：警下 → 上警 → 退水 → 警下</div>
-      <div class="chips" style="--cols:${Math.ceil(N() / 2)}">${chips}</div>
-      ${rows ? `<div style="margin-top:10px">${rows}</div>` : ''}
-      <div class="row" style="margin-top:10px">
-        <span>當選警長</span>
-        <select id="elSheriff">${seatOptions(sheriff ? sheriff.seat : null, { allowNone: true })}</select>
-        <button data-new-vote="警長競選">記錄警下投票</button>
-      </div>
-      <div class="hint" style="margin-top:6px">警上：${cands.filter((p) => el.up[p.seat] === 'up').map((p) => p.seat).join('、') || '—'}　退水：${cands.filter((p) => el.up[p.seat] === 'out').map((p) => p.seat).join('、') || '—'}</div>
-    </div>`;
-  }
-
-  // ---------- memo ----------
-  function memoHTML() {
-    const me = state.mySeat ? `${state.mySeat}號` : '（點座位 → 這是我）';
-    return `
-      <div class="card">
-        <h3>我的身分（只有你看得到）</h3>
-        <div class="row"><span>座位：${me}</span></div>
-        <div class="opt-group" style="margin-top:8px">
-          ${['', ...B().roles].map((r) => `<button data-my-role="${esc(r)}" class="${state.myRole === r ? 'on' : ''}">${r || '未設定'}</button>`).join('')}
-        </div>
-        ${state.myRole === '野孩子' ? `<div class="row" style="margin-top:10px">
-          <span>我的榜樣：</span>
-          <select id="mentorInput">${seatOptions(state.mentor, { allowNone: true })}</select>
-          <span class="hint">榜樣出局 → 你轉入狼陣營</span>
-        </div>` : ''}
-      </div>
-      <div class="card">
-        <h3>整體推理</h3>
-        <textarea id="memoInput" style="min-height:220px" placeholder="例如：狼坑猜 2、7、9、11；3 號像真預言家…">${esc(state.memo)}</textarea>
-      </div>
-      ${summaryHTML()}
-    `;
-  }
-
-  function summaryHTML() {
-    const group = (mark) => state.players.filter((p) => p.mark === mark).map((p) => p.seat);
-    const alive = state.players.filter(aliveNow).map((p) => p.seat);
-    const line = (label, arr) => `<div class="list-item"><span style="min-width:72px">${label}</span><span class="grow">${arr.length ? arr.join('、') : '—'}</span></div>`;
-    const wolves = group('wolf');
-    return `<div class="card"><h3>目前判斷</h3>
-      ${line('🔴 狼', wolves)}
-      <div class="hint" style="padding:2px 0 6px">狼坑：已標 ${wolves.length} / ${B().wolfSlots}（${esc(B().wolfCount)}）</div>
-      ${line('🟡 存疑', group('sus'))}
-      ${line('🟢 好人', group('good'))}
-      ${line('存活', alive)}
-    </div>`;
-  }
-
   function rulesHTML() {
-    const b = B();
-    const list = (items) => items.map((x) => `<span class="badge" style="font-size:13px;padding:4px 8px">${esc(x)}</span>`).join(' ');
+    const b = BOARDS[game.board];
+    const list = (items) => items.map((x) => `<span class="badge">${esc(x)}</span>`).join(' ');
     const info = (items) => `<dl>${items.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join('')}</dl>`;
     return `
       <div class="card rules">
@@ -1074,100 +589,44 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
       <div class="card rules"><h3>獲勝條件</h3>
         <h4 class="wolf-side">狼人</h4><div class="order">${esc(b.win.wolf)}</div>
         <h4 class="good-side">好人</h4><div class="order">${esc(b.win.good)}</div>
-      </div>`;
+      </div>
+      <div class="sheet-foot"><button class="on" id="sheetClose">關閉</button></div>`;
   }
-
-  $('tabBody').addEventListener('input', (e) => {
-    if (e.target.dataset.flow) { state.election.flows[e.target.dataset.flow] = e.target.value; save(); }
-    if (e.target.id === 'memoInput') { state.memo = e.target.value; save(); }
+  $('rulesBtn').addEventListener('click', () => {
+    openSheet(rulesHTML());
+    $('sheetClose').onclick = closeSheet;
   });
 
-  $('tabBody').addEventListener('click', (e) => {
-    const b = e.target.closest('button, [data-toggle-vote]');
-    if (!b) return;
-    const d = b.dataset;
-
-    if (d.ckResult) { checkDraft.result = d.ckResult; renderTab(); return; }
-    if (d.ckBy) { checkDraft.by = d.ckBy; renderTab(); return; }
-    if (d.elSeat) {
-      const up = state.election.up;
-      const next = { undefined: 'up', up: 'out', out: undefined }[up[d.elSeat]];
-      if (next) up[d.elSeat] = next; else delete up[d.elSeat];
-      commit();
-      return;
-    }
-    if (b.id === 'ckAdd') {
-      if (!checkDraft.seer || !checkDraft.target) { alert('請選擇報結果的人和對象'); return; }
-      const by = reporters().includes(checkDraft.by) ? checkDraft.by : B().checkers[0];
-      if (by !== '女巫' && checkDraft.seer === checkDraft.target) { alert('不能驗自己'); return; }
-      const result = by === '女巫' ? 'silver' : (checkDraft.result === 'wolf' ? 'wolf' : 'good');
-      state.checks.push({ id: uid(), day: state.day, seer: checkDraft.seer, target: checkDraft.target, result, by });
-      if (!P(checkDraft.seer).claim) P(checkDraft.seer).claim = by;
-      checkDraft.target = null;
-      commit();
-      return;
-    }
-    if (d.delCheck) {
-      e.stopPropagation();
-      if (!confirm('刪除這筆查驗？')) return;
-      state.checks = state.checks.filter((c) => c.id !== d.delCheck);
-      commit();
-      return;
-    }
-    if (d.newVote) {
-      const sheriff = state.players.find((p) => p.sheriff);
-      const v = { id: uid(), day: state.day, kind: d.newVote, sheriff: sheriff ? sheriff.seat : null, ballots: {} };
-      state.votes.push(v);
-      ui.openVote = v.id;
-      commit();
-      return;
-    }
-    if (d.delVote) {
-      e.stopPropagation();
-      if (!confirm('刪除這輪投票？')) return;
-      state.votes = state.votes.filter((v) => v.id !== d.delVote);
-      commit();
-      return;
-    }
-    if (d.toggleVote) { ui.openVote = ui.openVote === d.toggleVote ? null : d.toggleVote; renderTab(); return; }
-    if (d.ballot) {
-      const v = state.votes.find((x) => x.id === d.ballot);
-      const voter = Number(d.voter);
-      const target = Number(d.target);
-      if (v.ballots[voter] === target) delete v.ballots[voter];
-      else v.ballots[voter] = target;
-      commit();
-      return;
-    }
-    if (d.myRole !== undefined) { state.myRole = d.myRole; commit(); }
-  });
-
-  // ---------- new game ----------
   $('newGameBtn').addEventListener('click', () => {
-    $('sheet').innerHTML = `
-      <h3 style="margin-top:0">開始新的一局？</h3>
-      <p class="hint">目前的標記、查驗、投票、筆記和塗鴉都會清空。</p>
-      <div class="field-label">板子</div>
+    let boardId = game.board;
+    openSheet(`
+      <h3>開始新的一局？</h3>
+      <p class="hint">每一天的塗鴉和圖章都會清空，回到第 1 天。</p>
+      <div class="field-label">板子（📖 板子 會顯示這個板子的規則）</div>
       <div class="opt-group" id="ngBoard">
-        ${Object.entries(BOARDS).map(([id, b]) => `<button data-board="${id}" class="${id === state.board ? 'on' : ''}">${esc(b.name)}</button>`).join('')}
+        ${Object.entries(BOARDS).map(([id, b]) => `<button data-board="${id}" class="${id === boardId ? 'on' : ''}">${esc(b.name)}</button>`).join('')}
       </div>
       <div class="sheet-foot">
         <button id="ngCancel">取消</button>
-        <button id="ngKeep">清空，但保留名字</button>
-        <button class="primary danger" id="ngAll" style="color:#11131c;background:var(--wolf);border-color:var(--wolf)">全部清空</button>
-      </div>`;
-    ui.sheetSeat = null;
-    $('overlay').classList.add('open');
-    $('ngCancel').onclick = closeSheet;
-    let boardId = state.board;
+        <button id="ngGo" style="color:#11131c;background:var(--wolf);border-color:var(--wolf);font-weight:600">清空並開始</button>
+      </div>`);
     $('ngBoard').onclick = (e) => {
       const b = e.target.closest('button');
       if (!b) return;
       boardId = b.dataset.board;
       [...$('ngBoard').children].forEach((x) => x.classList.toggle('on', x === b));
     };
-    $('ngKeep').onclick = () => { state = blankState(boardId, state.players.map((p) => p.name)); save(); clearDoodle(); closeSheet(); };
-    $('ngAll').onclick = () => { state = blankState(boardId); save(); clearDoodle(); closeSheet(); };
+    $('ngCancel').onclick = closeSheet;
+    $('ngGo').onclick = () => {
+      game = { board: boardId, day: 1 };
+      pages = {};
+      Object.keys(history).forEach((k) => delete history[k]);
+      saveGame();
+      savePages();
+      renderHeader();
+      renderPage();
+      closeSheet();
+    };
   });
 
   // ---------- privacy cover ----------
@@ -1179,169 +638,21 @@ textarea { width: 100%; resize: vertical; min-height: 90px; line-height: 1.5; }
     lastTap = now;
   });
 
-  // ---------- doodle ----------
-  // Strokes are kept as data (tool, color, points in CSS pixels) so the drawing can be
-  // redrawn after a resize or rotation, undone stroke by stroke, and saved between visits.
-  // Only the Apple Pencil (or a mouse) draws; finger touches are left to scroll the page.
-  // Each day has its own page: byDay[day] = strokes. A new day starts blank.
-  const DOODLE_KEY = 'werewolf-doodle-v2';
-  const PEN_WIDTH = 3;
-  const ERASER_WIDTH = 26;
-  const doodle = { canvas: $('doodle'), byDay: {}, tool: '#111111', current: null, pointerId: null };
-  const dctx = doodle.canvas.getContext('2d');
-  try {
-    const raw = localStorage.getItem(DOODLE_KEY);
-    if (raw) doodle.byDay = JSON.parse(raw) || {};
-    else {
-      // 舊版只有一頁塗鴉：放到目前這一天
-      const old = JSON.parse(localStorage.getItem('werewolf-doodle-v1') || '[]');
-      if (old.length) doodle.byDay[state.day] = old;
-    }
-  } catch (e) { doodle.byDay = {}; }
-  const dayStrokes = () => (doodle.byDay[state.day] = doodle.byDay[state.day] || []);
-
-  function saveDoodle() {
-    try { localStorage.setItem(DOODLE_KEY, JSON.stringify(doodle.byDay)); } catch (e) { /* ignore */ }
-  }
-  function strokeStyle(st) {
-    const eraser = st.tool === 'eraser';
-    dctx.globalCompositeOperation = eraser ? 'destination-out' : 'source-over';
-    dctx.strokeStyle = eraser ? '#000' : st.tool;
-    dctx.fillStyle = dctx.strokeStyle;
-    dctx.lineWidth = eraser ? ERASER_WIDTH : PEN_WIDTH;
-    dctx.lineCap = 'round';
-    dctx.lineJoin = 'round';
-  }
-  function drawStroke(st) {
-    const pts = st.points;
-    if (!pts.length) return;
-    strokeStyle(st);
-    dctx.beginPath();
-    if (pts.length === 1) {
-      dctx.arc(pts[0][0], pts[0][1], dctx.lineWidth / 2, 0, Math.PI * 2);
-      dctx.fill();
-      return;
-    }
-    dctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) dctx.lineTo(pts[i][0], pts[i][1]);
-    dctx.stroke();
-  }
-  function redrawDoodle() {
-    const c = doodle.canvas;
-    const dpr = window.devicePixelRatio || 1;
-    dctx.setTransform(1, 0, 0, 1, 0, 0);
-    dctx.clearRect(0, 0, c.width, c.height);
-    dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    dayStrokes().forEach(drawStroke);
-    $('doodleDay').textContent = `第 ${state.day} 天`;
-  }
-  function sizeDoodle() {
-    const r = $('canvasWrap').getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, Math.round(r.width * dpr));
-    const h = Math.max(1, Math.round(r.height * dpr));
-    if (doodle.canvas.width !== w || doodle.canvas.height !== h) {
-      doodle.canvas.width = w;
-      doodle.canvas.height = h;
-      redrawDoodle();
-    }
-  }
-  const pointAt = (e) => {
-    const r = doodle.canvas.getBoundingClientRect();
-    return [Math.round((e.clientX - r.left) * 10) / 10, Math.round((e.clientY - r.top) * 10) / 10];
-  };
-
-  // Safari scrolls on Apple Pencil touches too; cancel those so the pencil draws,
-  // while finger touches keep scrolling.
-  const blockStylusScroll = (e) => {
-    if ([...e.touches].some((t) => t.touchType === 'stylus')) e.preventDefault();
-  };
-  doodle.canvas.addEventListener('touchstart', blockStylusScroll, { passive: false });
-  doodle.canvas.addEventListener('touchmove', blockStylusScroll, { passive: false });
-
-  doodle.canvas.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'touch' || doodle.pointerId !== null) return;
-    e.preventDefault();
-    doodle.pointerId = e.pointerId;
-    try { doodle.canvas.setPointerCapture(e.pointerId); } catch (err) { /* keep drawing without capture */ }
-    doodle.current = { tool: doodle.tool, points: [pointAt(e)] };
-    dayStrokes().push(doodle.current);
-    drawStroke(doodle.current);
-  });
-  doodle.canvas.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== doodle.pointerId || !doodle.current) return;
-    e.preventDefault();
-    const pts = doodle.current.points;
-    const events = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
-    strokeStyle(doodle.current);
-    events.forEach((ev) => {
-      const prev = pts[pts.length - 1];
-      const p = pointAt(ev);
-      if (p[0] === prev[0] && p[1] === prev[1]) return;
-      pts.push(p);
-      dctx.beginPath();
-      dctx.moveTo(prev[0], prev[1]);
-      dctx.lineTo(p[0], p[1]);
-      dctx.stroke();
-    });
-  });
-  const endStroke = (e) => {
-    if (e.pointerId !== doodle.pointerId) return;
-    doodle.pointerId = null;
-    doodle.current = null;
-    saveDoodle();
-  };
-  doodle.canvas.addEventListener('pointerup', endStroke);
-  doodle.canvas.addEventListener('pointercancel', endStroke);
-
-  function selectTool(tool, el) {
-    doodle.tool = tool;
-    $('doodleBar').querySelectorAll('[data-pen], #colorPick').forEach((x) => x.classList.toggle('on', x === el));
-  }
-  $('penColor').addEventListener('input', (e) => selectTool(e.target.value, $('colorPick')));
-  $('penColor').addEventListener('click', (e) => selectTool(e.target.value, $('colorPick')));
-  $('doodleBar').addEventListener('click', (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.dataset.pen) { selectTool(b.dataset.pen, b); return; }
-    if (b.dataset.doodle === 'undo') {
-      dayStrokes().pop();
-      saveDoodle();
-      redrawDoodle();
-    }
-    if (b.dataset.doodle === 'clear') {
-      if (!dayStrokes().length || !confirm(`清空第 ${state.day} 天的塗鴉？`)) return;
-      doodle.byDay[state.day] = [];
-      saveDoodle();
-      redrawDoodle();
-    }
-  });
-  function clearDoodle() {
-    doodle.byDay = {};
-    saveDoodle();
-    redrawDoodle();
-  }
-  if ('ResizeObserver' in window) new ResizeObserver(sizeDoodle).observe($('canvasWrap'));
-  window.addEventListener('resize', sizeDoodle);
-  sizeDoodle();
-
   // ---------- keep screen awake ----------
-  let wakeLock = null;
   async function requestWake() {
     try {
-      if ('wakeLock' in navigator && document.visibilityState === 'visible') {
-        wakeLock = await navigator.wakeLock.request('screen');
-      }
+      if ('wakeLock' in navigator && document.visibilityState === 'visible') await navigator.wakeLock.request('screen');
     } catch (e) { /* not supported or denied */ }
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') requestWake(); });
-  document.addEventListener('click', function once() { requestWake(); document.removeEventListener('click', once); });
+  document.addEventListener('pointerdown', function once() { requestWake(); document.removeEventListener('pointerdown', once); });
 
-  // ---------- render ----------
-  function render() { renderDay(); renderSeats(); renderTab(); }
-  function commit() { save(); render(); if (ui.sheetSeat) renderSheet(); }
-
-  render();
+  // ---------- start ----------
+  if ('ResizeObserver' in window) new ResizeObserver(sizeCanvas).observe($('canvasWrap'));
+  window.addEventListener('resize', sizeCanvas);
+  renderHeader();
+  sizeCanvas();
+  renderPage();
 })();
 </script>
 </body>
