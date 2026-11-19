@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .engine import ITEMS, Controller, Game, Player, Speech
-from .roles import DARK_PACK, ROLE_DESCRIPTIONS, Role
+from .roles import DARK_PACK, EVIL_GIFTS, ROLE_DESCRIPTIONS, WISH_ORDER, XMAS_GIFTS, Role
 
 
 def ask(prompt: str) -> str:
@@ -42,11 +42,14 @@ class HumanController(Controller):
         if game.light_dark and me.role in DARK_PACK:
             mates = [p.seat for p in game.players.values() if p.role in DARK_PACK and p.seat != me.seat]
             print(f"   黑暗隊友：{'、'.join(map(str, mates)) or '無'}號")
+        elif game.christmas and me.role is Role.GOBLIN:
+            print("   你和狼人不見面，狼人也不知道你是誰。其他四隻狼都出局後，你才帶刀殺人。")
         elif me.is_wolf:
-            mates = [p.seat for p in game.players.values() if p.is_wolf and p.seat != me.seat]
+            mates = [p.seat for p in game.players.values()
+                     if p.seat in game.wolf_pack() and p.seat != me.seat]
             print(f"   你的狼隊友：{'、'.join(map(str, mates)) or '無'}號")
             kings = [f"{p.seat}號({p.role.value})" for p in game.players.values()
-                     if p.is_wolf and p.role is not Role.WEREWOLF and p.seat != me.seat]
+                     if p.seat in game.wolf_pack() and p.role is not Role.WEREWOLF and p.seat != me.seat]
             if kings:
                 print(f"   隊友中的特殊狼：{'、'.join(kings)}")
         print("=" * 50)
@@ -70,7 +73,10 @@ class HumanController(Controller):
             # 除黑暗攝夢人外都可以刀（可以自刀）；不能只列出非黑暗玩家，那會洩漏黑暗預言家
             options = [p.seat for p in game.alive() if p.role is not Role.DARK_DREAMER]
             return ask_seat("今晚要殺誰（0=空刀；黑暗攝夢人不能被刀）", options)
-        mates = [p.seat for p in game.alive() if p.is_wolf and p.seat != me.seat]
+        if game.christmas and me.role is Role.GOBLIN:
+            print("\n😈 其他四隻狼都出局了，聖誕矮靈帶刀。")
+            return ask_seat("今晚要殺誰（0=空刀）", game.alive_seats())
+        mates = [p.seat for p in game.alive() if p.seat in game.wolf_pack() and p.seat != me.seat]
         print(f"\n🐺 狼人請睜眼。存活的狼隊友：{'、'.join(map(str, mates)) or '只剩你'}")
         return ask_seat("今晚要殺誰（0=空刀）", game.alive_seats())
 
@@ -153,6 +159,18 @@ class HumanController(Controller):
         raw = ask("  > ")
         claim = roles[int(raw) - 1] if raw.isdigit() and 1 <= int(raw) <= len(roles) else None
         checks: dict[int, bool] = {}
+        pairs: list[tuple[int, int, bool]] = []
+        if claim is Role.SANTA:
+            print("  報雙驗：格式「號碼+號碼 狼/好」，多組用逗號分隔，例如：5+8 狼, 3+4 好（Enter 略過）")
+            for item in ask("  > ").replace("，", ",").split(","):
+                bits = item.split()
+                nums = bits[0].split("+") if bits else []
+                if len(bits) == 2 and len(nums) == 2 and all(x.isdigit() for x in nums) and bits[1] in ("狼", "好"):
+                    a, b = map(int, nums)
+                    if bits[1] == "狼":
+                        pairs.append((a, b, True))
+                    else:
+                        checks[a] = checks[b] = False
         if claim is Role.SEER:
             print("  報查驗：格式「號碼 狼/好」，多個用逗號分隔，例如：5 狼, 3 好（Enter 略過）")
             for item in ask("  > ").replace("，", ",").split(","):
@@ -163,7 +181,7 @@ class HumanController(Controller):
         pool = list(game.players) if game.phase == "election" else game.alive_seats()
         accuse = ask_seat("  要指認（歸票）誰", [s for s in pool if s != me.seat])
         text = ask("  補充發言（可空白）> ")
-        return Speech(me.seat, claim, checks, accuse, text)
+        return Speech(me.seat, claim, checks, accuse, text, pairs=pairs)
 
     def vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
         options = [c for c in candidates if c != me.seat]
@@ -181,6 +199,71 @@ class HumanController(Controller):
         left = game.claws.get(me.seat, 0)
         print(f"\n🐾 你可以發動狼王爪帶走一名玩家（剩 {left} 次）。")
         return ask_seat("要帶走誰（0=不發動）", others)
+
+    # ------------------------------------------------------------ 聖誕警長的禮物
+    def choose_pair(self, game: Game, me: Player) -> tuple[int, int] | None:
+        print("\n🎅 聖誕老公公請睜眼，今晚查驗兩名玩家：有一狼或兩狼顯示查殺，兩個好人顯示金水。")
+        options = [s for s in game.alive_seats() if s != me.seat]
+        a = ask_seat("第一位", options, allow_none=False)
+        b = ask_seat("第二位", [s for s in options if s != a], allow_none=False)
+        return a, b
+
+    def on_pair_result(self, game: Game, me: Player, a: int, b: int, has_wolf: bool) -> None:
+        print(f"  👉 {a}號、{b}號：{'🐺 查殺（至少一狼）' if has_wolf else '😇 金水（兩個都是好人）'}")
+
+    def choose_evil_gift(self, game: Game, me: Player) -> tuple[int, str] | None:
+        kinds = [g for g in EVIL_GIFTS if g not in game.evil_used]
+        pool = [s for s in game.alive_seats() if s != me.seat and s not in game.evil_received]
+        if not kinds or not pool:
+            return None
+        print("\n😈 聖誕矮靈請睜眼。邪惡禮物（效果只有今晚／明天白天，收到的人不知道）：")
+        print("   惡靈夜曲：反傷聖誕老公公查驗、女巫毒和夜槍；被狼刀則狼人空刀")
+        print("   混沌雪花：今晚被查驗時結果相反")
+        print("   怨念糖果：明天白天被放逐的話，他投的人一起出局")
+        print("   " + "  ".join(f"{i}={EVIL_GIFTS[k]}" for i, k in enumerate(kinds, 1)) + "  0=今晚不送")
+        raw = ask("  要送哪一個 > ")
+        if not (raw.isdigit() and 1 <= int(raw) <= len(kinds)):
+            return None
+        t = ask_seat("要送給誰", pool)
+        return (t, kinds[int(raw) - 1]) if t is not None else None
+
+    def make_wish(self, game: Game, me: Player) -> str | None:
+        print("\n🎁 閉眼許願：1=薑餅人餅乾（延後一天死亡） 2=聖誕卡片（看今天出局者身分） "
+              "3=聖誕裝飾（白天多一票） 0=不許願")
+        raw = ask("  > ")
+        return WISH_ORDER[int(raw) - 1] if raw in ("1", "2", "3") else None
+
+    def block_gift(self, game: Game, me: Player, wishes: dict[int, str]) -> int | None:
+        print("\n🦌 跛腳麋鹿請睜眼。大家許的願：" +
+              ("、".join(f"{s}號={XMAS_GIFTS[w]}" for s, w in sorted(wishes.items())) or "沒有人許願"))
+        options = [s for s in game.alive_seats() if s != game.last_block]
+        note = f"（上一晚擋了 {game.last_block}號，不能連續）" if game.last_block else ""
+        return ask_seat(f"要讓誰今晚收不到禮物{note}", options)
+
+    def give_gift(self, game: Game, me: Player, wishes: dict[int, str]) -> int | None:
+        print("\n🎖  警長請睜眼。大家許的願：" +
+              ("、".join(f"{s}號={XMAS_GIFTS[w]}" for s, w in sorted(wishes.items())) or "沒有人許願"))
+        print("   每種禮物只能成功送出一次、每人只能收一次；被跛腳麋鹿擋下的人拿不到。")
+        return ask_seat("要把禮物送給誰（0=不送）", sorted(wishes))
+
+    def on_gift(self, game: Game, me: Player, item: str | None) -> None:
+        if item is None:
+            print("\n🎁 警長選了你，但你沒有拿到禮物（可能被跛腳麋鹿擋下，或禮物已經送出）。")
+        else:
+            print(f"\n🎁 你成為禮物幸運兒，拿到【{XMAS_GIFTS[item]}】（效果只有今晚和明天白天）！")
+
+    def on_card(self, game: Game, me: Player, roles: dict[int, Role]) -> None:
+        seen = "、".join(f"{t}號=【{r.value}】" for t, r in roles.items()) or "今天沒有人出局"
+        print(f"\n💌 聖誕卡片：{seen}")
+
+    def elf_reveal(self, game: Game, me: Player, exiled: bool) -> bool:
+        when = "你被放逐了！" if exiled else "輪到你發言。"
+        return ask_yes(f"\n🧝 {when}要翻牌【聖誕小精靈】嗎？（留在場上發言、沒有投票權、算出局狀態，可轉移警徽）")
+
+    def elf_badge(self, game: Game, me: Player) -> int | None:
+        holder = f"目前警長：{game.sheriff}號" if game.sheriff else "目前沒有警長"
+        print(f"  {holder}")
+        return ask_seat("要把警徽轉給誰（0=不轉移）", [s for s in game.alive_seats() if s != game.sheriff])
 
     def hunter_poisoned(self, game: Game, me: Player) -> None:
         cause = "被女巫毒死" if me.death_cause == "poison" else "夢遊出局"

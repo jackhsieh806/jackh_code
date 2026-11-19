@@ -1106,6 +1106,214 @@ class LightDarkTest(unittest.TestCase):
         self.assertIn("雙爆吞警徽", g.sheriff_log[-1])
 
 
+XMAS_BOARD = [Role.GRINCH, Role.SNOW_WOLF, Role.REINDEER, Role.WEREWOLF, Role.GOBLIN,
+              Role.SANTA, Role.XMAS_WITCH, Role.GUARD, Role.HUNTER, Role.XMAS_ELF, *[Role.VILLAGER] * 5]
+# 座位：1 格林奇、2 雪狼、3 跛腳麋鹿、4 小狼、5 聖誕矮靈、6 聖誕老公公、7 聖誕女巫、8 守衛、9 獵人、10 小精靈、11-15 平民
+
+
+def xmas_game(overrides=None, rules=None):
+    """聖誕警長的禮物：預設所有人都不行動，只有 overrides 指定的決策會發生。"""
+    ctrls = {}
+    for seat in range(1, 16):
+        b = idle(choose_evil_gift=lambda g, m: None, make_wish=lambda g, m: None,
+                 block_gift=lambda g, m, w: None, give_gift=lambda g, m, w: None,
+                 choose_pair=lambda g, m: None, self_explode=lambda g, m: False,
+                 hunter_shoot=lambda g, m: None, pass_badge=lambda g, m: None)
+        b.update((overrides or {}).get(seat, {}))
+        ctrls[seat] = Scripted(**b)
+    g = quiet_game(XMAS_BOARD, ctrls, rules=rules)
+    g.setup()
+    return g
+
+
+def evil(seat, kind):
+    return {"choose_evil_gift": lambda g, m: (seat, kind) if g.night_no == 1 else None}
+
+
+class ChristmasTest(unittest.TestCase):
+    """照「聖誕警長的禮物」海報逐條驗證。"""
+
+    def pair_result(self, pair, overrides=None):
+        seen = []
+        o = {6: {"choose_pair": lambda g, m: pair,
+                 "on_pair_result": lambda g, m, a, b, w: seen.append(w)}}
+        o.update(overrides or {})
+        g = xmas_game(o)
+        g.run_night()
+        return seen[0], g
+
+    def test_santa_double_check(self):
+        self.assertFalse(self.pair_result((11, 12))[0])          # 兩個好人：金水
+        self.assertTrue(self.pair_result((4, 11))[0])            # 一狼：查殺
+        self.assertTrue(self.pair_result((5, 11))[0])            # 聖誕矮靈也是狼
+        self.assertFalse(self.pair_result((2, 11))[0])           # 雪狼隱身：金水
+
+    def test_chaos_snow_reverses_the_check(self):
+        self.assertTrue(self.pair_result((11, 12), {5: evil(11, "snow")})[0])   # 好人 → 查殺
+        self.assertTrue(self.pair_result((2, 11), {5: evil(2, "snow")})[0])     # 雪狼 → 查殺
+        self.assertFalse(self.pair_result((4, 11), {5: evil(4, "snow")})[0])    # 狼 → 金水
+
+    def test_nightmare_reflects(self):
+        g = xmas_game({5: evil(11, "nightmare"), 1: {"choose_kill": lambda g, m: 11}})
+        self.assertEqual(g.run_night().deaths, {})               # 狼刀落空
+        g = xmas_game({5: evil(11, "nightmare"), 7: {"witch_action": lambda g, m, v: ("poison", 11)}})
+        self.assertEqual(g.run_night().deaths, {7: "nightmare"})  # 女巫被反傷
+        _, g = self.pair_result((11, 12), {5: evil(11, "nightmare")})
+        self.assertEqual(g.nights[0].deaths, {6: "nightmare"})    # 聖誕老公公被反傷
+
+    def test_nightmare_reflects_night_gun(self):
+        g = xmas_game({5: evil(11, "nightmare"), 1: {"choose_kill": lambda g, m: 9},
+                       9: {"hunter_shoot": lambda g, m: 11}})
+        g.run_dawn(g.run_night())
+        self.assertFalse(g.players[9].alive)
+        self.assertTrue(g.players[11].alive)
+
+    def test_witch_self_save_only_delays_one_night(self):
+        g = xmas_game({1: {"choose_kill": lambda g, m: 7 if g.night_no == 1 else None},
+                       7: {"witch_action": lambda g, m, v: ("save", None) if v == 7 else (None, None)}})
+        self.assertEqual(g.run_night().deaths, {})
+        self.assertEqual(g.run_night().deaths, {7: "wolf"})
+
+    def gift_game(self, extra=None):
+        o = {11: {"make_wish": lambda g, m: "cookie"}, 12: {"make_wish": lambda g, m: "decor"},
+             13: {"give_gift": lambda g, m, w: 11 if g.night_no == 2 else 12}}
+        for seat, d in (extra or {}).items():
+            o.setdefault(seat, {}).update(d)
+        g = xmas_game(o)
+        g.sheriff = 13
+        return g
+
+    def test_cookie_delays_night_death(self):
+        g = self.gift_game({1: {"choose_kill": lambda g, m: 11 if g.night_no == 2 else None}})
+        g.run_night()
+        self.assertEqual(g.run_night().deaths, {})
+        self.assertEqual(g.gift_now, {11: "cookie"})
+        self.assertEqual(g.run_night().deaths, {11: "wolf"})
+
+    def test_cookie_extends_witch_delayed_death(self):
+        g = xmas_game({1: {"choose_kill": lambda g, m: 7 if g.night_no == 1 else None},
+                       7: {"witch_action": lambda g, m, v: ("save", None) if v == 7 else (None, None),
+                           "make_wish": lambda g, m: "cookie"},
+                       13: {"give_gift": lambda g, m, w: 7}})
+        g.sheriff = 13
+        g.run_night()
+        self.assertEqual(g.run_night().deaths, {})            # 第二晚拿到餅乾，再延一天
+        self.assertEqual(g.run_night().deaths, {7: "wolf"})
+
+    def test_reindeer_blocks_gift(self):
+        got = []
+        g = self.gift_game({3: {"block_gift": lambda g, m, w: 11},
+                            11: {"on_gift": lambda g, m, item: got.append(item)}})
+        g.run_night()
+        g.run_night()
+        self.assertEqual(got, [None])
+        self.assertEqual(g.gifts_sent, set())
+
+    def test_reindeer_cannot_block_same_player_twice(self):
+        g = self.gift_game({3: {"block_gift": lambda g, m, w: 12},
+                            13: {"give_gift": lambda g, m, w: 12}})
+        g.run_night()
+        g.run_night()
+        self.assertEqual(g.last_block, 12)
+        g.run_night()
+        self.assertIsNone(g.last_block)                         # 第三晚不能再擋 12 號
+        self.assertEqual(g.gift_now, {12: "decor"})
+
+    def test_each_gift_once_and_each_player_once(self):
+        g = self.gift_game({13: {"give_gift": lambda g, m, w: 11}})
+        g.run_night()
+        g.run_night()
+        self.assertEqual(g.gift_now, {11: "cookie"})
+        g.run_night()
+        self.assertEqual(g.gift_now, {})                        # 11 號已經收過
+        g = self.gift_game({14: {"make_wish": lambda g, m: "cookie"},
+                            13: {"give_gift": lambda g, m, w: 11 if g.night_no == 2 else 14}})
+        g.run_night()
+        g.run_night()
+        g.run_night()
+        self.assertEqual(g.gift_now, {})                        # 餅乾已經送出過
+
+    def test_decoration_adds_a_vote(self):
+        g = xmas_game()
+        g.gift_now = {12: "decor"}
+        self.assertEqual(g.vote_weight(12), 2)
+        g.sheriff = 12
+        self.assertEqual(g.vote_weight(12), 2.5)
+
+    def day_game(self, votes, extra=None):
+        o = {s: {"vote": (lambda seat: lambda g, m, c: votes(g, seat))(s)} for s in range(1, 16)}
+        for seat, d in (extra or {}).items():
+            o.setdefault(seat, {}).update(d)
+        g = xmas_game(o)
+        g.run_dawn(g.run_night())
+        return g
+
+    def test_candy_takes_the_voted_player(self):
+        g = self.day_game(lambda g, seat: 12 if seat == 11 else 11)
+        g.evil_now = (11, "candy")
+        g.run_day()
+        self.assertEqual(g.players[11].death_cause, "vote")
+        self.assertEqual(g.players[12].death_cause, "candy")
+
+    def test_cookie_delays_exile_to_next_day(self):
+        g = self.day_game(lambda g, seat: (11 if g.night_no == 1 else 14) if seat != 11 else 15)
+        g.gift_now = {11: "cookie"}
+        g.run_day()
+        self.assertTrue(g.players[11].alive)
+        g.run_dawn(g.run_night())
+        g.run_day()
+        self.assertEqual(g.players[11].death_cause, "vote")
+        self.assertEqual(g.players[14].death_cause, "vote")
+
+    def test_grinch_claw_only_when_exiled(self):
+        g = self.day_game(lambda g, seat: 1, {1: {"hunter_shoot": lambda g, m: 11}})
+        g.run_day()
+        self.assertEqual(g.players[11].death_cause, "claw")
+        g = xmas_game({1: {"choose_kill": lambda g, m: 1, "hunter_shoot": lambda g, m: 11}})
+        g.run_dawn(g.run_night())
+        self.assertFalse(g.players[1].alive)
+        self.assertTrue(g.players[11].alive)
+
+    def test_elf_reveal_when_exiled(self):
+        g = self.day_game(lambda g, seat: 10)
+        g.run_day()
+        elf = g.players[10]
+        self.assertEqual((elf.alive, elf.revealed, elf.death_cause), (False, True, "elf"))
+        self.assertIn(10, g.speech_order())                     # 出局狀態但還能發言
+        self.assertNotIn(10, g.alive_seats())
+
+    def test_elf_reveal_moves_badge(self):
+        g = self.day_game(lambda g, seat: None,
+                          {10: {"elf_reveal": lambda g, m, exiled: True, "elf_badge": lambda g, m: 11}})
+        g.sheriff = 1
+        g.run_day()
+        self.assertEqual(g.sheriff, 11)
+
+    def test_badge_falls_to_random_player(self):
+        g = self.day_game(lambda g, seat: 13)
+        g.sheriff = 13
+        g.run_day()
+        self.assertFalse(g.players[13].alive)
+        self.assertIn(g.sheriff, g.alive_seats())
+
+    def test_goblin_hidden_and_takes_knife_last(self):
+        g = xmas_game({5: {"choose_kill": lambda g, m: 11}})
+        self.assertEqual(g.wolf_pack(), {1, 2, 3, 4})
+        k = g.controllers[1].analyze(g, g.players[1])
+        self.assertNotIn(5, k.wolf)
+        for s in (1, 2, 3, 4):
+            g._mark_dead(s, "vote")
+        self.assertEqual(g.run_night().deaths, {11: "wolf"})
+
+    def test_wolves_win_when_gods_are_out_counting_revealed_elf(self):
+        g = xmas_game()
+        for s in (6, 7, 8, 9):
+            g._mark_dead(s, "wolf")
+        self.assertIsNone(g.check_winner())
+        g._elf_reveal(g.players[10])
+        self.assertEqual(g.check_winner(), Team.WOLF)
+
+
 class SimulationTest(unittest.TestCase):
     def test_many_bot_games_finish(self):
         rng = random.Random(42)

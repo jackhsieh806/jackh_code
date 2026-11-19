@@ -9,7 +9,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .roles import DARK_PACK, DARK_ROLES, LIGHT_GODS, LIGHT_ROLES, Role, Team
+from .roles import (DARK_PACK, DARK_ROLES, EVIL_GIFTS, LIGHT_GODS, LIGHT_ROLES, WISH_ORDER,
+                    XMAS_GIFTS, XMAS_ROLES, Role, Team)
 
 DEATH_CAUSES = {
     "wolf": "被狼人殺害",
@@ -25,6 +26,9 @@ DEATH_CAUSES = {
     "duel": "被騎士決鬥",
     "duel_fail": "決鬥失敗以死謝罪",
     "backlash": "使用毒藥後陣亡",
+    "nightmare": "被惡靈夜曲反傷",
+    "candy": "被怨念糖果帶走",
+    "elf": "翻牌聖誕小精靈（出局狀態）",
 }
 
 ITEMS = {"check": "查驗", "poison": "毒藥", "guard": "守護"}
@@ -67,11 +71,15 @@ class Speech:
     text: str = ""
     last_words: bool = False
     findings: list[dict] = field(default_factory=list)   # 推理高手公開的邏輯漏洞
+    pairs: list[tuple[int, int, bool]] = field(default_factory=list)  # 聖誕老公公一次驗兩人：(a, b, 有狼?)
 
     def render(self) -> str:
         parts = []
         if self.claim:
             parts.append(f"我是{self.claim.value}")
+        if self.pairs:
+            parts.append("雙驗：" + "、".join(
+                f"{a}號+{b}號{'有狼（查殺）' if w else '都是好人（金水）'}" for a, b, w in self.pairs))
         if self.checks:
             items = "、".join(
                 f"{t}號{'是狼人（查殺）' if w else '是好人（金水）'}"
@@ -95,6 +103,7 @@ class NightRecord:
     check: tuple[int, bool] | None = None
     identity_check: tuple[int, str] | None = None
     dream: int | None = None
+    pair: tuple[int, int, bool] | None = None     # 聖誕老公公的雙驗
     deaths: dict[int, str] = field(default_factory=dict)
 
 
@@ -171,6 +180,29 @@ class Controller:
     def girl_check(self, game: "Game", me: Player, options: list[int]) -> int | None: return None
     def on_girl_result(self, game: "Game", me: Player, target: int, shown_wolf: bool) -> None: ...
     def knight_duel(self, game: "Game", me: Player) -> int | None: return None
+    # 聖誕警長的禮物
+    def choose_pair(self, game: "Game", me: Player) -> tuple[int, int] | None:
+        """聖誕老公公：今晚要一起查驗的兩個人。"""
+        return None
+    def on_pair_result(self, game: "Game", me: Player, a: int, b: int, has_wolf: bool) -> None: ...
+    def choose_evil_gift(self, game: "Game", me: Player) -> tuple[int, str] | None:
+        """聖誕矮靈：(對象, 禮物 key)；None 代表今晚不送。"""
+        return None
+    def make_wish(self, game: "Game", me: Player) -> str | None:
+        """閉眼許願：回傳想要的聖誕禮物 key（cookie / card / decor），None 代表不許願。"""
+        return None
+    def block_gift(self, game: "Game", me: Player, wishes: dict[int, str]) -> int | None: return None
+    def give_gift(self, game: "Game", me: Player, wishes: dict[int, str]) -> int | None: return None
+    def on_gift(self, game: "Game", me: Player, item: str | None) -> None:
+        """警長選了你：item 是拿到的禮物；None 代表沒拿到（被麋鹿擋下、禮物已送出或已收過禮物）。"""
+    def on_card(self, game: "Game", me: Player, roles: dict[int, Role]) -> None:
+        """聖誕卡片：今天白天出局所有人的真實身分。"""
+    def elf_reveal(self, game: "Game", me: Player, exiled: bool) -> bool:
+        """聖誕小精靈要不要翻牌（白天發言前，或被放逐時）。"""
+        return exiled
+    def elf_badge(self, game: "Game", me: Player) -> int | None:
+        """小精靈翻牌時要把警徽轉給誰；None 代表不轉移。"""
+        return None
 
 
 def deal(roles: list[Role], rng: random.Random) -> list[Role]:
@@ -211,7 +243,7 @@ class Game:
         self.lucky: dict | None = None      # 幸運兒：{"seat", "item", "used"}
         self.claws: dict[int, int] = {      # 剩餘的狼王爪次數
             p.seat: (2 if p.role is Role.AWAKENED_WOLF_KING else 1)
-            for p in self.players.values() if p.role in (Role.WOLF_KING, Role.AWAKENED_WOLF_KING)}
+            for p in self.players.values() if p.role in (Role.WOLF_KING, Role.AWAKENED_WOLF_KING, Role.GRINCH)}
         self.claw_given: set[int] = set()  # 曾被親傳狼王爪的狼
         self.sheriff: int | None = None    # 現任警長
         self.sheriff_log: list[str] = []
@@ -246,6 +278,23 @@ class Game:
         self.election_postponed = False                # 光明與黑暗：第一次警上自爆 → 警長競選延到隔天
         self.election_pending = False
         self.knight_gold: set[int] = set()   # 騎士決鬥失敗而證實是好人的人（騎金）
+        # 聖誕警長的禮物
+        self.christmas = any(p.role in XMAS_ROLES for p in self.players.values())
+        self.evil_used: set[str] = set()          # 已送出的邪惡禮物
+        self.evil_received: set[int] = set()      # 收過邪惡禮物的人
+        self.evil_now: tuple[int, str] | None = None   # 今晚／今天生效的邪惡禮物 (對象, 種類)
+        self.evil_log: list[str] = []
+        self.gifts_sent: set[str] = set()         # 已成功送出的聖誕禮物
+        self.gift_received: set[int] = set()      # 收過聖誕禮物的人
+        self.gift_now: dict[int, str] = {}        # 今晚／今天生效的聖誕禮物
+        self.gift_log: list[str] = []
+        self.wishes: dict[int, str] = {}
+        self.last_block: int | None = None        # 跛腳麋鹿上一晚擋的人
+        self.delayed: list[list] = []             # 延後的夜晚死亡 [座位, 死因, 第幾夜死]
+        self.delayed_exile: list[list] = []       # 延後的白天出局 [座位, 死因, 第幾天出局]
+        self.ghosts: set[int] = set()             # 翻牌的聖誕小精靈：出局狀態但留在場上發言
+        self.day_outs: list[int] = []             # 今天白天出局的人（聖誕卡片用）
+        self.night_gun = False                    # 正在結算夜晚死亡者的技能（夜槍）
         # 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張是反向查驗
         self.has_lantern = any(p.role is Role.LANTERN_SEER for p in self.players.values())
         self.seer_card_accurate = self.rng.random() < 0.5 if self.has_lantern else True
@@ -325,7 +374,7 @@ class Game:
 
     def seer_claims(self) -> dict[int, dict[int, bool]]:
         """所有跳過預言家的人及其宣稱的查驗（包含已死亡的人）。"""
-        seer_roles = (Role.SEER, Role.LIGHT_SEER) if self.light_dark else (Role.SEER,)
+        seer_roles = (Role.SEER, Role.LIGHT_SEER) if self.light_dark else (Role.SEER, Role.SANTA)
         return {s: dict(c["checks"]) for s, c in self.claims.items() if c["role"] in seer_roles}
 
     def can_witch_save(self, witch: Player, victim: int | None) -> bool:
@@ -356,6 +405,17 @@ class Game:
     def is_enemy(self, p: Player) -> bool:
         """目前的敵對陣營玩家；光暗板的暗陣營等同一般板的狼方。"""
         return self.alignment(p) in (Team.WOLF, Team.DARK)
+
+    def wolf_pack(self) -> set[int]:
+        """狼隊互相知道的座位（聖誕矮靈和狼人不見面）。"""
+        return {p.seat for p in self.players.values()
+                if p.is_wolf and not (self.christmas and p.role is Role.GOBLIN)}
+
+    def santa_sees_wolf(self, seat: int) -> bool:
+        """聖誕老公公看到的結果：雪狼隱身成好人；混沌雪花讓當晚的結果相反。"""
+        p = self.players[seat]
+        wolf = p.role.team is Team.WOLF and p.role is not Role.SNOW_WOLF
+        return (not wolf) if self.evil_now == (seat, "snow") else wolf
 
     def dark_pack(self) -> list[Player]:
         return [p for p in self.alive() if p.role in DARK_PACK]
@@ -525,6 +585,8 @@ class Game:
     def run_night(self) -> NightRecord:
         if self.light_dark:
             return self._run_light_dark_night()
+        if self.christmas:
+            return self._run_christmas_night()
         self.night_no += 1
         self.phase = "night"
         n = self.night_no
@@ -850,15 +912,270 @@ class Game:
         self.nights.append(rec)
         return rec
 
+    def _run_christmas_night(self) -> NightRecord:
+        """聖誕警長的禮物：矮靈 > 守衛 > 狼人 > 女巫 >（第二夜起）許願、麋鹿、警長送禮 > 聖誕老公公。"""
+        self.night_no += 1
+        self.phase = "night"
+        n = self.night_no
+        rec = NightRecord(n)
+        self.say(f"\n🌙 ===== 第 {n} 夜 ===== 天黑請閉眼")
+        alive = set(self.alive_seats())
+        self.evil_now = None
+        self.gift_now = {}
+        self.wishes = {}
+
+        goblin = self.alive_with_role(Role.GOBLIN)
+        if goblin:
+            pick = self.controllers[goblin.seat].choose_evil_gift(self, goblin)
+            if pick:
+                t, kind = pick
+                if kind in EVIL_GIFTS and kind not in self.evil_used and t in alive \
+                        and t != goblin.seat and t not in self.evil_received:
+                    self.evil_used.add(kind)
+                    self.evil_received.add(t)
+                    self.evil_now = (t, kind)
+                    self.evil_log.append(f"第{n}夜 聖誕矮靈({goblin.seat}號) 把【{EVIL_GIFTS[kind]}】送給 {t}號")
+                    self.secret(f"聖誕矮靈({goblin.seat}號) 把【{EVIL_GIFTS[kind]}】送給 {t}號")
+
+        guard = self.alive_with_role(Role.GUARD)
+        if guard:
+            t = self.controllers[guard.seat].choose_guard(self, guard)
+            if t is not None and (t not in alive or t == self.last_guard):
+                t = None
+            rec.guard = t
+            self.last_guard = t
+            self.secret(f"守衛({guard.seat}號) 守護 {t}號" if t else f"守衛({guard.seat}號) 空守")
+
+        pack = [p for p in self.alive() if p.seat in self.wolf_pack()]
+        killers = pack or ([goblin] if goblin else [])   # 其他四狼都出局後，聖誕矮靈才帶刀
+        if killers:
+            leader = next((w for w in killers if self.controllers[w.seat].is_human), killers[0])
+            t = self.controllers[leader.seat].choose_kill(self, leader)
+            rec.kill = t if t in alive else None
+            who = "聖誕矮靈" if killers[0].role is Role.GOBLIN else "狼人"
+            self.secret(f"{who}({'、'.join(str(w.seat) for w in killers)}號) 殺 {rec.kill}號"
+                        if rec.kill else f"{who}空刀")
+
+        witch = self.alive_with_role(Role.XMAS_WITCH)
+        self_saved = False
+        if witch:
+            victim = rec.kill if self.antidote else None
+            action, target = self.controllers[witch.seat].witch_action(self, witch, victim)
+            if action == "save" and self.can_witch_save(witch, rec.kill):
+                rec.saved = True
+                self.antidote = False
+                self_saved = rec.kill == witch.seat
+                self.secret(f"聖誕女巫({witch.seat}號) 使用解藥救了 {rec.kill}號"
+                            + ("（自救，延後一天死亡）" if self_saved else ""))
+            elif action == "poison" and self.poison and target in alive:
+                rec.poison = target
+                self.poison = False
+                self.secret(f"聖誕女巫({witch.seat}號) 毒了 {target}號")
+
+        if n >= 2:
+            self._run_gifts(alive)
+
+        santa = self.alive_with_role(Role.SANTA)
+        santa_hit = False
+        if santa:
+            pair = self.controllers[santa.seat].choose_pair(self, santa)
+            if pair and len(set(pair)) == 2 and all(t in alive and t != santa.seat for t in pair):
+                a, b = pair
+                result = self.santa_sees_wolf(a) or self.santa_sees_wolf(b)
+                rec.pair = (a, b, result)
+                self.controllers[santa.seat].on_pair_result(self, santa, a, b, result)
+                self.secret(f"聖誕老公公({santa.seat}號) 查驗 {a}號、{b}號 → {'查殺' if result else '金水'}")
+                santa_hit = self.evil_now is not None and self.evil_now[1] == "nightmare" \
+                    and self.evil_now[0] in pair
+
+        nightmare = self.evil_now[0] if self.evil_now and self.evil_now[1] == "nightmare" else None
+        deaths: dict[int, str] = {}
+        if rec.kill is not None:
+            if rec.kill == nightmare:
+                self.secret(f"{rec.kill}號 身上的惡靈夜曲讓狼刀落空")
+            else:
+                guarded = rec.kill == rec.guard
+                if guarded and rec.saved:
+                    if self.rules.same_guard_save_dies:
+                        deaths[rec.kill] = "wolf"
+                elif not (guarded or rec.saved):
+                    deaths[rec.kill] = "wolf"
+        if self_saved and witch.seat not in deaths:
+            self.delayed.append([witch.seat, "wolf", n + 1])   # 自救只是延後一天死亡
+        if rec.poison is not None:
+            if rec.poison == nightmare:
+                deaths[witch.seat] = "nightmare"
+                self.secret(f"惡靈夜曲反傷：聖誕女巫({witch.seat}號) 出局，{rec.poison}號 沒事")
+            else:
+                deaths[rec.poison] = "poison"
+        if santa_hit:
+            deaths[santa.seat] = "nightmare"
+            self.secret(f"惡靈夜曲反傷：聖誕老公公({santa.seat}號) 出局")
+        for item in [d for d in self.delayed if d[2] == n]:
+            self.delayed.remove(item)
+            if self.players[item[0]].alive:
+                deaths.setdefault(item[0], item[1])
+        cookie = next((t for t, g in self.gift_now.items() if g == "cookie"), None)
+        if cookie in deaths:
+            self.delayed.append([cookie, deaths.pop(cookie), n + 1])
+            self.secret(f"{cookie}號 吃了薑餅人餅乾，死亡延後到明晚")
+        rec.deaths = deaths
+        for seat, cause in deaths.items():
+            self._mark_dead(seat, cause)
+        self.nights.append(rec)
+        return rec
+
+    def _run_gifts(self, alive: set[int]) -> None:
+        """閉眼許願 → 跛腳麋鹿擋一人 → 警長決定誰拿到禮物 → 通知幸運兒。"""
+        s = self.sheriff
+        if s is None or not self.players[s].alive:
+            return
+        n = self.night_no
+        for seat in self.alive_seats():
+            if seat == s:
+                continue
+            w = self.controllers[seat].make_wish(self, self.players[seat])
+            if w in WISH_ORDER:
+                self.wishes[seat] = w
+        if self.wishes:
+            self.secret("許願：" + "、".join(f"{t}號={XMAS_GIFTS[w]}" for t, w in sorted(self.wishes.items())))
+        block = None
+        deer = self.alive_with_role(Role.REINDEER)
+        if deer:
+            b = self.controllers[deer.seat].block_gift(self, deer, dict(self.wishes))
+            if b in alive and b != self.last_block:
+                block = b
+                self.secret(f"跛腳麋鹿({deer.seat}號) 讓 {b}號 收不到禮物")
+            self.last_block = block
+        sp = self.players[s]
+        t = self.controllers[s].give_gift(self, sp, dict(self.wishes))
+        if t not in self.wishes:
+            self.secret(f"警長({s}號) 今晚沒有送禮")
+            return
+        item = self.wishes[t]
+        reason = ("被跛腳麋鹿擋下" if t == block else "這份禮物已經送出過" if item in self.gifts_sent
+                  else "他已經收過禮物" if t in self.gift_received else None)
+        p = self.players[t]
+        if reason:
+            self.secret(f"警長({s}號) 想把【{XMAS_GIFTS[item]}】給 {t}號，但{reason}")
+            self.controllers[t].on_gift(self, p, None)
+            return
+        self.gifts_sent.add(item)
+        self.gift_received.add(t)
+        self.gift_now[t] = item
+        self.gift_log.append(f"第{n}夜 警長 {s}號 把【{XMAS_GIFTS[item]}】送給 {t}號")
+        self.secret(f"警長({s}號) 把【{XMAS_GIFTS[item]}】送給 {t}號")
+        self.controllers[t].on_gift(self, p, item)
+
+    def _random_sheriff(self) -> None:
+        """聖誕聖靈的祝福：警徽落地時，上帝隨機抽一位玩家當警長。"""
+        alive = self.alive_seats()
+        if not alive:
+            return
+        self.sheriff = self.rng.choice(alive)
+        self.sheriff_log.append(f"第{self.night_no}天 警徽落地，隨機抽出 {self.sheriff}號 當警長")
+        self.say(f"🎄 警徽落地！聖誕聖靈祝福，隨機抽出 {self.sheriff}號 當選警長。")
+
+    def _elf_reveal(self, p: Player) -> None:
+        """聖誕小精靈翻牌：出局狀態但留在場上發言、沒有投票權，可以轉移警徽。"""
+        p.revealed = True
+        p.can_vote = False
+        self.ghosts.add(p.seat)
+        if self.today:
+            self.today.events.append(f"{p.seat}號 翻牌聖誕小精靈")
+        self.say(f"🧝 {p.seat}號 翻牌【聖誕小精靈】！留在場上發言，但沒有投票權、算出局狀態。")
+        self._mark_dead(p.seat, "elf")
+        t = self.controllers[p.seat].elf_badge(self, p)
+        if t in self.alive_seats() and t != self.sheriff:
+            old = self.sheriff
+            self.sheriff = t
+            if old is not None:
+                self.badge_from[t] = old
+            self.sheriff_log.append(f"第{self.night_no}天 小精靈 {p.seat}號 把警徽轉給 {t}號")
+            self.say(f"🎖  小精靈 {p.seat}號 把警徽轉給 {t}號。")
+        elif self.sheriff == p.seat:
+            self._random_sheriff()
+
+    def _xmas_exile(self, exiled: int) -> Team | None:
+        """聖誕板的放逐：小精靈可翻牌、薑餅人餅乾延後出局、怨念糖果帶走他投的人。"""
+        day = self.today
+        self.phase = "day"          # 放逐結算屬於白天：薑餅人餅乾、聖誕卡片都要算到
+        try:
+            return self._xmas_exile_inner(day, exiled)
+        finally:
+            self.phase = "night"
+
+    def _xmas_exile_inner(self, day: DayRecord, exiled: int) -> Team | None:
+        p = self.players[exiled]
+        if p.role is Role.XMAS_ELF and not p.revealed \
+                and self.controllers[exiled].elf_reveal(self, p, True):
+            self._elf_reveal(p)
+            self.pause()
+            return self.check_winner()
+        day.exiled = exiled
+        self.say(f"🚪 {exiled}號 被放逐出局。")
+        voted = day.votes.get(exiled)
+        if self._kill(exiled, "vote"):
+            if (w := self.check_winner()) is not None:
+                return w
+            self._last_words(exiled)
+            self._death_trigger(exiled, "vote")
+            if (w := self.check_winner()) is not None:
+                return w
+        if self.evil_now == (exiled, "candy") and voted is not None and self.players[voted].alive:
+            self.say(f"😈 {exiled}號 身上有【怨念糖果】，他投的 {voted}號 也一起出局！")
+            day.events.append(f"{exiled}號 的怨念糖果帶走 {voted}號")
+            if self._kill(voted, "candy"):
+                if (w := self.check_winner()) is not None:
+                    return w
+                self._last_words(voted)
+                self._death_trigger(voted, "candy")
+        self._badge_check()
+        w = self.check_winner()
+        self.pause()
+        return w
+
+    def _xmas_end_of_day(self) -> Team | None:
+        """白天結束：延後到今天的放逐生效，聖誕卡片得知今天出局者的身分。"""
+        self.phase = "day"
+        n = self.night_no
+        for item in [d for d in self.delayed_exile if d[2] == n]:
+            self.delayed_exile.remove(item)
+            seat, cause, _ = item
+            if not self.players[seat].alive:
+                continue
+            self.say(f"🍪 {seat}號 的薑餅人餅乾效果結束，今天一起出局。")
+            self._kill(seat, cause)
+            if (w := self.check_winner()) is not None:
+                self.phase = "night"
+                return w
+            self._last_words(seat)
+            self._death_trigger(seat, cause)
+            if (w := self.check_winner()) is not None:
+                self.phase = "night"
+                return w
+        self._badge_check()
+        holder = next((t for t, g in self.gift_now.items() if g == "card"), None)
+        if holder is not None:
+            roles = {t: self.players[t].role for t in self.day_outs}
+            self.controllers[holder].on_card(self, self.players[holder], roles)
+            seen = "、".join(f"{t}號={r.value}" for t, r in roles.items()) or "今天沒有人出局"
+            self.secret(f"聖誕卡片({holder}號) 得知：{seen}")
+        self.phase = "night"
+        return self.check_winner()
+
     # ------------------------------------------------------------ 天亮
     def run_dawn(self, rec: NightRecord) -> Team | None:
         n = self.night_no
         day = DayRecord(n)
         self.days.append(day)
         self.say(f"\n☀️  ===== 第 {n} 天 ===== 天亮了")
+        self.day_outs = []
         if self.rules.sheriff and (n == 1 or self.election_pending):
             self.election_pending = False
             self.run_election()  # 真人局習慣：先競選警長，再公布昨晚死訊
+            if self.christmas and self.sheriff is None:
+                self._random_sheriff()
         if not rec.deaths:
             self.say("昨晚是平安夜，沒有人死亡。")
         else:
@@ -869,7 +1186,9 @@ class Game:
         for seat in sorted(rec.deaths):
             if n == 1 and self.rules.first_night_last_words:
                 self._last_words(seat)
+            self.night_gun = True
             self._death_trigger(seat, rec.deaths[seat])
+            self.night_gun = False
             if (w := self.check_winner()) is not None:
                 return w
         self._badge_check()
@@ -946,14 +1265,18 @@ class Game:
             self.sheriff = None
             self.badge_torn.append((self.night_no, s))
             self.sheriff_log.append(f"第{self.night_no}天 {s}號 撕掉警徽")
-            self.say(f"🎖  警長 {s}號 撕掉了警徽，之後沒有警長。")
+            if self.christmas:
+                self.say(f"🎖  警長 {s}號 撕掉了警徽。")
+                self._random_sheriff()
+            else:
+                self.say(f"🎖  警長 {s}號 撕掉了警徽，之後沒有警長。")
 
     def _try_explode(self, p: Player) -> bool:
         """狼人自爆：立即出局（無遺言），當天剩下的流程跳過。"""
         special_exploder = self.light_dark and p.role in DARK_ROLES - {Role.DARK_DREAMER}
         if not (self.rules.self_explode and p.alive and (p.is_wolf or special_exploder)) \
-                or p.role is Role.WOLF_BEAUTY:
-            return False   # 狼美人不能自爆
+                or p.role in (Role.WOLF_BEAUTY, Role.GOBLIN):
+            return False   # 狼美人、聖誕矮靈不能自爆
         if not self.controllers[p.seat].self_explode(self, p):
             return False
         p.revealed = True
@@ -967,7 +1290,7 @@ class Game:
 
     # ------------------------------------------------------------ 白天
     def speech_order(self) -> list[int]:
-        seats = self.alive_seats()
+        seats = sorted(self.alive_seats() + [g for g in self.ghosts if not self.players[g].alive])
         if self.sheriff in seats:  # 警長決定方向，自己最後發言
             sp = self.sheriff
             direction = self.controllers[sp].choose_direction(self, self.players[sp])
@@ -978,6 +1301,12 @@ class Game:
         return seats[start:] + seats[:start]
 
     def run_day(self) -> Team | None:
+        w = self._run_day_core()
+        if self.christmas and w is None:
+            w = self._xmas_end_of_day()
+        return w
+
+    def _run_day_core(self) -> Team | None:
         day = self.today
         if day.exploded is not None:  # 警上自爆 → 直接天黑
             self.phase = "night"
@@ -987,8 +1316,13 @@ class Game:
         self.say(f"\n—— 發言環節（從 {order[0]}號 開始）——")
         for seat in order:
             p = self.players[seat]
-            if not p.alive:
+            if not p.alive and seat not in self.ghosts:
                 continue
+            if self.christmas and p.role is Role.XMAS_ELF and not p.revealed \
+                    and self.controllers[seat].elf_reveal(self, p, False):
+                self._elf_reveal(p)
+                if (w := self.check_winner()) is not None:
+                    return w
             if self._try_explode(p):
                 self._badge_check()
                 self.phase = "night"
@@ -1018,6 +1352,8 @@ class Game:
         self.phase = "night"
         if exiled is None:
             return None
+        if self.christmas:
+            return self._xmas_exile(exiled)
         p = self.players[exiled]
         if p.role is Role.IDIOT and not p.revealed:
             p.revealed = True
@@ -1048,7 +1384,10 @@ class Game:
         return votes
 
     def vote_weight(self, voter: int) -> float:
-        return 1.5 if voter == self.sheriff else 1.0
+        w = 1.5 if voter == self.sheriff else 1.0
+        if self.christmas and self.gift_now.get(voter) == "decor":
+            w += 1   # 聖誕裝飾：多一張票
+        return w
 
     def _show_votes(self, votes: dict[int, int | None], weighted: bool = True) -> list[int]:
         """顯示票型並回傳最高票者（可能多人）。警長的票算 1.5 票。"""
@@ -1059,7 +1398,9 @@ class Game:
         total = {t: sum(self.vote_weight(v) if weighted else 1 for v in vs)
                  for t, vs in by_target.items()}
         for t, voters in sorted(by_target.items(), key=lambda kv: -total[kv[0]]):
-            names = "、".join(f"{v}(警長)" if weighted and v == self.sheriff else str(v)
+            names = "、".join(str(v) + ("(警長)" if weighted and v == self.sheriff else "")
+                             + ("(聖誕裝飾+1)" if weighted and self.christmas
+                                and self.gift_now.get(v) == "decor" else "")
                              for v in voters)
             self.say(f"  {t}號 ← {names}（{total[t]:g} 票）")
         abstain = [v for v, t in votes.items() if t is None]
@@ -1094,12 +1435,20 @@ class Game:
         p = self.players[seat]
         p.alive = False
         p.death_cause = cause
+        if self.phase != "night":
+            self.day_outs.append(seat)
         wild = self.alive_with_role(Role.WILD_CHILD)
         if wild and seat == self.wild_model and not self.wild_fixed_good and not wild.turned:
             self._turn_wild(wild)
 
-    def _kill(self, seat: int, cause: str) -> None:
-        """白天的出局：處理狼美人迷魅的連帶出局。"""
+    def _kill(self, seat: int, cause: str) -> bool:
+        """白天的出局：處理狼美人迷魅的連帶出局。回傳 False 代表被薑餅人餅乾延後到明天。"""
+        if self.christmas and self.phase != "night" and cause != "explode" \
+                and self.gift_now.get(seat) == "cookie" and self.players[seat].alive:
+            self.gift_now.pop(seat)
+            self.delayed_exile.append([seat, cause, self.night_no + 1])
+            self.say(f"🍪 {seat}號 吃了薑餅人餅乾，延後到明天白天才出局。")
+            return False
         self._mark_dead(seat, cause)
         p = self.players[seat]
         c = self.charm
@@ -1113,6 +1462,7 @@ class Game:
             self.say(f"💔 {self.dark_charm}號 被黑暗攝夢人迷魅，一同出局。")
             self._mark_dead(self.dark_charm, "charm")
             self._death_trigger(self.dark_charm, "charm")
+        return True
 
     def _turn_wild(self, wild: Player) -> None:
         wild.turned = True
@@ -1227,6 +1577,8 @@ class Game:
         if special_hunter and p.role is Role.LIGHT_HUNTER and self.phase == "night" \
                 and self.skill_suppressed_until.get(seat, 0) >= self.night_no:
             return   # 被決鬥封鎖技能的那一晚出局不能開槍（白天恢復）
+        if self.christmas and p.role is Role.GRINCH and cause != "vote":
+            return   # 格林奇只有被放逐出局能發動狼爪
         shots = 1 if p.role is Role.HUNTER or special_hunter else self.claws.get(seat, 0)
         if shots <= 0:
             return
@@ -1249,13 +1601,19 @@ class Game:
             if not hunter:
                 self.claws[seat] -= 1
             label = p.role.value if p.role is not Role.WEREWOLF else "狼人（親傳狼王爪）"
+            if self.christmas and self.night_gun and self.evil_now == (t, "nightmare"):
+                p.revealed = True   # 惡靈夜曲反傷夜槍：子彈被彈開
+                self.say(f"💥 {seat}號 翻牌【{label}】開槍，但子彈被彈開，{t}號 沒有出局。")
+                self.secret(f"{t}號 身上的惡靈夜曲擋下夜槍")
+                return
             p.revealed = True
             action = "開槍" if hunter else "發動狼王爪"
             if self.today:
                 self.today.events.append(f"{seat}號 {label}{action}帶走 {t}號")
             self.say(f"💥 {seat}號 翻牌【{label}】，{action}帶走了 {t}號！")
             cause_t = "shot" if hunter else "claw"
-            self._kill(t, cause_t)
+            if not self._kill(t, cause_t):
+                return
             if self.check_winner() is not None:
                 return
             self._last_words(t)
@@ -1281,9 +1639,16 @@ class Game:
             prev = self.claims.get(seat)
             checks = dict(prev["checks"]) if prev and prev["role"] is speech.claim else {}
             day = prev["day"] if prev and prev["role"] is speech.claim else self.night_no
-            self.claims[seat] = {"role": speech.claim, "checks": checks, "day": day}   # day：第一次跳這個身份是第幾天
-        if speech.checks and self.claimed_role(seat) in (Role.SEER, Role.LANTERN_SEER, Role.LIGHT_SEER):
+            pairs = list(prev.get("pairs", [])) if prev and prev["role"] is speech.claim else []
+            self.claims[seat] = {"role": speech.claim, "checks": checks, "day": day,   # day：第一次跳這個身份是第幾天
+                                 "pairs": pairs}
+        speech.pairs = [(a, b, bool(w)) for a, b, w in speech.pairs
+                        if a in valid and b in valid and a != b and seat not in (a, b)]
+        if speech.checks and self.claimed_role(seat) in (Role.SEER, Role.LANTERN_SEER, Role.LIGHT_SEER, Role.SANTA):
             self.claims[seat]["checks"].update(speech.checks)
+        if speech.pairs and self.claimed_role(seat) is Role.SANTA:
+            known = self.claims[seat].setdefault("pairs", [])
+            known += [pr for pr in speech.pairs if pr not in known]
         if self.today is not None:
             self.today.speeches.append(speech)
         for f in speech.findings:

@@ -284,15 +284,21 @@ th { font-size: .75rem; letter-spacing: .1em; color: var(--muted); }
 <script>
 "use strict";
 // ================================================================ 角色與板子
-const R = { WEREWOLF: "狼人", WOLF_KING: "狼王", AWAKENED: "覺醒狼王", WOLF_BEAUTY: "狼美人", TIGER: "虎姑婆", WILD_CHILD: "野孩子", SEER: "預言家", LANTERN: "燈影預言家", WITCH: "女巫", HUNTER: "獵人", GUARD: "守衛", IDIOT: "白痴", DREAMER: "攝夢人", MERCHANT: "奇蹟商人", KNIGHT: "騎士", VILLAGE_GIRL: "村姑", VILLAGER: "平民", LIGHT_SEER: "光明預言家", LIGHT_WITCH: "光明女巫", LIGHT_KNIGHT: "光明騎士", LIGHT_DREAMER: "光明攝夢人（強攝）", LIGHT_HUNTER: "光明獵人", DARK_SEER: "黑暗預言家", DARK_WITCH: "黑暗女巫", DARK_KNIGHT: "黑暗騎士", DARK_DREAMER: "黑暗攝夢人（狼美人）", DARK_HUNTER: "黑暗獵人（黑狼王）" };
+const R = { WEREWOLF: "狼人", WOLF_KING: "狼王", AWAKENED: "覺醒狼王", WOLF_BEAUTY: "狼美人", TIGER: "虎姑婆", WILD_CHILD: "野孩子", SEER: "預言家", LANTERN: "燈影預言家", WITCH: "女巫", HUNTER: "獵人", GUARD: "守衛", IDIOT: "白痴", DREAMER: "攝夢人", MERCHANT: "奇蹟商人", KNIGHT: "騎士", VILLAGE_GIRL: "村姑", VILLAGER: "平民", LIGHT_SEER: "光明預言家", LIGHT_WITCH: "光明女巫", LIGHT_KNIGHT: "光明騎士", LIGHT_DREAMER: "光明攝夢人（強攝）", LIGHT_HUNTER: "光明獵人", DARK_SEER: "黑暗預言家", DARK_WITCH: "黑暗女巫", DARK_KNIGHT: "黑暗騎士", DARK_DREAMER: "黑暗攝夢人（狼美人）", DARK_HUNTER: "黑暗獵人（黑狼王）", GRINCH: "格林奇（狼王）", SNOW_WOLF: "雪狼", REINDEER: "跛腳麋鹿", GOBLIN: "聖誕矮靈", SANTA: "聖誕老公公（覺醒預）", XMAS_WITCH: "聖誕女巫", XMAS_ELF: "聖誕小精靈" };
 const ROLE_ORDER = Object.keys(R);
 // 真狼：好人要全部放逐才算贏（轉狼的野孩子不用出局）
-const WOLVES = new Set(["WEREWOLF", "WOLF_KING", "AWAKENED", "WOLF_BEAUTY", "TIGER"]);
+const WOLVES = new Set(["WEREWOLF", "WOLF_KING", "AWAKENED", "WOLF_BEAUTY", "TIGER", "GRINCH", "SNOW_WOLF", "REINDEER", "GOBLIN"]);
 const LIGHT = new Set(["LIGHT_SEER", "LIGHT_WITCH", "LIGHT_KNIGHT", "LIGHT_DREAMER", "LIGHT_HUNTER"]);
 const DARK = new Set(["DARK_SEER", "DARK_WITCH", "DARK_KNIGHT", "DARK_DREAMER", "DARK_HUNTER"]);
 const DARK_PACK = new Set(["DARK_WITCH", "DARK_KNIGHT", "DARK_DREAMER", "DARK_HUNTER"]);
 // 神職；村姑和野孩子既不是神職也不是平民，屠邊時不算任何一邊
-const GODS = new Set(["SEER", "WITCH", "HUNTER", "GUARD", "IDIOT", "DREAMER", "MERCHANT", "KNIGHT"]);
+const GODS = new Set(["SEER", "WITCH", "HUNTER", "GUARD", "IDIOT", "DREAMER", "MERCHANT", "KNIGHT", "SANTA", "XMAS_WITCH", "XMAS_ELF"]);
+// 聖誕警長的禮物
+const XMAS = new Set(["GRINCH", "SNOW_WOLF", "REINDEER", "GOBLIN", "SANTA", "XMAS_WITCH", "XMAS_ELF"]);
+const WITCH_CARDS = new Set(["WITCH", "XMAS_WITCH"]);
+const XMAS_GIFTS = { cookie: "薑餅人餅乾", card: "聖誕卡片", decor: "聖誕裝飾" };
+const WISH_ORDER = ["cookie", "card", "decor"];
+const EVIL_GIFTS = { nightmare: "惡靈夜曲", snow: "混沌雪花", candy: "怨念糖果" };
 const ITEMS = { check: "查驗", poison: "毒藥", guard: "守護" };
 const TEAM_NAME = { GOOD: "好人陣營", WOLF: "狼人陣營", LIGHT: "光明陣營", DARK: "黑暗陣營" };
 const DESC = {
@@ -323,8 +329,15 @@ const DESC = {
   DARK_KNIGHT: "白天發言時可決鬥一次（自己不會死）：平民 → 平民出局；光明神職 → 技能封鎖一晚；黑暗預言家 → 當晚回歸狼隊；光明騎士 → 自己反傷出局。可自爆、自刀。",
   DARK_DREAMER: "每晚魅惑一名玩家；出局時魅惑對象仍存活就一同出局（被光明騎士決鬥或被攝夢時不發動）。最後出局時魅惑帶走最後一名光明或平民，黑暗仍然獲勝。不能自爆、不能被自刀。",
   DARK_HUNTER: "白天被放逐時可以帶走一人，但帶不走光明獵人；被騎士決鬥、被毒、被攝夢時不能開槍。可自爆、自刀。",
+  GRINCH: "狼人的一員。【狼爪】白天被放逐出局時可以帶走一名玩家；自爆、被毒或晚上出局都不能發動。可自爆。",
+  SNOW_WOLF: "狼人的一員。【隱身】被聖誕老公公查驗時顯示為好人（金水）。可自爆。",
+  REINDEER: "狼人的一員。【遺失禮物】第二晚起每晚睜眼看大家許願的禮物，指定一名玩家今晚收不到禮物（不能連續兩晚指定同一人）。",
+  GOBLIN: "狼人陣營，但和其他狼人不見面，狼人也不知道你的位置。【發送邪惡禮物】每晚可以送一個邪惡禮物給一名玩家（也可以不送；三種禮物各送一次、每人最多收一個、不能給自己），收到的人不知道。其他四隻狼都出局後，你才帶刀殺人。不能自爆。",
+  SANTA: "每晚查驗兩名玩家：兩人裡有一狼或兩狼顯示『查殺』，兩個都是好人才顯示『金水』。雪狼會被驗成好人。",
+  XMAS_WITCH: "一瓶解藥、一瓶毒藥，各用一次。第一夜被刀可以自救，但只是延後一天死亡（第二夜出局）；死亡那晚拿到薑餅人餅乾可以再延後一天。",
+  XMAS_ELF: "白天任何時候、或被放逐時可以翻牌證明身分：之後留在場上發言，但沒有投票權、算出局狀態（狼人不用追刀）。翻牌時可以把警徽轉移給另一位玩家。",
 };
-const CAUSE = { wolf: "被狼殺", poison: "被毒死", vote: "被放逐", shot: "被獵人帶走", claw: "被狼王爪帶走", dream: "夢遊出局", trade: "交易失敗", explode: "自爆", charm: "被迷魅一同出局", reflect: "被虎姑婆反傷", duel: "被騎士決鬥", duel_fail: "決鬥失敗", backlash: "使用毒藥後陣亡" };
+const CAUSE = { wolf: "被狼殺", poison: "被毒死", vote: "被放逐", shot: "被獵人帶走", claw: "被狼王爪帶走", dream: "夢遊出局", trade: "交易失敗", explode: "自爆", charm: "被迷魅一同出局", reflect: "被虎姑婆反傷", duel: "被騎士決鬥", duel_fail: "決鬥失敗", backlash: "使用毒藥後陣亡", nightmare: "被惡靈夜曲反傷", candy: "被怨念糖果帶走", elf: "翻牌聖誕小精靈（出局狀態）" };
 const board = (w, gods, v, king) => [...(king ? [king] : []), ...Array(w).fill("WEREWOLF"), ...gods, ...Array(v).fill("VILLAGER")];
 const PRESETS = [
   { name: "9 人局", desc: "3 狼｜預言家、女巫、獵人｜3 平民", roles: board(3, ["SEER", "WITCH", "HUNTER"], 3) },
@@ -337,6 +350,7 @@ const PRESETS = [
   { name: "15 人 燈影預言家", desc: "狼王、狼美人、3 小狼｜預、女、騎士、守衛、獵人｜燈影預 + 4 平民", roles: ["WOLF_KING", "WOLF_BEAUTY", "WEREWOLF", "WEREWOLF", "WEREWOLF", "SEER", "WITCH", "KNIGHT", "GUARD", "HUNTER", "LANTERN", ...Array(4).fill("VILLAGER")] },
   { name: "15 人 村姑與虎姑婆", desc: "狼美人、虎姑婆、2 小狼、野孩子｜預、女、騎士、守衛、村姑｜5 平民", roles: ["WOLF_BEAUTY", "TIGER", "WEREWOLF", "WEREWOLF", "WILD_CHILD", "SEER", "WITCH", "KNIGHT", "GUARD", "VILLAGE_GIRL", ...Array(5).fill("VILLAGER")] },
   { name: "15 人 光明與黑暗對決 3.0", desc: "光明陣營 5 人｜黑暗陣營 5 人｜平民 5 人", roles: ["LIGHT_SEER", "LIGHT_WITCH", "LIGHT_KNIGHT", "LIGHT_DREAMER", "LIGHT_HUNTER", "DARK_SEER", "DARK_WITCH", "DARK_KNIGHT", "DARK_DREAMER", "DARK_HUNTER", ...Array(5).fill("VILLAGER")] },
+  { name: "15 人 聖誕警長的禮物", desc: "格林奇、雪狼、跛腳麋鹿、小狼、聖誕矮靈｜聖誕老公公、聖誕女巫、守衛、獵人、聖誕小精靈｜5 平民", roles: ["GRINCH", "SNOW_WOLF", "REINDEER", "WEREWOLF", "GOBLIN", "SANTA", "XMAS_WITCH", "GUARD", "HUNTER", "XMAS_ELF", ...Array(5).fill("VILLAGER")] },
 ];
 // 以狼人身份行動（知道狼隊、參與夜晚殺人）：真狼與轉狼的野孩子
 const isWolf = p => WOLVES.has(p.role) || !!p.turned;
@@ -348,11 +362,12 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 class Abort extends Error {}
 
 function mkSpeech(seat, o = {}) {
-  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false, findings: [] };
+  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false, findings: [], pairs: o.pairs ?? [] };
 }
 function renderSpeech(sp) {
   const parts = [];
   if (sp.claim) parts.push(`我是${R[sp.claim]}`);
+  if (sp.pairs?.length) parts.push("雙驗：" + sp.pairs.map(([a, b, w]) => `${a}號+${b}號${w ? "有狼（查殺）" : "都是好人（金水）"}`).join("、"));
   if (sp.checks.size) parts.push("查驗：" + [...sp.checks].map(([t, w]) => `${t}號${w ? "是狼人（查殺）" : "是好人（金水）"}`).join("、"));
   if (sp.text) parts.push(sp.text);
   if (sp.accuse != null) parts.push(`歸票 ${sp.accuse}號`);
@@ -378,6 +393,12 @@ class Game {
     this.skillSuppressedUntil = new Map(); this.darkSeerAwake = false; this.darkCharm = null; this.darkPoisonUsed = false;
     this.lightDreamLast = null; this.hunterJammedDay = new Map(); this.electionPending = false; this.electionPostponed = false;
     this.knightGold = new Set();  // 騎士決鬥失敗而證實是好人的人（騎金）
+    // 聖誕警長的禮物
+    this.christmas = this.players.some(p => XMAS.has(p.role));
+    this.evilUsed = new Set(); this.evilReceived = new Set(); this.evilNow = null; this.evilLog = [];
+    this.giftsSent = new Set(); this.giftReceived = new Set(); this.giftNow = new Map(); this.giftLog = [];
+    this.wishes = new Map(); this.lastBlock = null; this.delayed = []; this.delayedExile = [];
+    this.ghosts = new Set(); this.dayOuts = []; this.nightGun = false;
     this.badgeFrom = new Map();   // 新警長 -> 把警徽交給他的前任警長
     this.findings = [];           // 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
     // 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張反向
@@ -388,7 +409,7 @@ class Game {
       raceSetting === false || raceSetting === "0" ? "off" : (raceSetting || "core");
     this.claimRaceMode = this.hasLantern ? raceMode : "off";
     this.claimRace = this.hasLantern && this.claimRaceMode !== "off";
-    for (const p of this.players) if (p.role === "WOLF_KING" || p.role === "AWAKENED") this.claws[p.seat] = p.role === "AWAKENED" ? 2 : 1;
+    for (const p of this.players) if (["WOLF_KING", "AWAKENED", "GRINCH"].includes(p.role)) this.claws[p.seat] = p.role === "AWAKENED" ? 2 : 1;
     this.claims = new Map(); this.nights = []; this.days = []; this.godLog = []; this.wolfPlan = {};
     this.claimRaceCandidates = new Set(); this.claimRaceSeers = new Set(); this.claimRaceWolves = new Set(); this.claimRaceFakeRoles = {};
     if (this.claimRace) {
@@ -429,7 +450,7 @@ class Game {
   claimedRole(s) { return this.claims.get(s)?.role ?? null; }
   seerClaims() {
     const m = new Map();
-    const roles = this.lightDark ? ["SEER", "LIGHT_SEER"] : ["SEER"];
+    const roles = this.lightDark ? ["SEER", "LIGHT_SEER"] : ["SEER", "SANTA"];
     for (const [s, c] of this.claims) if (roles.includes(c.role)) m.set(s, new Map(c.checks));
     return m;
   }
@@ -452,6 +473,14 @@ class Game {
     return WOLVES.has(p.role) ? "WOLF" : "GOOD";
   }
   isEnemy(p) { return this.lightDark ? this.alignment(p) === "DARK" : isWolf(p); }
+  // 狼隊互相知道的座位（聖誕矮靈和狼人不見面）
+  wolfPack() { return new Set(this.players.filter(p => isWolf(p) && !(this.christmas && p.role === "GOBLIN")).map(p => p.seat)); }
+  // 聖誕老公公看到的結果：雪狼隱身成好人；混沌雪花讓當晚結果相反
+  santaSeesWolf(s) {
+    const p = this.p(s);
+    const wolf = WOLVES.has(p.role) && p.role !== "SNOW_WOLF";
+    return this.evilNow && this.evilNow[0] === s && this.evilNow[1] === "snow" ? !wolf : wolf;
+  }
   activeDarkPack() {
     const pack = this.alive().filter(p => DARK_PACK.has(p.role));
     if (this.darkSeerAwake) pack.push(...this.alive().filter(p => p.role === "DARK_SEER"));
@@ -632,8 +661,213 @@ class Game {
     this.nights.push(rec); return rec;
   }
 
+  // 聖誕警長的禮物：矮靈 > 守衛 > 狼人 > 女巫 >（第二夜起）許願、麋鹿、警長送禮 > 聖誕老公公
+  async runChristmasNight() {
+    const n = ++this.nightNo; this.phase = "night";
+    const rec = { night: n, guard: null, kill: null, saved: false, poison: null, extraPoison: null, check: null, pair: null, deaths: new Map() };
+    this.io.phase("night", `第 ${n} 夜`, "天黑請閉眼");
+    const alive = new Set(this.aliveSeats());
+    this.evilNow = null; this.giftNow = new Map(); this.wishes = new Map();
+    const goblin = this.aliveWithRole("GOBLIN");
+    if (goblin) {
+      const pick = await this.ctrl[goblin.seat].chooseEvilGift(this, goblin);
+      if (pick) {
+        const [t, kind] = pick;
+        if (EVIL_GIFTS[kind] && !this.evilUsed.has(kind) && alive.has(t) && t !== goblin.seat && !this.evilReceived.has(t)) {
+          this.evilUsed.add(kind); this.evilReceived.add(t); this.evilNow = [t, kind];
+          this.evilLog.push(`第 ${n} 夜 聖誕矮靈 ${goblin.seat}號 把【${EVIL_GIFTS[kind]}】送給 ${t}號`);
+          this.secret(`聖誕矮靈 ${goblin.seat}號 把【${EVIL_GIFTS[kind]}】送給 ${t}號`);
+        }
+      }
+    }
+    const guard = this.aliveWithRole("GUARD");
+    if (guard) {
+      let t = await this.ctrl[guard.seat].chooseGuard(this, guard);
+      if (t != null && (!alive.has(t) || t === this.lastGuard)) t = null;
+      rec.guard = t; this.lastGuard = t;
+      this.secret(t != null ? `守衛 ${guard.seat}號 守護 ${t}號` : `守衛 ${guard.seat}號 空守`);
+    }
+    const pack = this.alive().filter(p => this.wolfPack().has(p.seat));
+    const killers = pack.length ? pack : (goblin ? [goblin] : []);  // 其他四狼都出局後，聖誕矮靈才帶刀
+    if (killers.length) {
+      const leader = killers.find(p => this.ctrl[p.seat].isHuman) || killers[0];
+      const t = await this.ctrl[leader.seat].chooseKill(this, leader);
+      rec.kill = alive.has(t) ? t : null;
+      const who = killers[0].role === "GOBLIN" ? "聖誕矮靈" : "狼人";
+      this.secret(rec.kill != null ? `${who}（${killers.map(p => p.seat).join("、")}號）殺 ${rec.kill}號` : `${who}空刀`);
+    }
+    const witch = this.aliveWithRole("XMAS_WITCH");
+    let selfSaved = false;
+    if (witch) {
+      const [action, target] = await this.ctrl[witch.seat].witchAction(this, witch, this.antidote ? rec.kill : null);
+      if (action === "save" && this.canWitchSave(witch, rec.kill)) {
+        rec.saved = true; this.antidote = false; selfSaved = rec.kill === witch.seat;
+        this.secret(`聖誕女巫 ${witch.seat}號 使用解藥救了 ${rec.kill}號${selfSaved ? "（自救，延後一天死亡）" : ""}`);
+      } else if (action === "poison" && this.poison && alive.has(target)) {
+        rec.poison = target; this.poison = false; this.secret(`聖誕女巫 ${witch.seat}號 毒了 ${target}號`);
+      }
+    }
+    if (n >= 2) await this.runGifts(alive);
+    const santa = this.aliveWithRole("SANTA");
+    let santaHit = false;
+    if (santa) {
+      const pair = await this.ctrl[santa.seat].choosePair(this, santa);
+      if (pair && pair.length === 2 && pair[0] !== pair[1] && pair.every(t => alive.has(t) && t !== santa.seat)) {
+        const [a, b] = pair;
+        const result = this.santaSeesWolf(a) || this.santaSeesWolf(b);
+        rec.pair = [a, b, result];
+        await this.ctrl[santa.seat].onPairResult(this, santa, a, b, result);
+        this.secret(`聖誕老公公 ${santa.seat}號 查驗 ${a}號、${b}號 → ${result ? "查殺" : "金水"}`);
+        santaHit = !!this.evilNow && this.evilNow[1] === "nightmare" && pair.includes(this.evilNow[0]);
+      }
+    }
+    const nightmare = this.evilNow && this.evilNow[1] === "nightmare" ? this.evilNow[0] : null;
+    const deaths = new Map();
+    if (rec.kill != null) {
+      if (rec.kill === nightmare) this.secret(`${rec.kill}號 身上的惡靈夜曲讓狼刀落空`);
+      else {
+        const guarded = rec.kill === rec.guard;
+        if (guarded && rec.saved) { if (this.rules.sameGuardSaveDies) deaths.set(rec.kill, "wolf"); }
+        else if (!(guarded || rec.saved)) deaths.set(rec.kill, "wolf");
+      }
+    }
+    if (selfSaved && !deaths.has(witch.seat)) this.delayed.push([witch.seat, "wolf", n + 1]);  // 自救只是延後一天死亡
+    if (rec.poison != null) {
+      if (rec.poison === nightmare) { deaths.set(witch.seat, "nightmare"); this.secret(`惡靈夜曲反傷：聖誕女巫 ${witch.seat}號 出局，${rec.poison}號 沒事`); }
+      else deaths.set(rec.poison, "poison");
+    }
+    if (santaHit) { deaths.set(santa.seat, "nightmare"); this.secret(`惡靈夜曲反傷：聖誕老公公 ${santa.seat}號 出局`); }
+    for (const item of this.delayed.filter(d => d[2] === n)) {
+      this.delayed.splice(this.delayed.indexOf(item), 1);
+      if (this.p(item[0]).alive && !deaths.has(item[0])) deaths.set(item[0], item[1]);
+    }
+    const cookie = [...this.giftNow].find(([, g]) => g === "cookie")?.[0];
+    if (cookie != null && deaths.has(cookie)) {
+      this.delayed.push([cookie, deaths.get(cookie), n + 1]); deaths.delete(cookie);
+      this.secret(`${cookie}號 吃了薑餅人餅乾，死亡延後到明晚`);
+    }
+    rec.deaths = deaths;
+    for (const [s, c] of deaths) await this.markDead(s, c);
+    this.nights.push(rec); return rec;
+  }
+  // 閉眼許願 → 跛腳麋鹿擋一人 → 警長決定誰拿到禮物 → 通知幸運兒
+  async runGifts(alive) {
+    const s = this.sheriff;
+    if (s == null || !this.p(s).alive) return;
+    for (const seat of this.aliveSeats()) {
+      if (seat === s) continue;
+      const w = await this.ctrl[seat].makeWish(this, this.p(seat));
+      if (WISH_ORDER.includes(w)) this.wishes.set(seat, w);
+    }
+    if (this.wishes.size) this.secret("許願：" + [...this.wishes].sort((a, b) => a[0] - b[0]).map(([t, w]) => `${t}號=${XMAS_GIFTS[w]}`).join("、"));
+    let block = null;
+    const deer = this.aliveWithRole("REINDEER");
+    if (deer) {
+      const b = await this.ctrl[deer.seat].blockGift(this, deer, new Map(this.wishes));
+      if (alive.has(b) && b !== this.lastBlock) { block = b; this.secret(`跛腳麋鹿 ${deer.seat}號 讓 ${b}號 收不到禮物`); }
+      this.lastBlock = block;
+    }
+    const t = await this.ctrl[s].giveGift(this, this.p(s), new Map(this.wishes));
+    if (!this.wishes.has(t)) { this.secret(`警長 ${s}號 今晚沒有送禮`); return; }
+    const item = this.wishes.get(t);
+    const reason = t === block ? "被跛腳麋鹿擋下" : this.giftsSent.has(item) ? "這份禮物已經送出過" : this.giftReceived.has(t) ? "他已經收過禮物" : null;
+    if (reason) { this.secret(`警長 ${s}號 想把【${XMAS_GIFTS[item]}】給 ${t}號，但${reason}`); await this.ctrl[t].onGift(this, this.p(t), null); return; }
+    this.giftsSent.add(item); this.giftReceived.add(t); this.giftNow.set(t, item);
+    this.giftLog.push(`第 ${this.nightNo} 夜 警長 ${s}號 把【${XMAS_GIFTS[item]}】送給 ${t}號`);
+    this.secret(`警長 ${s}號 把【${XMAS_GIFTS[item]}】送給 ${t}號`);
+    await this.ctrl[t].onGift(this, this.p(t), item);
+  }
+  // 聖誕聖靈的祝福：警徽落地時，上帝隨機抽一位玩家當警長
+  randomSheriff() {
+    const alive = this.aliveSeats();
+    if (!alive.length) return;
+    this.sheriff = choice(alive);
+    this.sheriffLog.push(`第 ${this.nightNo} 天 警徽落地，隨機抽出 ${this.sheriff}號 當警長`);
+    this.say(`警徽落地！聖誕聖靈祝福，隨機抽出 ${this.sheriff}號 當選警長。`, "event");
+    this.io.update(this);
+  }
+  // 聖誕小精靈翻牌：出局狀態但留在場上發言、沒有投票權，可以轉移警徽
+  async elfReveal(p) {
+    p.revealed = true; p.canVote = false; this.ghosts.add(p.seat);
+    if (this.today) this.today.events.push(`${p.seat}號 翻牌聖誕小精靈`);
+    this.say(`${p.seat}號 翻牌【聖誕小精靈】！留在場上發言，但沒有投票權、算出局狀態。`, "event");
+    await this.markDead(p.seat, "elf");
+    const t = await this.ctrl[p.seat].elfBadge(this, p);
+    if (this.aliveSeats().includes(t) && t !== this.sheriff) {
+      const old = this.sheriff;
+      this.sheriff = t;
+      if (old != null) this.badgeFrom.set(t, old);
+      this.sheriffLog.push(`第 ${this.nightNo} 天 小精靈 ${p.seat}號 把警徽轉給 ${t}號`);
+      this.say(`小精靈 ${p.seat}號 把警徽轉給 ${t}號。`, "event");
+    } else if (this.sheriff === p.seat) this.randomSheriff();
+    this.io.update(this);
+  }
+  // 聖誕板的放逐：小精靈可翻牌、薑餅人餅乾延後出局、怨念糖果帶走他投的人
+  async xmasExile(exiled) {
+    this.phase = "day";  // 放逐結算屬於白天：餅乾、聖誕卡片都要算到
+    try {
+      const day = this.today, p = this.p(exiled);
+      if (p.role === "XMAS_ELF" && !p.revealed && await this.ctrl[exiled].elfReveal(this, p, true)) {
+        await this.elfReveal(p);
+        const w = this.checkWinner();
+        if (!w) await this.io.pause("天黑");
+        return w;
+      }
+      day.exiled = exiled;
+      this.say(`${exiled}號 被放逐出局。`, "event");
+      const voted = day.votes.get(exiled);
+      let w;
+      if (await this.kill(exiled, "vote")) {
+        if ((w = this.checkWinner())) return w;
+        await this.lastWords(exiled);
+        await this.deathTrigger(exiled, "vote");
+        if ((w = this.checkWinner())) return w;
+      }
+      if (this.evilNow && this.evilNow[0] === exiled && this.evilNow[1] === "candy" && voted != null && this.p(voted).alive) {
+        this.say(`${exiled}號 身上有【怨念糖果】，他投的 ${voted}號 也一起出局！`, "event");
+        day.events.push(`${exiled}號 的怨念糖果帶走 ${voted}號`);
+        if (await this.kill(voted, "candy")) {
+          if ((w = this.checkWinner())) return w;
+          await this.lastWords(voted);
+          await this.deathTrigger(voted, "candy");
+        }
+      }
+      await this.badgeCheck();
+      w = this.checkWinner();
+      if (!w) await this.io.pause("天黑");
+      return w;
+    } finally { this.phase = "night"; }
+  }
+  // 白天結束：延後到今天的放逐生效，聖誕卡片得知今天出局者的身分
+  async xmasEndOfDay() {
+    this.phase = "day";
+    const n = this.nightNo;
+    let w;
+    for (const item of this.delayedExile.filter(d => d[2] === n)) {
+      this.delayedExile.splice(this.delayedExile.indexOf(item), 1);
+      const [s, cause] = item;
+      if (!this.p(s).alive) continue;
+      this.say(`${s}號 的薑餅人餅乾效果結束，今天一起出局。`, "event");
+      await this.kill(s, cause);
+      if ((w = this.checkWinner())) { this.phase = "night"; return w; }
+      await this.lastWords(s);
+      await this.deathTrigger(s, cause);
+      if ((w = this.checkWinner())) { this.phase = "night"; return w; }
+    }
+    await this.badgeCheck();
+    const holder = [...this.giftNow].find(([, g]) => g === "card")?.[0];
+    if (holder != null) {
+      const roles = new Map(this.dayOuts.map(t => [t, this.p(t).role]));
+      await this.ctrl[holder].onCard(this, this.p(holder), roles);
+      this.secret(`聖誕卡片 ${holder}號 得知：${[...roles].map(([t, r]) => `${t}號=${R[r]}`).join("、") || "今天沒有人出局"}`);
+    }
+    this.phase = "night";
+    return this.checkWinner();
+  }
+
   async runNight() {
     if (this.lightDark) return this.runLightDarkNight();
+    if (this.christmas) return this.runChristmasNight();
     const n = ++this.nightNo;
     this.phase = "night";
     const rec = { night: n, guard: null, kill: null, saved: false, poison: null, check: null, deaths: new Map() };
@@ -819,7 +1053,11 @@ class Game {
     const n = this.nightNo;
     this.days.push({ day: n, speeches: [], votes: new Map(), pkVotes: new Map(), exiled: null, events: [], exploded: null });
     this.io.phase("day", `第 ${n} 天`, "天亮了");
-    if (this.rules.sheriff && (n === 1 || this.electionPending)) { this.electionPending = false; await this.runElection(); }  // 先競選警長，再公布死訊
+    this.dayOuts = [];
+    if (this.rules.sheriff && (n === 1 || this.electionPending)) {  // 先競選警長，再公布死訊
+      this.electionPending = false; await this.runElection();
+      if (this.christmas && this.sheriff == null) this.randomSheriff();
+    }
     const dead = [...rec.deaths.keys()].sort(bySeat);
     this.say(dead.length ? `昨晚死亡的是：${dead.map(s => s + "號").join("、")}` : "昨晚是平安夜，沒有人死亡。", "event");
     this.io.update(this);
@@ -827,7 +1065,9 @@ class Game {
     if (w) return w;
     for (const s of dead) {
       if (n === 1) await this.lastWords(s);
+      this.nightGun = true;
       await this.deathTrigger(s, rec.deaths.get(s));
+      this.nightGun = false;
       if ((w = this.checkWinner())) return w;
     }
     await this.badgeCheck();
@@ -902,14 +1142,15 @@ class Game {
       this.sheriff = null;
       this.badgeTorn.push({ day: this.nightNo, seat: s });
       this.sheriffLog.push(`第 ${this.nightNo} 天 ${s}號 撕掉警徽`);
-      this.say(`警長 ${s}號 撕掉了警徽，之後沒有警長。`, "event");
+      if (this.christmas) { this.say(`警長 ${s}號 撕掉了警徽。`, "event"); this.randomSheriff(); }
+      else this.say(`警長 ${s}號 撕掉了警徽，之後沒有警長。`, "event");
     }
     this.io.update(this);
   }
   // 狼人自爆：立即出局、沒有遺言，當天剩下的流程跳過；狼王自爆可以帶人
   async tryExplode(p) {
     const special = this.lightDark && DARK.has(p.role) && p.role !== "DARK_DREAMER";
-    if (!(this.rules.selfExplode && p.alive && (isWolf(p) || special)) || p.role === "WOLF_BEAUTY") return false;
+    if (!(this.rules.selfExplode && p.alive && (isWolf(p) || special)) || p.role === "WOLF_BEAUTY" || p.role === "GOBLIN") return false;
     if (!(await this.ctrl[p.seat].selfExplode(this, p))) return false;
     p.revealed = true;
     await this.kill(p.seat, "explode");
@@ -923,7 +1164,7 @@ class Game {
 
   // 有警長：警長選方向（警右往大號、警左往小號），自己最後發言；沒有警長就輪流起頭
   async speechOrder() {
-    const seats = this.aliveSeats();
+    const seats = [...this.aliveSeats(), ...[...this.ghosts].filter(g => !this.p(g).alive)].sort(bySeat);
     if (this.sheriff != null && seats.includes(this.sheriff)) {
       const sp = this.sheriff;
       const dir = await this.ctrl[sp].chooseDirection(this, this.p(sp));
@@ -936,6 +1177,11 @@ class Game {
   }
 
   async runDay() {
+    let w = await this.runDayCore();
+    if (this.christmas && w == null) w = await this.xmasEndOfDay();
+    return w;
+  }
+  async runDayCore() {
     const day = this.today;
     if (day.exploded != null) { this.phase = "night"; await this.io.pause("天黑"); return null; }
     this.phase = "day";
@@ -943,7 +1189,12 @@ class Game {
     this.say(`發言（從 ${order[0]}號 開始${this.sheriff != null ? "，警長最後" : ""}）`, "sub");
     for (const s of order) {
       const p = this.p(s);
-      if (!p.alive) continue;
+      if (!p.alive && !this.ghosts.has(s)) continue;
+      if (this.christmas && p.role === "XMAS_ELF" && !p.revealed && await this.ctrl[s].elfReveal(this, p, false)) {
+        await this.elfReveal(p);
+        const w = this.checkWinner();
+        if (w) return w;
+      }
       if (await this.tryExplode(p)) {
         await this.badgeCheck();
         this.phase = "night";
@@ -972,6 +1223,7 @@ class Game {
     const exiled = await this.votePhase();
     this.phase = "night";
     if (exiled == null) { await this.io.pause("天黑"); return null; }
+    if (this.christmas) return this.xmasExile(exiled);
     const p = this.p(exiled);
     if (p.role === "IDIOT" && !p.revealed) {
       p.revealed = true; p.canVote = false;
@@ -1005,13 +1257,15 @@ class Game {
     return votes;
   }
   // 顯示票型並回傳最高票者；警長的票算 1.5 票
+  voteWeight(v) { return (v === this.sheriff ? 1.5 : 1) + (this.christmas && this.giftNow.get(v) === "decor" ? 1 : 0); }  // 聖誕裝飾：多一張票
   showVotes(votes, weighted = true) {
-    const w = v => weighted && v === this.sheriff ? 1.5 : 1;
+    const w = v => weighted ? this.voteWeight(v) : 1;
     const by = new Map();
     for (const [v, t] of votes) if (t != null) { if (!by.has(t)) by.set(t, []); by.get(t).push(v); }
     const total = new Map([...by].map(([t, vs]) => [t, vs.reduce((a, v) => a + w(v), 0)]));
     const rows = [...by].sort((a, b) => total.get(b[0]) - total.get(a[0]));
-    for (const [t, vs] of rows) this.say(`${t}號 ← ${vs.map(v => w(v) > 1 ? v + "(警長)" : v).join("、")}（${total.get(t)} 票）`, "vote");
+    const tag = v => (weighted && v === this.sheriff ? "(警長)" : "") + (weighted && this.christmas && this.giftNow.get(v) === "decor" ? "(聖誕裝飾+1)" : "");
+    for (const [t, vs] of rows) this.say(`${t}號 ← ${vs.map(v => v + tag(v)).join("、")}（${total.get(t)} 票）`, "vote");
     const abstain = [...votes].filter(([, t]) => t == null).map(([v]) => v);
     if (abstain.length) this.say(`棄票：${abstain.join("、")}`, "vote");
     if (!rows.length) return [];
@@ -1037,11 +1291,18 @@ class Game {
 
   async markDead(s, cause) {
     const p = this.p(s); p.alive = false; p.deathCause = cause;
+    if (this.phase !== "night") this.dayOuts.push(s);
     const wild = this.aliveWithRole("WILD_CHILD");
     if (wild && s === this.wildModel && !this.wildFixedGood && !wild.turned) await this.turnWild(wild);
   }
   // 白天出局：處理狼美人迷魅的連帶出局
-  async kill(s, cause) {
+  async kill(s, cause) {  // 回傳 false 代表被薑餅人餅乾延後到明天
+    if (this.christmas && this.phase !== "night" && cause !== "explode" && this.giftNow.get(s) === "cookie" && this.p(s).alive) {
+      this.giftNow.delete(s);
+      this.delayedExile.push([s, cause, this.nightNo + 1]);
+      this.say(`${s}號 吃了薑餅人餅乾，延後到明天白天才出局。`, "event");
+      return false;
+    }
     await this.markDead(s, cause);
     const c = this.lightDark ? this.darkCharm : this.charm;
     const charmDeath = this.lightDark ? this.p(s).role === "DARK_DREAMER" && cause !== "duel" : this.p(s).role === "WOLF_BEAUTY" && cause !== "duel";
@@ -1051,6 +1312,7 @@ class Game {
       await this.deathTrigger(c, "charm");
     }
     this.io.update(this);
+    return true;
   }
   async turnWild(wild) {
     wild.turned = true;
@@ -1102,6 +1364,7 @@ class Game {
     const specialHunter = this.lightDark && ["LIGHT_HUNTER", "DARK_HUNTER"].includes(p.role);
     if (specialHunter && p.role === "DARK_HUNTER" && (cause !== "vote" || this.hunterJammedDay.get(s) === this.nightNo)) return;  // 前一晚被攝夢則不能開槍
     if (specialHunter && p.role === "LIGHT_HUNTER" && this.phase === "night" && (this.skillSuppressedUntil.get(s) || 0) >= this.nightNo) return;
+    if (this.christmas && p.role === "GRINCH" && cause !== "vote") return;  // 格林奇只有被放逐出局能發動狼爪
     const hunter = ["HUNTER", "LIGHT_HUNTER", "DARK_HUNTER"].includes(p.role);
     const shots = hunter ? 1 : (this.claws[s] || 0);
     if (shots <= 0) return;
@@ -1114,11 +1377,16 @@ class Game {
       if (!hunter) this.claws[s]--;
       p.revealed = true;
       const label = p.role === "WEREWOLF" ? "狼人（親傳狼王爪）" : R[p.role];
+      if (this.christmas && this.nightGun && this.evilNow && this.evilNow[0] === t && this.evilNow[1] === "nightmare") {
+        this.say(`${s}號 翻牌【${label}】開槍，但子彈被彈開，${t}號 沒有出局。`, "event");  // 惡靈夜曲反傷夜槍
+        this.secret(`${t}號 身上的惡靈夜曲擋下夜槍`);
+        return;
+      }
       const action = hunter ? "開槍" : "發動狼王爪";
       if (this.today) this.today.events.push(`${s}號 ${label}${action}帶走 ${t}號`);
       this.say(`${s}號 翻牌【${label}】，${action}帶走了 ${t}號！`, "event");
       const ct = hunter ? "shot" : "claw";
-      await this.kill(t, ct);
+      if (!(await this.kill(t, ct))) return;
       this.io.update(this);
       if (this.checkWinner() != null) return;
       await this.lastWords(t);
@@ -1142,9 +1410,15 @@ class Game {
       const prev = this.claims.get(s);
       const checks = prev && prev.role === sp.claim ? new Map(prev.checks) : new Map();
       const day = prev && prev.role === sp.claim ? prev.day : this.nightNo;  // 第一次跳這個身份是第幾天
-      this.claims.set(s, { role: sp.claim, checks, day });
+      const pairs = prev && prev.role === sp.claim ? [...(prev.pairs || [])] : [];
+      this.claims.set(s, { role: sp.claim, checks, day, pairs });
     }
-    if (sp.checks.size && ["SEER", "LANTERN", "LIGHT_SEER"].includes(this.claimedRole(s))) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
+    sp.pairs = (sp.pairs || []).filter(([a, b]) => valid(a) && valid(b) && a !== b && a !== s && b !== s).map(([a, b, w]) => [a, b, !!w]);
+    if (sp.checks.size && ["SEER", "LANTERN", "LIGHT_SEER", "SANTA"].includes(this.claimedRole(s))) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
+    if (sp.pairs.length && this.claimedRole(s) === "SANTA") {
+      const known = this.claims.get(s).pairs;
+      for (const pr of sp.pairs) if (!known.some(k => k[0] === pr[0] && k[1] === pr[1] && k[2] === pr[2])) known.push(pr);
+    }
     if (this.today) this.today.speeches.push(sp);
     for (const f of sp.findings || []) this.findings.push({ ...f, speaker: s, day: this.nightNo });
   }
@@ -1158,14 +1432,17 @@ const PERSONALITY_KEYS = Object.keys(PERSONALITIES).filter(k => PERSONALITIES[k]
 
 // ================================================================ 電腦玩家
 class Bot {
-  constructor(personality = null) { this.personality = personality; this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); this.reasons = new Map(); this.identityChecks = new Map(); }
+  constructor(personality = null) { this.personality = personality; this.isHuman = false; this.checks = new Map(); this.fakeChecks = new Map(); this.fakeDays = new Set(); this.pref = {}; this.saved = null; this.item = null; this.traded = null; this.girlSeen = null; this.soft = {}; this.raw = new Map(); this.reasons = new Map(); this.identityChecks = new Map();
+    // 聖誕警長的禮物
+    this.myPairs = []; this.fakePairs = []; this.gift = null; this.cardInfo = new Map(); this.giftTried = new Set(); this.itemsTried = new Set(); }
   setup(g, me) {
     this.P = this.personality || PERSONALITIES.rational;
     for (const p of g.players) this.pref[p.seat] = Math.random();
     this.guessSeerAccurate = Math.random() < 0.5;  // 推不出來時，猜哪張預言家牌是準的
     if (g.lightDark) return;
-    if (isWolf(me) && !("fakeSeer" in g.wolfPlan)) {
-      const bots = g.players.filter(p => isWolf(p) && !g.ctrl[p.seat].isHuman).map(p => p.seat);
+    if (g.wolfPack().has(me.seat) && !("fakeSeer" in g.wolfPlan)) {
+      const bots = g.players.filter(p => g.wolfPack().has(p.seat) && !g.ctrl[p.seat].isHuman).map(p => p.seat);
+      if (g.christmas) g.wolfPlan.fakeSeerRole = "SANTA";
       // 越愛詐唬的狼越可能被派去悍跳
       const w = bots.map(b => (g.ctrl[b].personality || PERSONALITIES.rational).bluff + 0.01);
       const pickOne = (pool, ws) => { let r = Math.random() * ws.reduce((a, b) => a + b, 0); const i = pool.findIndex((b, j) => (r -= ws[j]) <= 0); return i < 0 ? pool.length - 1 : i; };
@@ -1187,7 +1464,7 @@ class Bot {
     k.protected = k.protected || new Set();
     k.sheriffDoubt = 0; k.sheriffWhy = [];
     k.hints = new Map(); k.hintWhy = new Map(); k.hintFrom = new Map();
-    if (g.isEnemy(me)) return k;
+    if (g.wolfPack().has(me.seat) || (g.lightDark && g.isEnemy(me))) return k;
     this.absorbFindings(g, me, k);
     [k.sheriffDoubt, k.sheriffWhy] = this.sheriffDoubt(g, me, k);
     const sh = g.sheriff;
@@ -1220,7 +1497,7 @@ class Bot {
     const out = [];
     const knownGood = new Set([...g.players.filter(p => p.revealed && !isWolf(p)).map(p => p.seat), ...g.knightGold]);
     const knownWolf = new Set(g.players.filter(p => p.revealed && isWolf(p)).map(p => p.seat));
-    const cards = ["SEER", "LANTERN"];
+    const cards = ["SEER", "LANTERN", "SANTA"];
     const add = (liar, suspects, text, certain, pub = true) => out.push({ liar, suspects, text, certain, public: pub });
     for (const [c, cl] of g.claims) {
       if (knownWolf.has(c) || c === me.seat) continue;
@@ -1294,7 +1571,7 @@ class Bot {
       const rivals = [...g.claims].filter(([c, cl]) => c !== s && cl.role === claim).map(([c]) => c);
       if (rivals.length) { doubt += 0.25; why.push(`${rivals[0]}號 和他對跳${R[claim]}`); }
     }
-    if (claim === "SEER" || claim === "LANTERN") {
+    if (claim === "SEER" || claim === "LANTERN" || claim === "SANTA") {
       for (const [t, w] of g.claims.get(s).checks) if ((w && k.good.has(t)) || (!w && k.wolf.has(t))) {
         doubt += g.hasLantern ? 0.3 : 0.6;
         why.push(`他說 ${t}號 是${w ? "狼" : "好人"}，但 ${t}號 其實是${w ? "好人" : "狼"}${g.hasLantern ? "（也可能只是反向查驗）" : ""}`);
@@ -1337,8 +1614,8 @@ class Bot {
       }
       if (me.role === "DARK_SEER") return fromChecks(false);
     }
-    if (isWolf(me)) {
-      const wolf = new Set(g.players.filter(isWolf).map(p => p.seat));
+    if (g.wolfPack().has(me.seat)) {  // 聖誕矮靈和狼人不見面
+      const wolf = g.wolfPack();
       return { good: new Set(g.players.map(p => p.seat).filter(s => !wolf.has(s))), wolf, trusted: null, claims };
     }
     const revealed = g.players.filter(p => p.revealed);
@@ -1346,12 +1623,17 @@ class Bot {
     const wolf = new Set(revealed.filter(isWolf).map(p => p.seat));
     if (g.hasLantern) return this.lanternAnalyze(g, me, good, wolf, claims);
     for (const [t, w] of this.checks) (w ? wolf : good).add(t);  // 預言家或拿到查驗的幸運兒
-    if (me.role === "SEER") for (const c of claims.keys()) if (c !== me.seat) wolf.add(c);
+    if (me.role === "SEER" || me.role === "SANTA") for (const c of claims.keys()) if (c !== me.seat) wolf.add(c);
     let changed = true;
     while (changed) {
       changed = false;
+      for (const [a, b] of this.myPairs) {  // 聖誕老公公：雙驗查殺，其中一人確定是好人 → 另一人是狼
+        for (const [x, y] of [[a, b], [b, a]]) if (good.has(x) && !good.has(y) && !wolf.has(y)) { wolf.add(y); changed = true; }
+      }
       for (const [c, checks] of claims) {
         if (wolf.has(c) || good.has(c)) continue;
+        const pairs = g.claims.get(c)?.pairs || [];
+        if (pairs.some(([a, b, w]) => w && good.has(a) && good.has(b))) { wolf.add(c); changed = true; continue; }
         for (const [t, w] of checks) {
           if ((w && good.has(t)) || (!w && wolf.has(t))) { wolf.add(c); changed = true; break; }
         }
@@ -1359,7 +1641,7 @@ class Bot {
     }
     const cands = [...claims.keys()].filter(c => !wolf.has(c) && c !== me.seat);
     let trusted = null;
-    if (me.role !== "SEER" && cands.length) trusted = cands.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a);
+    if (me.role !== "SEER" && me.role !== "SANTA" && cands.length) trusted = cands.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a);
     return { good, wolf, trusted, claims };
   }
   // 燈影預言家板：兩張預言家牌一正一反，用確定的事實反推哪張準
@@ -1457,15 +1739,22 @@ class Bot {
         else if (["SEER", "LANTERN"].includes(g.claimedRole(s))) { v += 10; why(s, 10, "他和我比較相信的預言家對跳"); }
       } else if (k.trusted != null) {
         const checks = k.claims.get(k.trusted) || new Map();
+        for (const [a, b, w] of g.claims.get(k.trusted)?.pairs || []) {
+          if (w && (s === a || s === b) && !checks.has(s)) {
+            const e = (k.good.has(s === a ? b : a) ? 18 : 9) * ev;
+            v += e; why(s, e, `${k.trusted}號 聖誕老公公驗 ${a}號+${b}號 有狼`);
+          }
+        }
         if (checks.has(s)) { v += (checks.get(s) ? 20 : -8) * ev; if (checks.get(s)) why(s, 20 * ev, `${k.trusted}號 預言家查殺他`); }
         if (s === k.trusted) v -= 15;
         else if (k.claims.has(s)) { v += 10; why(s, 10, `他和 ${k.trusted}號 預言家對跳`); }
       }
+      for (const [a, b] of this.myPairs) if ((s === a || s === b) && !k.good.has(s) && !k.wolf.has(s)) { v += 12; why(s, 12, `我驗 ${a}號+${b}號 有狼`); }
       if (s === g.sheriff && k.sheriffDoubt) {
         v += k.sheriffDoubt * 40;
         why(s, k.sheriffDoubt * 40, "他這個警長很可疑" + (k.sheriffWhy.length ? `（${k.sheriffWhy[0]}）` : ""));
       }
-      if (["HUNTER", "WITCH", "IDIOT", "DREAMER", "MERCHANT", "KNIGHT", "VILLAGE_GIRL"].includes(g.claimedRole(s))) v -= 3;
+      if (["HUNTER", "WITCH", "IDIOT", "DREAMER", "MERCHANT", "KNIGHT", "VILLAGE_GIRL", "XMAS_WITCH"].includes(g.claimedRole(s))) v -= 3;
       const soft = this.soft[s] || 0;
       v += soft; why(s, soft, "村姑查驗的線索指向他");
       let pattern = 0;  // 看票型與發言：攻擊可信的人很可疑（越重證據的個性越看重）
@@ -1564,18 +1853,26 @@ class Bot {
     if (g.nightNo === 1) return Math.random() < 0.6 ? null : choice(opts);
     const k = this.analyze(g, me);
     if (k.trusted != null && opts.includes(k.trusted)) return k.trusted;
-    const witch = opts.filter(s => g.claimedRole(s) === "WITCH");
+    const witch = opts.filter(s => WITCH_CARDS.has(g.claimedRole(s)));
     if (witch.length) return witch[0];
     return opts.length ? choice(opts) : null;
   }
+  // 狼方眼中的「非隊友」：聖誕板的狼不知道聖誕矮靈是誰，不能用真實陣營判斷
+  outsiders(g, me) {
+    if (g.christmas) {
+      const pack = g.wolfPack().has(me.seat) ? g.wolfPack() : new Set([me.seat]);
+      return g.aliveSeats().filter(s => !pack.has(s));
+    }
+    return g.alive().filter(p => !g.isEnemy(p)).map(p => p.seat);
+  }
   chooseKill(g, me) {
-    let good = g.alive().filter(p => !g.isEnemy(p)).map(p => p.seat);
+    let good = this.outsiders(g, me);
     if (g.lightDark && me.role === "DARK_DREAMER") good = good.filter(s => s !== me.seat);
     if (!good.length) return null;
     const hunters = new Set(good.filter(s => ["HUNTER", "LIGHT_HUNTER"].includes(g.claimedRole(s))));
     const claims = g.seerClaims();
     const real = [...[...claims.keys()].filter(c => good.includes(c)), ...[...g.claimsOf("LANTERN").keys()].filter(c => good.includes(c))];
-    const witches = good.filter(s => g.claimedRole(s) === "WITCH");
+    const witches = good.filter(s => WITCH_CARDS.has(g.claimedRole(s)));
     const golds = real.flatMap(c => [...(g.claims.get(c)?.checks || new Map())].filter(([t, w]) => !w && good.includes(t)).map(([t]) => t));
     const detectives = [...new Set(g.findings.map(f => f.speaker))].filter(s => good.includes(s)).sort(bySeat);
     for (let grp of [real, detectives, witches, golds]) {  // 公開找漏洞的推理高手也很危險
@@ -1653,6 +1950,23 @@ class Bot {
       const text = acc == null ? "我不知道自己是正確還是反向查驗，大家一起對資訊" : acc ? "我確定我是正確查驗" : "我是反向查驗，結果要反過來看";
       return mkSpeech(me.seat, { claim: me.role, checks: new Map(this.raw), accuse: [...aliveWolves, top][0], text });
     }
+    if (me.role === "SANTA" && (this.checks.size || this.myPairs.length)) {
+      const already = g.claimedRole(me.seat) === "SANTA";
+      if (last || already || this.myPairs.length || k.claims.size || Math.random() < this.P.claim) {
+        const checks = new Map(this.checks);
+        for (const [a, b] of this.myPairs) for (const t of [a, b]) if (k.wolf.has(t)) checks.set(t, true);
+        const pairs = this.myPairs.filter(([a, b]) => !checks.has(a) && !checks.has(b)).map(([a, b]) => [a, b, true]);
+        const wolves = [...checks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
+        const unsure = pairs.flatMap(([a, b]) => [a, b]).filter(t => g.p(t).alive).sort((x, y) => (score.get(y) || 0) - (score.get(x) || 0));
+        const rivals = [...k.claims.keys()].filter(c => c !== me.seat && g.p(c).alive);
+        const accuse = [...wolves, ...rivals, ...unsure, top][0];
+        return mkSpeech(me.seat, { claim: "SANTA", checks, accuse, text: rivals.length ? "對跳的那位是假的聖誕老公公！" : "", pairs });
+      }
+    }
+    if (this.cardInfo.size && g.christmas && !g.isEnemy(me)) {
+      const told = [...this.cardInfo].map(([t, r]) => `${t}號是${R[r]}`).join("、");
+      return mkSpeech(me.seat, { accuse: top != null && score.get(top) >= this.P.accuseBar ? top : null, text: `我拿到聖誕卡片：${told}` });
+    }
     if (me.role === "SEER") {
       const already = g.claimedRole(me.seat) === "SEER";
       if (this.checks.size && (last || already || [...this.checks.values()].some(Boolean) || k.claims.size || Math.random() < this.P.claim)) {
@@ -1671,7 +1985,7 @@ class Bot {
     }
     if (last) {
       let text = k.trusted != null ? `請相信 ${k.trusted}號 預言家` : "大家加油";
-      if (me.role === "WITCH" && this.saved) text += `；我救過 ${this.saved}號`;
+      if (WITCH_CARDS.has(me.role) && this.saved) text += `；我救過 ${this.saved}號`;
       if (me.role === "MERCHANT" && this.traded) text += `；我把${ITEMS[this.traded[1]]}給了 ${this.traded[0]}號`;
       return mkSpeech(me.seat, { claim: me.role, accuse: top, text });
     }
@@ -1685,9 +1999,9 @@ class Bot {
       const aw = [...this.checks].filter(([x, y]) => y && g.p(x).alive).map(([x]) => x);
       return mkSpeech(me.seat, { accuse: [...aw, top][0], text: `我是幸運兒，用商人給的查驗驗了 ${t}號，他是${w ? "狼人" : "好人"}` });
     }
-    if (["HUNTER", "WITCH", "MERCHANT", "DREAMER"].includes(me.role) && this.accusedToday(g, me)) {
+    if (["HUNTER", "WITCH", "XMAS_WITCH", "MERCHANT", "DREAMER"].includes(me.role) && this.accusedToday(g, me)) {
       let text = { HUNTER: "出我的話我會開槍", DREAMER: "我是攝夢人，出我很虧" }[me.role] || "";
-      if (me.role === "WITCH" && this.saved) text = `我救過 ${this.saved}號（銀水）`;
+      if (WITCH_CARDS.has(me.role) && this.saved) text = `我救過 ${this.saved}號（銀水）`;
       if (me.role === "MERCHANT" && this.traded) text = `我把${ITEMS[this.traded[1]]}給了 ${this.traded[0]}號`;
       return mkSpeech(me.seat, { claim: me.role, accuse: top, text });
     }
@@ -1702,13 +2016,22 @@ class Bot {
     return mkSpeech(me.seat, { accuse: sure ? top : null, text: say });
   }
   wolfSpeech(g, me, k, last) {
-    const goodAlive = g.alive().filter(p => !g.isEnemy(p)).map(p => p.seat);
+    if (g.christmas && me.role === "GOBLIN") return this.goblinSpeech(g, me, last);
+    const goodAlive = this.outsiders(g, me);
     const fakes = g.wolfPlan.fakeSeers || [];
     if (fakes.includes(me.seat)) {
       const card = g.wolfPlan.fakeSeerRoles?.[me.seat] || g.wolfPlan.fakeSeerRole || "SEER";
-      if (!this.fakeDays.has(g.nightNo) && !(last && this.fakeChecks.size)) { this.fakeDays.add(g.nightNo); this.inventCheck(g, me, k, goodAlive, card); }
+      if (!this.fakeDays.has(g.nightNo) && !(last && (this.fakeChecks.size || this.fakePairs.length))) {
+        this.fakeDays.add(g.nightNo);
+        if (card === "SANTA") this.inventPair(g, me, k, goodAlive); else this.inventCheck(g, me, k, goodAlive, card);
+      }
       const rivals = [...g.claimsOf(card).keys()].filter(c => c !== me.seat && g.p(c).alive);
       const fw = [...this.fakeChecks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
+      fw.push(...this.fakePairs.filter(([, , w]) => w).flatMap(([a, b]) => [a, b]).filter(t => g.p(t).alive));
+      if (card === "SANTA") {
+        const others = goodAlive.filter(s => !this.fakeChecks.has(s));
+        return mkSpeech(me.seat, { claim: card, checks: new Map(this.fakeChecks), accuse: [...rivals, ...fw, ...others, null][0], text: rivals.length ? "對跳的那位是假的聖誕老公公" : "", pairs: [...this.fakePairs] });
+      }
       const others = goodAlive.filter(s => !this.fakeChecks.has(s));  // 不點自己發的金水
       const accuse = [...fw, ...rivals, ...others, null][0];
       return mkSpeech(me.seat, { claim: card, checks: new Map(this.fakeChecks), accuse, text: rivals.length ? `我才是真的${R[card]}，對跳的是狼` : "" });
@@ -1728,8 +2051,23 @@ class Bot {
     else if (mates.length && roll < 0.35) this.fakeChecks.set(choice(mates), false);
     else if (unused.length) this.fakeChecks.set(choice(unused), Math.random() < 0.6);
   }
+  // 悍跳聖誕老公公編雙驗：對真的聖誕老公公發查殺，或替隊友發金水
+  inventPair(g, me, k, goodAlive) {
+    const used = new Set([...this.fakeChecks.keys(), ...this.fakePairs.flatMap(([a, b]) => [a, b])]);
+    const unused = goodAlive.filter(s => !used.has(s) && !g.p(s).revealed);
+    const rivals = [...g.claimsOf("SANTA").keys()].filter(c => unused.includes(c));
+    const mates = g.aliveSeats().filter(s => k.wolf.has(s) && s !== me.seat && !used.has(s));
+    const roll = Math.random();
+    if (rivals.length && unused.length >= 2 && roll < 0.8) this.fakePairs.push([rivals[0], choice(unused.filter(u => u !== rivals[0])), true]);
+    else if (mates.length && unused.length && roll < 0.35) { this.fakeChecks.set(choice(mates), false); this.fakeChecks.set(choice(unused), false); }
+    else if (unused.length >= 2) {
+      const [a, b] = shuffle([...unused]).slice(0, 2);
+      if (Math.random() < 0.55) this.fakePairs.push([a, b, true]); else { this.fakeChecks.set(a, false); this.fakeChecks.set(b, false); }
+    }
+  }
   wolfTarget(g) {
-    const good = g.alive().filter(p => !isWolf(p)).map(p => p.seat);
+    const pack = g.wolfPack();
+    const good = g.alive().filter(p => !pack.has(p.seat)).map(p => p.seat);
     if (!good.length) return null;
     const claims = g.seerClaims();
     const real = [...claims.keys()].filter(c => good.includes(c));
@@ -1744,6 +2082,7 @@ class Bot {
     return good.reduce((a, b) => this.pref[b] > this.pref[a] ? b : a);
   }
   vote(g, me, cands) {
+    if (g.christmas && me.role === "GOBLIN") { const t = this.goblinTarget(g, me, cands); return cands.includes(t) ? t : null; }
     const k = this.analyze(g, me);
     if (g.isEnemy(me)) {
       const key = "vote" + g.nightNo;
@@ -1764,9 +2103,9 @@ class Bot {
     }
     const k = this.analyze(g, me);
     if (g.isEnemy(me)) {  // 狼王爪：帶走最有威脅的好人
-      const good = g.alive().filter(p => !g.isEnemy(p)).map(p => p.seat);
+      const good = this.outsiders(g, me);
       const claims = g.seerClaims();
-      const threats = [...[...claims.keys()].filter(c => good.includes(c)), ...good.filter(s => ["WITCH", "DREAMER", "MERCHANT"].includes(g.claimedRole(s)))];
+      const threats = [...[...claims.keys()].filter(c => good.includes(c)), ...good.filter(s => ["WITCH", "XMAS_WITCH", "DREAMER", "MERCHANT"].includes(g.claimedRole(s)))];
       return threats.length ? threats[0] : (good.length ? choice(good) : null);
     }
     const certain = [...k.wolf].filter(s => g.p(s).alive);
@@ -1887,7 +2226,7 @@ class Bot {
   }
   runForSheriff(g, me) {
     if (g.claimRace && g.claimRaceCandidates.has(me.seat)) return true;
-    if (["SEER", "LIGHT_SEER", "DARK_SEER"].includes(me.role) && (this.checks.size || this.identityChecks.size)) return Math.random() < 0.9;  // 真預言家上警
+    if (["SEER", "SANTA", "LIGHT_SEER", "DARK_SEER"].includes(me.role) && (this.checks.size || this.identityChecks.size || this.myPairs.length)) return Math.random() < 0.9;  // 真預言家上警
     if (g.isEnemy(me) && (g.wolfPlan.fakeSeers || []).includes(me.seat)) return true;  // 悍跳狼搶警徽
     return Math.random() < this.P.runSheriff + (g.isEnemy(me) ? 0.05 : 0);
   }
@@ -1925,10 +2264,11 @@ class Bot {
   chooseDirection() { return Math.random() < 0.5 ? "left" : "right"; }
   selfExplode(g, me) {
     if (g.lightDark && DARK.has(me.role)) return me.role !== "DARK_DREAMER" && Math.random() < 0.04 * this.P.explode;
-    const wolvesAlive = g.alive().filter(isWolf).length;
+    const pack = g.wolfPack();
+    const wolvesAlive = g.alive().filter(p => pack.has(p.seat)).length;
     if (wolvesAlive < 2 || (g.nightNo > 1 && Math.random() < 0.5)) return false;
     const claims = g.seerClaims();
-    const real = [...claims.keys()].filter(c => !isWolf(g.p(c)));
+    const real = [...claims.keys()].filter(c => !pack.has(c));
     if (g.phase === "election") {  // 真預言家已在警上報查驗 → 自爆打斷，不讓他拿警徽
       if (g.claimRace) return false;  // 搶警核心發言完整結束前不自爆
       const spoke = new Set(g.today.speeches.map(sp => sp.seat));
@@ -1938,6 +2278,105 @@ class Bot {
     return exposed && Math.random() < 0.3 * this.P.explode;
   }
   hunterPoisoned() {}
+  // ---------------------------------------------------------------- 聖誕警長的禮物
+  choosePair(g, me) {
+    const k = this.analyze(g, me);
+    let unknown = g.aliveSeats().filter(s => s !== me.seat && !k.good.has(s) && !k.wolf.has(s));
+    if (unknown.length < 2) unknown = g.aliveSeats().filter(s => s !== me.seat);
+    if (unknown.length < 2) return null;
+    const score = g.nightNo > 1 ? this.suspicion(g, me, k) : new Map();
+    const val = s => score.has(s) ? score.get(s) : this.pref[s];
+    unknown.sort((a, b) => val(b) - val(a));
+    const pending = this.myPairs.filter(([a, b]) => unknown.includes(a) && unknown.includes(b));
+    if (pending.length) {  // 把上次的查殺拆開：其中一人配一個新的嫌疑人
+      const last = pending[pending.length - 1];
+      const partner = unknown.find(s => !last.includes(s));
+      if (partner != null) return [last[0], partner];
+    }
+    return [unknown[0], unknown[1]];
+  }
+  onPairResult(g, me, a, b, hasWolf) {
+    if (hasWolf) this.myPairs.push([a, b]);
+    else { this.checks.set(a, false); this.checks.set(b, false); }
+  }
+  chooseEvilGift(g, me) {
+    const kinds = Object.keys(EVIL_GIFTS).filter(k => !g.evilUsed.has(k));
+    const pool = g.aliveSeats().filter(s => s !== me.seat && !g.evilReceived.has(s));
+    if (!kinds.length || !pool.length || Math.random() < 0.25) return null;
+    const kind = choice(kinds);
+    if (g.nightNo === 1 || kind === "snow") return [choice(pool), kind];
+    // 惡靈夜曲、怨念糖果：送給大家最懷疑的人（容易被驗、被毒或被放逐）
+    const score = this.suspicion(g, me, this.analyze(g, me));
+    return [pool.reduce((a, b) => (score.get(b) || 0) > (score.get(a) || 0) ? b : a), kind];
+  }
+  makeWish(g, me) {
+    if (g.isEnemy(me)) return choice(["decor", "decor", "cookie", "card"]);
+    if (me.role === "SANTA" || me.role === "XMAS_WITCH") return "cookie";
+    const r = Math.random();
+    return r < 0.3 ? "cookie" : r < 0.6 ? "card" : "decor";
+  }
+  blockGift(g, me, wishes) {
+    const pack = g.wolfPack();
+    const opts = [...wishes.keys()].filter(s => s !== g.lastBlock && !pack.has(s));
+    if (!opts.length) return null;
+    const gods = opts.filter(s => ["SANTA", "XMAS_WITCH", "GUARD", "HUNTER"].includes(g.claimedRole(s)));
+    const cookie = opts.filter(s => wishes.get(s) === "cookie");
+    for (const grp of [gods, cookie]) if (grp.length) return choice(grp);
+    return choice(opts);
+  }
+  giveGift(g, me, wishes) {
+    let pool = [...wishes].filter(([s]) => !this.giftTried.has(s));
+    const fresh = pool.filter(([, w]) => !this.itemsTried.has(w));
+    if (fresh.length) pool = fresh;  // 優先送還沒送過的禮物
+    if (!pool.length) return null;
+    const seats = pool.map(([s]) => s);
+    let pick;
+    if (g.isEnemy(me)) {
+      const mates = g.wolfPack().has(me.seat) ? seats.filter(s => g.wolfPack().has(s)) : [];
+      pick = choice(mates.length ? mates : seats);
+    } else {
+      const k = this.analyze(g, me), score = this.suspicion(g, me, k);
+      if (seats.includes(k.trusted)) pick = k.trusted;
+      else {
+        const good = seats.filter(s => k.good.has(s));
+        pick = good.length ? good[0] : seats.reduce((a, b) => (score.get(b) || 0) < (score.get(a) || 0) ? b : a);
+      }
+    }
+    this.giftTried.add(pick); this.itemsTried.add(wishes.get(pick));
+    return pick;
+  }
+  onGift(g, me, item) { this.gift = item; }
+  onCard(g, me, roles) {
+    for (const [t, r] of roles) { this.cardInfo.set(t, r); if (t !== me.seat && !this.checks.has(t)) this.checks.set(t, WOLVES.has(r)); }
+  }
+  elfReveal(g, me, exiled) {
+    if (exiled) return true;
+    const k = this.analyze(g, me);
+    return k.wolf.has(g.sheriff) && k.trusted != null;  // 警長確定是狼：翻牌把警徽轉走
+  }
+  elfBadge(g, me) {
+    const k = this.analyze(g, me);
+    if (g.sheriff != null && g.sheriff !== me.seat && !k.wolf.has(g.sheriff)) return null;
+    const alive = g.aliveSeats().filter(s => s !== g.sheriff);
+    if (!alive.length) return null;
+    if (alive.includes(k.trusted)) return k.trusted;
+    const score = this.suspicion(g, me, k);
+    return alive.reduce((a, b) => (score.get(b) || 0) < (score.get(a) || 0) ? b : a);
+  }
+  // 聖誕矮靈不知道狼隊是誰：推大家最相信的人（真聖誕老公公機會最大）
+  goblinTarget(g, me, pool) {
+    const k = this.analyze(g, me);
+    const cands = (pool || g.aliveSeats()).filter(s => s !== me.seat);
+    if (!cands.length) return null;
+    if (cands.includes(k.trusted) && Math.random() < 0.6) return k.trusted;
+    const score = this.suspicion(g, me, k);
+    return cands.reduce((a, b) => (score.get(b) || 0) < (score.get(a) || 0) ? b : a);
+  }
+  goblinSpeech(g, me, last) {
+    const target = this.goblinTarget(g, me);
+    if (last) return mkSpeech(me.seat, { claim: "VILLAGER", accuse: target, text: "你們出錯人了" });
+    return mkSpeech(me.seat, { accuse: target, text: `${this.P.opener}，我是平民` });
+  }
 }
 
 // ================================================================ 真人玩家（按鈕）
@@ -1947,15 +2386,17 @@ class Human {
     let msg = `你是 ${me.seat}號【${R[me.role]}】。${DESC[me.role]}`;
     if (g.lightDark && DARK_PACK.has(me.role)) msg += ` 黑暗隊友：${g.players.filter(p => DARK_PACK.has(p.role) && p.seat !== me.seat).map(p => `${p.seat}號（${R[p.role]}）`).join("、") || "無"}。黑暗預言家尚未加入。`;
     else if (g.lightDark && me.role === "DARK_SEER") msg += g.darkSeerAwake ? " 你已加入黑暗隊。" : " 你尚未加入黑暗隊。";
-    else if (isWolf(me)) msg += ` 狼隊友：${g.players.filter(p => isWolf(p) && p.seat !== me.seat).map(p => p.seat + (p.role !== "WEREWOLF" ? `（${R[p.role]}）` : "")).join("、")}號。`;
+    else if (g.christmas && me.role === "GOBLIN") msg += " 你和狼人不見面，狼人也不知道你是誰。";
+    else if (isWolf(me)) msg += ` 狼隊友：${g.players.filter(p => g.wolfPack().has(p.seat) && p.seat !== me.seat).map(p => p.seat + (p.role !== "WEREWOLF" ? `（${R[p.role]}）` : "")).join("、")}號。`;
     this.ui.say(msg, "private");
   }
   chooseGuard(g, me) {
     return this.ui.pickSeat({ title: "守衛：今晚要守護誰？", note: `上一晚守護：${g.lastGuard ?? "無"}（不能連守）`, seats: g.aliveSeats().filter(s => s !== g.lastGuard), none: "空守" });
   }
   chooseKill(g, me) {
+    if (g.christmas && me.role === "GOBLIN") return this.ui.pickSeat({ title: "聖誕矮靈：其他四隻狼都出局了，今晚要殺誰？", seats: g.aliveSeats(), none: "空刀" });
     const enemyTeam = g.lightDark ? "黑暗" : "狼";
-    const mates = g.lightDark ? g.activeDarkPack().filter(p => p.seat !== me.seat).map(p => p.seat) : g.alive().filter(p => isWolf(p) && p.seat !== me.seat).map(p => p.seat);
+    const mates = g.lightDark ? g.activeDarkPack().filter(p => p.seat !== me.seat).map(p => p.seat) : g.alive().filter(p => g.wolfPack().has(p.seat) && p.seat !== me.seat).map(p => p.seat);
     const seats = g.lightDark ? g.aliveSeats().filter(s => g.p(s).role !== "DARK_DREAMER") : g.aliveSeats();  // 除黑暗攝夢人外都可以刀（可以自刀）
     return this.ui.pickSeat({ title: `${enemyTeam}陣營：今晚要殺誰？`, note: `存活的隊友：${mates.length ? mates.join("、") + "號" : "無"}`, seats, none: "空刀", mark: mates });
   }
@@ -2061,6 +2502,52 @@ class Human {
   chooseDirection(g, me) {
     return this.ui.choose({ title: "你是警長：今天從哪邊開始發言？", note: "你會最後一個發言並歸票。", options: [["right", "警右（往大號）"], ["left", "警左（往小號）"]] });
   }
+  // ---------------------------------------------------------------- 聖誕警長的禮物
+  async choosePair(g, me) {
+    const seats = g.aliveSeats().filter(s => s !== me.seat);
+    const note = "兩人裡有一狼或兩狼顯示查殺，兩個好人顯示金水。雪狼會被驗成好人。";
+    const a = await this.ui.pickSeat({ title: "聖誕老公公：今晚查驗的第一位", note, seats });
+    const b = await this.ui.pickSeat({ title: `聖誕老公公：和 ${a}號 一起查驗的第二位`, note, seats: seats.filter(s => s !== a) });
+    return [a, b];
+  }
+  onPairResult(g, me, a, b, hasWolf) {
+    this.ui.say(`雙驗結果：${a}號、${b}號 ${hasWolf ? "查殺（至少一狼）" : "金水（兩個都是好人）"}`, "private");
+  }
+  async chooseEvilGift(g, me) {
+    const kinds = Object.keys(EVIL_GIFTS).filter(k => !g.evilUsed.has(k));
+    const pool = g.aliveSeats().filter(s => s !== me.seat && !g.evilReceived.has(s));
+    if (!kinds.length || !pool.length) return null;
+    const tips = { nightmare: "反傷聖誕老公公查驗、女巫毒和夜槍；被狼刀則狼人空刀", snow: "今晚被查驗時結果相反", candy: "明天被放逐的話，他投的人一起出局" };
+    const kind = await this.ui.choose({ title: "聖誕矮靈：今晚要送哪個邪惡禮物？", note: "效果只有今晚和明天白天，收到的人不知道。", options: [...kinds.map(k => [k, `${EVIL_GIFTS[k]}：${tips[k]}`]), ["none", "今晚不送"]] });
+    if (kind === "none") return null;
+    const t = await this.ui.pickSeat({ title: `要把【${EVIL_GIFTS[kind]}】送給誰？`, seats: pool, none: "不送了" });
+    return t == null ? null : [t, kind];
+  }
+  async makeWish(g, me) {
+    const w = await this.ui.choose({ title: "閉眼許願：想要哪個聖誕禮物？", note: "警長會決定誰拿到禮物；每種禮物只能送出一次。", options: [["cookie", "薑餅人餅乾：任何死亡延後一天"], ["card", "聖誕卡片：知道今天白天出局者的身分"], ["decor", "聖誕裝飾：白天投票多一票"], ["none", "不許願"]] });
+    return WISH_ORDER.includes(w) ? w : null;
+  }
+  blockGift(g, me, wishes) {
+    const list = [...wishes].sort((a, b) => a[0] - b[0]).map(([s, w]) => `${s}號=${XMAS_GIFTS[w]}`).join("、") || "沒有人許願";
+    return this.ui.pickSeat({ title: "跛腳麋鹿：要讓誰今晚收不到禮物？", note: `大家許的願：${list}${g.lastBlock ? `。上一晚擋了 ${g.lastBlock}號，不能連續。` : ""}`, seats: g.aliveSeats().filter(s => s !== g.lastBlock), none: "不擋" });
+  }
+  giveGift(g, me, wishes) {
+    const list = [...wishes].sort((a, b) => a[0] - b[0]).map(([s, w]) => `${s}號=${XMAS_GIFTS[w]}`).join("、") || "沒有人許願";
+    return this.ui.pickSeat({ title: "警長：要把禮物送給誰？", note: `大家許的願：${list}。每種禮物只能成功送出一次、每人只能收一次；被跛腳麋鹿擋下的人拿不到。`, seats: [...wishes.keys()].sort(bySeat), none: "不送" });
+  }
+  onGift(g, me, item) {
+    this.ui.say(item ? `你成為禮物幸運兒，拿到【${XMAS_GIFTS[item]}】（效果只有今晚和明天白天）！` : "警長選了你，但你沒有拿到禮物（可能被跛腳麋鹿擋下，或禮物已經送出）。", "private");
+  }
+  onCard(g, me, roles) {
+    this.ui.say("聖誕卡片：" + ([...roles].map(([t, r]) => `${t}號是【${R[r]}】`).join("、") || "今天沒有人出局"), "private");
+  }
+  async elfReveal(g, me, exiled) {
+    const a = await this.ui.choose({ title: exiled ? "你被放逐了！要翻牌【聖誕小精靈】嗎？" : "輪到你發言：要翻牌【聖誕小精靈】嗎？", note: "翻牌後留在場上發言，但沒有投票權、算出局狀態；可以把警徽轉給另一位玩家。", options: [["yes", "翻牌"], ["no", exiled ? "不翻牌，直接出局" : "先不翻"]] });
+    return a === "yes";
+  }
+  elfBadge(g, me) {
+    return this.ui.pickSeat({ title: "要把警徽轉給誰？", note: g.sheriff != null ? `目前警長：${g.sheriff}號` : "目前沒有警長", seats: g.aliveSeats().filter(s => s !== g.sheriff), none: "不轉移" });
+  }
   async selfExplode(g, me) {
     const where = g.phase === "election" ? "警上發言" : "發言";
     return (await this.ui.choose({ title: `輪到你${where}`, note: "狼人可以自爆：立即出局、沒有遺言，今天直接天黑。", options: [["speak", "發言"], ["explode", "自爆"]] })) === "explode";
@@ -2071,7 +2558,7 @@ class Human {
 const $ = id => document.getElementById(id);
 const S = { mode: "play", preset: 0, role: "RANDOM", game: null, human: null, ui: null,
   custom: { WEREWOLF: 3, WOLF_KING: 1, SEER: 1, WITCH: 1, HUNTER: 1, DREAMER: 1, VILLAGER: 4 } };
-const MAX_ONE = new Set(["WOLF_KING", "AWAKENED", "WOLF_BEAUTY", "TIGER", "WILD_CHILD", "VILLAGE_GIRL", "LANTERN", ...GODS, ...LIGHT, ...DARK]);
+const MAX_ONE = new Set(["WOLF_KING", "AWAKENED", "WOLF_BEAUTY", "TIGER", "WILD_CHILD", "VILLAGE_GIRL", "LANTERN", ...GODS, ...LIGHT, ...DARK, ...XMAS]);
 function currentRoles() {
   if (S.preset >= 0) return [...PRESETS[S.preset].roles];
   return ROLE_ORDER.flatMap(r => Array(S.custom[r] || 0).fill(r));
@@ -2239,6 +2726,7 @@ class UI {
       this.head(el, last ? `${me.seat}號 的遺言` : `輪到你（${me.seat}號）發言`, "宣稱身份、報查驗、歸票都可以不填。");
       let claim = null, accuse = null;
       const checks = new Map();
+      const pairs = []; let sel = [];  // 聖誕老公公的雙驗
       const box = document.createElement("div");
       box.style.cssText = "display:flex;flex-direction:column;gap:10px";
       el.appendChild(box);
@@ -2249,6 +2737,7 @@ class UI {
         box.innerHTML = `
           <div class="field"><span class="label">宣稱身份</span><div class="chips" id="cl"></div></div>
           ${claim === "SEER" ? `<div class="field"><span class="label">報查驗（點一下＝金水，再點＝查殺，再點＝取消）</span><div class="seatpick" id="ck"></div></div>` : ""}
+          ${claim === "SANTA" ? `<div class="field"><span class="label">報雙驗：先點兩個號碼，再按金水或查殺${pairs.length ? `（已報：${pairs.map(([a, b, w]) => `${a}+${b}${w ? "查殺" : "金水"}`).join("、")}）` : ""}</span><div class="seatpick" id="pk"></div><div class="bar"><button class="secondary" id="pg">金水</button><button class="secondary" id="pw">查殺</button><button class="secondary" id="px">清除</button></div></div>` : ""}
           <div class="field"><span class="label">歸票</span><div class="seatpick" id="ac"></div></div>
           <input type="text" id="speech-text" maxlength="80" placeholder="補充一句話（可空白）">
           <div class="bar"><button class="primary" id="say">${last ? "說完遺言" : "發言"}</button></div>`;
@@ -2257,7 +2746,7 @@ class UI {
         [[null, "不宣稱"], ...ROLE_ORDER.filter(r => onBoard.has(r)).map(r => [r, R[r]])].forEach(([r, label]) => {
           const b = document.createElement("button");
           b.className = "chip"; b.textContent = label; b.setAttribute("aria-pressed", String(claim === r));
-          b.onclick = () => { claim = r; if (r !== "SEER") checks.clear(); keep(); draw(); };
+          b.onclick = () => { claim = r; if (r !== "SEER") checks.clear(); if (r !== "SANTA") { pairs.length = 0; sel = []; } keep(); draw(); };
           cl.appendChild(b);
         });
         const ck = box.querySelector("#ck");
@@ -2269,6 +2758,19 @@ class UI {
           b.onclick = () => { if (!checks.has(s)) checks.set(s, false); else if (!checks.get(s)) checks.set(s, true); else checks.delete(s); keep(); draw(); };
           ck.appendChild(b);
         }
+        const pk = box.querySelector("#pk");
+        if (pk) {
+          for (const s of others) {
+            const b = document.createElement("button");
+            b.textContent = s; b.setAttribute("aria-pressed", String(sel.includes(s)));
+            b.onclick = () => { sel = sel.includes(s) ? sel.filter(x => x !== s) : [...sel, s].slice(-2); keep(); draw(); };
+            pk.appendChild(b);
+          }
+          const addPair = w => { if (sel.length === 2) { pairs.push([sel[0], sel[1], w]); sel = []; } keep(); draw(); };
+          box.querySelector("#pg").onclick = () => addPair(false);
+          box.querySelector("#pw").onclick = () => addPair(true);
+          box.querySelector("#px").onclick = () => { pairs.length = 0; sel = []; keep(); draw(); };
+        }
         const ac = box.querySelector("#ac");
         for (const s of alive) {
           const b = document.createElement("button");
@@ -2278,8 +2780,12 @@ class UI {
         }
         const input = box.querySelector("#speech-text");
         input.value = draft;
-        box.querySelector("#say").onclick = () => done(mkSpeech(me.seat, { claim, checks: new Map(checks), accuse, text: input.value.trim() }));
-        const bar = box.querySelector(".bar");
+        box.querySelector("#say").onclick = () => {
+          const ck = new Map(checks);
+          for (const [a, b, w] of pairs) if (!w) { ck.set(a, false); ck.set(b, false); }  // 金水雙驗 = 兩個都是好人
+          done(mkSpeech(me.seat, { claim, checks: ck, accuse, text: input.value.trim(), pairs: pairs.filter(([, , w]) => w) }));
+        };
+        const bar = box.querySelector("#say").parentElement;
         bar.appendChild(this.quitButton());
       };
       let draft = "";
@@ -2376,7 +2882,7 @@ function showResult(g, winner, humanSeat) {
     const fmt = m => [...m].map(([v, t]) => `<span class="pair">${v}→${t == null ? "棄" : mark(t)}</span>`).join("");
     return `<div><b>第 ${d.day} 天</b>　${fmt(d.votes)}${d.pkVotes.size ? `<br><span class="hint">PK</span>　${fmt(d.pkVotes)}` : ""}</div>`;
   }).join("");
-  const claims = [...g.seerClaims().keys()].map(c => `<li>${c}號 跳預言家 → ${g.p(c).role === "SEER" ? `<span class="g">真預言家</span>` : `<span class="w">假的（${R[g.p(c).role]}）</span>`}</li>`).join("");
+  const claims = [...g.seerClaims().keys()].map(c => `<li>${c}號 跳${R[g.claims.get(c).role]} → ${g.p(c).role === g.claims.get(c).role ? `<span class="g">真的</span>` : `<span class="w">假的（${R[g.p(c).role]}）</span>`}</li>`).join("");
   let mine = "";
   if (humanSeat != null) {
     const ts = g.days.flatMap(d => [d.votes.get(humanSeat), d.pkVotes.get(humanSeat)]).filter(t => t != null);
@@ -2399,6 +2905,7 @@ function showResult(g, winner, humanSeat) {
       ${g.hasLantern ? `<div class="field"><h3>燈影預言家</h3><p>本局查驗正確的是<b>${g.seerCardAccurate ? "預言家" : "燈影預言家"}</b>牌，另一張是反向查驗。</p></div>` : ""}
       <div class="field"><h3>夜晚行動</h3><ol class="godlog">${g.godLog.map(l => `<li>${l.round ? `第 ${l.round} 夜` : "開局"}：${esc(l.msg)}</li>`).join("")}</ol></div>
       ${voteRows ? `<div class="field"><h3>票型</h3><div class="votes">${voteRows}</div></div>` : ""}
+      ${g.christmas ? `<div class="field"><h3>禮物</h3><ul class="godlog">${[...g.giftLog, ...g.evilLog].map(l => `<li>${esc(l)}</li>`).join("") || "<li>沒有送出任何禮物</li>"}</ul></div>` : ""}
       ${g.sheriffLog.length ? `<div class="field"><h3>警長</h3><ul class="godlog">${g.sheriffLog.map(l => `<li>${esc(l)}</li>`).join("")}</ul></div>` : ""}
       ${claims ? `<div class="field"><h3>預言家宣稱</h3><ul class="godlog">${claims}</ul></div>` : ""}
       ${mine}

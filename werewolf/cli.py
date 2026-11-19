@@ -75,6 +75,11 @@ def review(game: Game, human_seat: int | None = None) -> None:
             line = "  ".join(f"{v}→{t}{mark(t)}" if t else f"{v}→棄" for v, t in d.pk_votes.items())
             print(f"     PK：{line}")
 
+    if game.christmas:
+        print("\n🎁 禮物：")
+        for line in game.gift_log + game.evil_log or ["沒有送出任何禮物"]:
+            print(f"  {line}")
+
     if game.sheriff_log:
         print("\n警長：")
         for line in game.sheriff_log:
@@ -84,7 +89,7 @@ def review(game: Game, human_seat: int | None = None) -> None:
     if claims:
         print("\n預言家宣稱：")
         for c in claims:
-            real = game.players[c].role is Role.SEER
+            real = game.players[c].role is game.claims[c]["role"]
             print(f"  {c}號 跳預言家 → {'✅ 真預言家' if real else '❌ 假的（' + game.players[c].role.value + '）'}")
 
     if human_seat is not None:

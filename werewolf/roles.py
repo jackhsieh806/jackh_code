@@ -39,6 +39,13 @@ class Role(Enum):
     DARK_KNIGHT = "黑暗騎士"
     DARK_DREAMER = "黑暗攝夢人（狼美人）"
     DARK_HUNTER = "黑暗獵人（黑狼王）"
+    GRINCH = "格林奇（狼王）"
+    SNOW_WOLF = "雪狼"
+    REINDEER = "跛腳麋鹿"
+    GOBLIN = "聖誕矮靈"
+    SANTA = "聖誕老公公（覺醒預）"
+    XMAS_WITCH = "聖誕女巫"
+    XMAS_ELF = "聖誕小精靈"
 
     @property
     def team(self) -> Team:
@@ -59,9 +66,11 @@ class Role(Enum):
 
 # 「真狼」：好人要把這些全部放逐才算贏（轉狼的野孩子不用出局）
 WOLVES = frozenset({Role.WEREWOLF, Role.WOLF_KING, Role.AWAKENED_WOLF_KING,
-                    Role.WOLF_BEAUTY, Role.TIGER_GRANDMA})
+                    Role.WOLF_BEAUTY, Role.TIGER_GRANDMA,
+                    Role.GRINCH, Role.SNOW_WOLF, Role.REINDEER, Role.GOBLIN})
 GODS = frozenset({Role.SEER, Role.WITCH, Role.HUNTER, Role.GUARD, Role.IDIOT,
-                  Role.DREAMER, Role.MERCHANT, Role.KNIGHT})
+                  Role.DREAMER, Role.MERCHANT, Role.KNIGHT,
+                  Role.SANTA, Role.XMAS_WITCH, Role.XMAS_ELF})
 LIGHT_ROLES = frozenset({Role.LIGHT_SEER, Role.LIGHT_WITCH, Role.LIGHT_KNIGHT,
                          Role.LIGHT_DREAMER, Role.LIGHT_HUNTER})
 DARK_ROLES = frozenset({Role.DARK_SEER, Role.DARK_WITCH, Role.DARK_KNIGHT,
@@ -69,6 +78,16 @@ DARK_ROLES = frozenset({Role.DARK_SEER, Role.DARK_WITCH, Role.DARK_KNIGHT,
 DARK_PACK = frozenset({Role.DARK_WITCH, Role.DARK_KNIGHT, Role.DARK_DREAMER,
                        Role.DARK_HUNTER})
 LIGHT_GODS = LIGHT_ROLES
+# 聖誕警長的禮物：有這些角色就啟用許願送禮、邪惡禮物等規則
+XMAS_ROLES = frozenset({Role.GRINCH, Role.SNOW_WOLF, Role.REINDEER, Role.GOBLIN,
+                        Role.SANTA, Role.XMAS_WITCH, Role.XMAS_ELF})
+SEER_CARDS = frozenset({Role.SEER, Role.SANTA})       # 「預言家」這張牌（含聖誕老公公）
+WITCH_CARDS = frozenset({Role.WITCH, Role.XMAS_WITCH})
+
+# 聖誕禮物（由警長發送）與邪惡禮物（由聖誕矮靈發送）
+XMAS_GIFTS = {"cookie": "薑餅人餅乾", "card": "聖誕卡片", "decor": "聖誕裝飾"}
+WISH_ORDER = ["cookie", "card", "decor"]              # 許願手勢 1～3
+EVIL_GIFTS = {"nightmare": "惡靈夜曲", "snow": "混沌雪花", "candy": "怨念糖果"}
 
 ROLE_DESCRIPTIONS = {
     Role.WEREWOLF: "每晚與狼隊友商量殺一個人。白天要隱藏身份，可以假冒神職（悍跳）。",
@@ -120,6 +139,19 @@ ROLE_DESCRIPTIONS = {
                        "最後出局時魅惑帶走最後一名光明或平民，黑暗仍然獲勝。不能自爆、不能被自刀。",
     Role.DARK_HUNTER: "白天被放逐時可以帶走一人，但帶不走光明獵人；被騎士決鬥、被毒、被攝夢時不能開槍。"
                       "可自爆、自刀。",
+    Role.GRINCH: "狼人的一員。【狼爪】白天被放逐出局時可以帶走一名玩家；自爆、被毒或晚上出局都不能發動。可自爆。",
+    Role.SNOW_WOLF: "狼人的一員。【隱身】被聖誕老公公查驗時顯示為好人（金水）。可自爆。",
+    Role.REINDEER: "狼人的一員。【遺失禮物】第二晚起每晚睜眼看大家許願的禮物，指定一名玩家今晚收不到禮物"
+                   "（不能連續兩晚指定同一人）。",
+    Role.GOBLIN: "狼人陣營，但和其他狼人不見面，狼人也不知道你的位置。【發送邪惡禮物】每晚可以送一個邪惡禮物給一名玩家"
+                 "（也可以不送；三種禮物各送一次、每人最多收一個、不能給自己），收到的人不知道。"
+                 "其他四隻狼都出局後，你才帶刀殺人。不能自爆。",
+    Role.SANTA: "每晚查驗兩名玩家：兩人裡有一狼或兩狼顯示『查殺』，兩個都是好人才顯示『金水』。"
+                "雪狼會被驗成好人。",
+    Role.XMAS_WITCH: "一瓶解藥、一瓶毒藥，各用一次。第一夜被刀可以自救，但只是延後一天死亡（第二夜出局）；"
+                     "死亡那晚拿到薑餅人餅乾可以再延後一天。",
+    Role.XMAS_ELF: "白天任何時候、或被放逐時可以翻牌證明身分：之後留在場上發言，但沒有投票權、算出局狀態（狼人不用追刀）。"
+                   "翻牌時可以把警徽轉移給另一位玩家。",
 }
 
 
@@ -151,4 +183,8 @@ PRESETS: dict[str, tuple[str, list[Role]]] = {
            [Role.LIGHT_SEER, Role.LIGHT_WITCH, Role.LIGHT_KNIGHT, Role.LIGHT_DREAMER,
             Role.LIGHT_HUNTER, Role.DARK_SEER, Role.DARK_WITCH, Role.DARK_KNIGHT,
             Role.DARK_DREAMER, Role.DARK_HUNTER, *([Role.VILLAGER] * 5)]),
+    "11": ("15 人「聖誕警長的禮物」：格林奇、雪狼、跛腳麋鹿、小狼、聖誕矮靈 + 聖誕老公公、聖誕女巫、守衛、獵人、"
+           "聖誕小精靈 + 5 平民",
+           _board([Role.GRINCH, Role.SNOW_WOLF, Role.REINDEER, W, Role.GOBLIN],
+                  [Role.SANTA, Role.XMAS_WITCH, G, H, Role.XMAS_ELF], 5)),
 }
