@@ -12,11 +12,11 @@ from dataclasses import dataclass, field
 from .engine import ITEMS, Controller, Game, Player, Speech
 from .personality import DEFAULT, Personality
 from .roles import Role
-from .roles import DARK_PACK, DARK_ROLES, LIGHT_ROLES, Team
+from .roles import DARK_PACK, DARK_ROLES, EVIL_GIFTS, LIGHT_ROLES, SEER_CARDS, WISH_ORDER, WITCH_CARDS, Team
 
 
 CLAIMABLE = (Role.HUNTER, Role.WITCH, Role.IDIOT, Role.DREAMER, Role.MERCHANT, Role.KNIGHT,
-             Role.VILLAGE_GIRL)
+             Role.VILLAGE_GIRL, Role.XMAS_WITCH)
 
 
 @dataclass
@@ -51,6 +51,13 @@ class BotController(Controller):
         self.raw: dict[int, bool] = {}          # 燈影預言家板：自己看到的查驗（可能是反的）
         self.identity_checks: dict[int, str] = {}
         self.reasons: dict[int, list[tuple[float, str]]] = {}  # 最近一次推理：懷疑每個人的理由
+        # 聖誕警長的禮物
+        self.my_pairs: list[tuple[int, int]] = []     # 聖誕老公公：結果是查殺的雙驗（至少一狼）
+        self.fake_pairs: list[tuple[int, int, bool]] = []
+        self.gift: str | None = None                  # 拿到的聖誕禮物
+        self.card_info: dict[int, Role] = {}          # 聖誕卡片看到的身分
+        self.gift_tried: set[int] = set()             # 我當警長時選過的人
+        self.items_tried: set[str] = set()            # 我當警長時送過的禮物
 
     # ------------------------------------------------------------ 初始化與推理
     def setup(self, game: Game, me: Player) -> None:
@@ -58,9 +65,11 @@ class BotController(Controller):
         self.P = self.personality or DEFAULT
         self.pref = {s: self.rng.random() for s in game.players}
         self.guess_seer_accurate = self.rng.random() < 0.5   # 推不出來時，猜哪張預言家牌是準的
-        if me.is_wolf and "fake_seer" not in game.wolf_plan:
+        if me.seat in game.wolf_pack() and "fake_seer" not in game.wolf_plan:
             bots = [p.seat for p in game.players.values()
-                    if p.is_wolf and not game.controllers[p.seat].is_human]
+                    if p.seat in game.wolf_pack() and not game.controllers[p.seat].is_human]
+            if game.christmas:
+                game.wolf_plan["fake_seer_role"] = Role.SANTA
             # 狼隊開局決定悍跳人選：越愛詐唬的狼越可能被派出去
             weights = [getattr(game.controllers[b], "personality", None) or DEFAULT for b in bots]
             weights = [w.bluff + 0.01 for w in weights]
@@ -74,7 +83,7 @@ class BotController(Controller):
     def analyze(self, game: Game, me: Player) -> Knowledge:
         """自己的推理：先整理確定的資訊，再獨立評估警長是不是假的。"""
         k = self._analyze_base(game, me)
-        if me.is_wolf or (game.light_dark and game.alignment(me) is Team.DARK):
+        if me.seat in game.wolf_pack() or (game.light_dark and game.alignment(me) is Team.DARK):
             return k
         self._absorb_findings(game, me, k)
         k.sheriff_doubt, k.sheriff_why = self._sheriff_doubt(game, me, k)
@@ -113,7 +122,7 @@ class BotController(Controller):
         players = game.players.values()
         known_good = {p.seat for p in players if p.revealed and not p.is_wolf} | game.knight_gold
         known_wolf = {p.seat for p in players if p.revealed and p.is_wolf}
-        cards = (Role.SEER, Role.LANTERN_SEER)
+        cards = (Role.SEER, Role.LANTERN_SEER, Role.SANTA)
 
         def add(liar, suspects, text, certain, public=True):
             out.append({"liar": liar, "suspects": tuple(suspects), "text": text,
@@ -216,7 +225,7 @@ class BotController(Controller):
             if rivals:
                 doubt += 0.25
                 why.append(f"{rivals[0]}號 和他對跳{claim.value}")
-        if claim in (Role.SEER, Role.LANTERN_SEER):
+        if claim in (Role.SEER, Role.LANTERN_SEER, Role.SANTA):
             for t, w in game.claims[s]["checks"].items():
                 if (w and t in k.good) or (not w and t in k.wolf):
                     doubt += 0.3 if game.has_lantern else 0.6
@@ -273,8 +282,8 @@ class BotController(Controller):
                 good = {seat for seat, label in self.identity_checks.items() if label != "狼人"}
                 wolf = {seat for seat, label in self.identity_checks.items() if label == "狼人"}
                 return Knowledge(good, wolf, None, claims)
-        if me.is_wolf:
-            wolves = {p.seat for p in game.players.values() if p.is_wolf}
+        if me.seat in game.wolf_pack():
+            wolves = game.wolf_pack()      # 聖誕矮靈和狼人不見面
             return Knowledge(set(game.players) - wolves, wolves, None, claims)
 
         revealed = [p for p in game.players.values() if p.revealed]
@@ -284,20 +293,27 @@ class BotController(Controller):
             return self._lantern_analyze(game, me, good, wolf, claims)
         for t, is_wolf in self.checks.items():  # 預言家或拿到查驗的幸運兒
             (wolf if is_wolf else good).add(t)
-        if me.role is Role.SEER:
+        if me.role in SEER_CARDS:
             wolf |= {c for c in claims if c != me.seat}  # 真預言家只有我一個
         changed = True
         while changed:  # 反覆找矛盾，直到沒有新結論
             changed = False
+            for a, b in self.my_pairs:            # 聖誕老公公：雙驗查殺，其中一人確定是好人 → 另一人是狼
+                for x, y in ((a, b), (b, a)):
+                    if x in good and y not in good and y not in wolf:
+                        wolf.add(y)
+                        changed = True
             for c, checks in claims.items():
                 if c in wolf or c in good:
                     continue
-                if any((w and t in good) or (not w and t in wolf) for t, w in checks.items()):
+                pairs = game.claims.get(c, {}).get("pairs", [])
+                if any((w and t in good) or (not w and t in wolf) for t, w in checks.items()) \
+                        or any(w and a in good and b in good for a, b, w in pairs):
                     wolf.add(c)
                     changed = True
         candidates = [c for c in claims if c not in wolf and c != me.seat]
         trusted = None
-        if me.role is not Role.SEER and candidates:
+        if me.role not in SEER_CARDS and candidates:
             trusted = max(candidates, key=lambda c: self.pref[c])
         return Knowledge(good, wolf, trusted, claims)
 
@@ -421,6 +437,12 @@ class BotController(Controller):
                     why(s, 10, "他和我比較相信的預言家對跳")
             elif k.trusted is not None:
                 checks = k.claims.get(k.trusted, {})
+                for a, b, w in game.claims.get(k.trusted, {}).get("pairs", []):
+                    if w and s in (a, b) and s not in checks:
+                        other = b if s == a else a
+                        e = (18 if other in k.good else 9) * self.P.evidence
+                        v += e
+                        why(s, e, f"{k.trusted}號 聖誕老公公驗 {a}號+{b}號 有狼")
                 if s in checks:
                     v += (20 if checks[s] else -8) * self.P.evidence
                     if checks[s]:
@@ -430,6 +452,10 @@ class BotController(Controller):
                 elif s in k.claims:
                     v += 10  # 和我相信的預言家對跳
                     why(s, 10, f"他和 {k.trusted}號 預言家對跳")
+            for a, b in self.my_pairs:            # 自己的雙驗查殺，還分不出是哪一個
+                if s in (a, b) and s not in k.good and s not in k.wolf:
+                    v += 12
+                    why(s, 12, f"我驗 {a}號+{b}號 有狼")
             if s == game.sheriff and k.sheriff_doubt:
                 v += k.sheriff_doubt * 40
                 why(s, k.sheriff_doubt * 40,
@@ -536,13 +562,20 @@ class BotController(Controller):
         k = self.analyze(game, me)
         if k.trusted in options and game.players[k.trusted].alive:
             return k.trusted
-        witch = [s for s in options if game.claimed_role(s) is Role.WITCH]
+        witch = [s for s in options if game.claimed_role(s) in WITCH_CARDS]
         if witch:
             return witch[0]
         return self.rng.choice(options) if options else None
 
+    def _outsiders(self, game: Game, me: Player) -> list[int]:
+        """狼方眼中的「非隊友」：聖誕板的狼不知道聖誕矮靈是誰，不能用真實陣營判斷。"""
+        if game.christmas:
+            pack = game.wolf_pack() if me.seat in game.wolf_pack() else {me.seat}
+            return [p.seat for p in game.alive() if p.seat not in pack]
+        return [p.seat for p in game.alive() if not game.is_enemy(p)]
+
     def choose_kill(self, game: Game, me: Player) -> int | None:
-        good = [p.seat for p in game.alive() if not game.is_enemy(p)]
+        good = self._outsiders(game, me)
         if game.light_dark and me.role is Role.DARK_DREAMER:
             good = [s for s in good if s != me.seat]
         if not good:
@@ -551,7 +584,7 @@ class BotController(Controller):
         claims = game.seer_claims()
         real_seers = [c for c in claims if c in good] + \
                      [c for c in game.claims_of(Role.LANTERN_SEER) if c in good]
-        witches = [s for s in good if game.claimed_role(s) is Role.WITCH]
+        witches = [s for s in good if game.claimed_role(s) in WITCH_CARDS]
         golds = [t for c in real_seers for t, w in game.claims.get(c, {}).get("checks", {}).items()
                  if not w and t in good]
         detectives = sorted({f["speaker"] for f in game.findings if f["speaker"] in good})
@@ -655,6 +688,26 @@ class BotController(Controller):
             else:
                 text = "我確定我是正確查驗" if acc else "我是反向查驗，結果要反過來看"
             return Speech(me.seat, me.role, dict(self.raw), (alive_wolves or [top])[0], text)
+        if me.role is Role.SANTA and (self.checks or self.my_pairs):
+            already = game.claimed_role(me.seat) is Role.SANTA
+            if last or already or self.my_pairs or k.claims or self.rng.random() < self.P.claim:
+                checks = dict(self.checks)
+                for a, b in self.my_pairs:
+                    for t in (a, b):
+                        if t in k.wolf:
+                            checks[t] = True
+                pairs = [(a, b, True) for a, b in self.my_pairs if a not in checks and b not in checks]
+                wolves = [t for t, w in checks.items() if w and game.players[t].alive]
+                unsure = [t for a, b, _ in pairs for t in (a, b) if game.players[t].alive]
+                rivals = [c for c in k.claims if c != me.seat and game.players[c].alive]
+                accuse = (wolves or rivals or sorted(unsure, key=lambda t: -score.get(t, 0)) or [top])[0]
+                text = "對跳的那位是假的聖誕老公公！" if rivals else ""
+                return Speech(me.seat, Role.SANTA, checks, accuse, text, pairs=pairs)
+        if self.card_info and game.christmas and not game.is_enemy(me):
+            told = "、".join(f"{t}號是{r.value}" for t, r in self.card_info.items())
+            text = f"我拿到聖誕卡片：{told}"
+            return Speech(me.seat, accuse=top if top is not None and score[top] >= self.P.accuse_bar else None,
+                          text=text)
         if me.role is Role.SEER:
             already = game.claimed_role(me.seat) is Role.SEER
             if self.checks and (last or already or any(self.checks.values())
@@ -675,7 +728,7 @@ class BotController(Controller):
 
         if last:
             text = f"請相信 {k.trusted}號 預言家" if k.trusted else "大家加油"
-            if me.role is Role.WITCH and self.saved:
+            if me.role in WITCH_CARDS and self.saved:
                 text += f"；我救過 {self.saved}號"
             if me.role is Role.MERCHANT and self.traded:
                 text += f"；我把{ITEMS[self.traded[1]]}給了 {self.traded[0]}號"
@@ -693,10 +746,10 @@ class BotController(Controller):
             alive_wolves = [x for x, y in self.checks.items() if y and game.players[x].alive]
             return Speech(me.seat, accuse=(alive_wolves or [top])[0],
                           text=f"我是幸運兒，用商人給的查驗驗了 {t}號，他是{'狼人' if w else '好人'}")
-        if me.role in (Role.HUNTER, Role.WITCH, Role.MERCHANT, Role.DREAMER) \
+        if me.role in (Role.HUNTER, Role.WITCH, Role.XMAS_WITCH, Role.MERCHANT, Role.DREAMER) \
                 and self._accused_today(game, me):
             text = {Role.HUNTER: "出我的話我會開槍", Role.DREAMER: "我是攝夢人，出我很虧"}.get(me.role, "")
-            if me.role is Role.WITCH and self.saved:
+            if me.role in WITCH_CARDS and self.saved:
                 text = f"我救過 {self.saved}號（銀水）"
             if me.role is Role.MERCHANT and self.traded:
                 text = f"我把{ITEMS[self.traded[1]]}給了 {self.traded[0]}號"
@@ -736,15 +789,26 @@ class BotController(Controller):
 
     # ------------------------------------------------------------ 狼人白天策略
     def _wolf_speech(self, game: Game, me: Player, k: Knowledge, last: bool) -> Speech:
-        good_alive = [p.seat for p in game.alive() if not game.is_enemy(p)]
+        if game.christmas and me.role is Role.GOBLIN:
+            return self._goblin_speech(game, me, last)
+        good_alive = self._outsiders(game, me)
         fakes = game.wolf_plan.get("fake_seers", ())
         if me.seat in fakes:
             card = game.wolf_plan.get("fake_seer_roles", {}).get(me.seat) or game.wolf_plan.get("fake_seer_role") or Role.SEER
-            if game.night_no not in self.fake_days and not (last and self.fake_checks):
+            if game.night_no not in self.fake_days and not (last and (self.fake_checks or self.fake_pairs)):
                 self.fake_days.add(game.night_no)
-                self._invent_check(game, me, k, good_alive, card)
+                if card is Role.SANTA:
+                    self._invent_pair(game, me, k, good_alive)
+                else:
+                    self._invent_check(game, me, k, good_alive, card)
             rivals = [c for c in game.claims_of(card) if c != me.seat and game.players[c].alive]
             fake_wolves = [t for t, w in self.fake_checks.items() if w and game.players[t].alive]
+            fake_wolves += [t for a, b, w in self.fake_pairs if w for t in (a, b) if game.players[t].alive]
+            if card is Role.SANTA:
+                others = [s for s in good_alive if s not in self.fake_checks]
+                accuse = (rivals or fake_wolves or others or [None])[0]
+                text = "對跳的那位是假的聖誕老公公" if rivals else ""
+                return Speech(me.seat, card, dict(self.fake_checks), accuse, text, pairs=list(self.fake_pairs))
             others = [s for s in good_alive if s not in self.fake_checks]   # 不點自己發的金水
             accuse = (fake_wolves or rivals or others or [None])[0]
             text = f"我才是真的{card.value}，對跳的是狼" if rivals else ""
@@ -773,9 +837,29 @@ class BotController(Controller):
         elif unused:
             self.fake_checks[self.rng.choice(unused)] = self.rng.random() < 0.6
 
+    def _invent_pair(self, game: Game, me: Player, k: Knowledge, good_alive: list[int]) -> None:
+        """悍跳聖誕老公公編雙驗：對真的聖誕老公公發查殺，或替隊友發金水。"""
+        used = set(self.fake_checks) | {t for a, b, _ in self.fake_pairs for t in (a, b)}
+        unused = [s for s in good_alive if s not in used and not game.players[s].revealed]
+        rivals = [c for c in game.claims_of(Role.SANTA) if c in unused]
+        mates = [s for s in game.alive_seats() if s in k.wolf and s != me.seat and s not in used]
+        roll = self.rng.random()
+        if rivals and len(unused) >= 2 and roll < 0.8:
+            a = rivals[0]
+            self.fake_pairs.append((a, self.rng.choice([u for u in unused if u != a]), True))
+        elif mates and unused and roll < 0.35:
+            self.fake_checks[self.rng.choice(mates)] = False    # 隊友和一個好人一起發金水
+            self.fake_checks[self.rng.choice(unused)] = False
+        elif len(unused) >= 2:
+            a, b = self.rng.sample(unused, 2)
+            if self.rng.random() < 0.55:
+                self.fake_pairs.append((a, b, True))
+            else:
+                self.fake_checks[a] = self.fake_checks[b] = False
+
     def wolf_target(self, game: Game, k: Knowledge) -> int | None:
         """狼隊白天想推出局的好人。"""
-        good_alive = [p.seat for p in game.alive() if not p.is_wolf]
+        good_alive = [p.seat for p in game.alive() if p.seat not in game.wolf_pack()]
         if not good_alive:
             return None
         claims = game.seer_claims()
@@ -793,6 +877,9 @@ class BotController(Controller):
         return max(good_alive, key=lambda s: self.pref[s])
 
     def vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
+        if game.christmas and me.role is Role.GOBLIN:
+            t = self._goblin_target(game, me, candidates)
+            return t if t in candidates else None
         k = self.analyze(game, me)
         if game.is_enemy(me):
             key = ("vote", game.night_no)
@@ -817,10 +904,10 @@ class BotController(Controller):
                        if game.claimed_role(s) is not Role.LIGHT_HUNTER]
             return self.rng.choice(targets) if targets else None
         if game.is_enemy(me):  # 狼王爪：帶走最有威脅的好人
-            good = [p.seat for p in game.alive() if not game.is_enemy(p)]
+            good = self._outsiders(game, me)
             claims = game.seer_claims()
             threats = [c for c in claims if c in good] + \
-                      [s for s in good if game.claimed_role(s) in (Role.WITCH, Role.DREAMER, Role.MERCHANT)]
+                      [s for s in good if game.claimed_role(s) in (Role.WITCH, Role.XMAS_WITCH, Role.DREAMER, Role.MERCHANT)]
             return threats[0] if threats else (self.rng.choice(good) if good else None)
         alive = set(game.alive_seats())
         certain = [s for s in k.wolf if s in alive]
@@ -899,7 +986,8 @@ class BotController(Controller):
     def run_for_sheriff(self, game: Game, me: Player) -> bool:
         if game.claim_race and me.seat in game.claim_race_candidates:
             return True
-        if me.role in (Role.SEER, Role.LIGHT_SEER, Role.DARK_SEER) and (self.checks or self.identity_checks):
+        if me.role in (Role.SEER, Role.SANTA, Role.LIGHT_SEER, Role.DARK_SEER) \
+                and (self.checks or self.identity_checks or self.my_pairs):
             return self.rng.random() < 0.9          # 真預言家上警拿警徽
         if game.is_enemy(me) and me.seat in game.wolf_plan.get("fake_seers", ()):
             return True                             # 悍跳狼一定上警搶警徽
@@ -943,11 +1031,12 @@ class BotController(Controller):
     def self_explode(self, game: Game, me: Player) -> bool:
         if game.light_dark and me.role in DARK_ROLES:
             return me.role is not Role.DARK_DREAMER and self.rng.random() < 0.04 * self.P.explode
-        wolves_alive = sum(p.is_wolf for p in game.alive())
+        pack = game.wolf_pack()
+        wolves_alive = sum(p.seat in pack for p in game.alive())
         if wolves_alive < 2 or game.night_no > 1 and self.rng.random() < 0.5:
             return False
         claims = game.seer_claims()
-        real = [c for c in claims if not game.players[c].is_wolf]
+        real = [c for c in claims if c not in pack]
         if game.phase == "election":
             if game.claim_race:
                 return False                     # 燈影板競選中不自爆，避免打斷候選人發言
@@ -1030,3 +1119,124 @@ class BotController(Controller):
             if top is not None:
                 return top                       # 最晚第三天，決鬥目前最懷疑的玩家
         return None
+
+    # ------------------------------------------------------------ 聖誕警長的禮物
+    def choose_pair(self, game: Game, me: Player) -> tuple[int, int] | None:
+        k = self.analyze(game, me)
+        unknown = [s for s in game.alive_seats() if s != me.seat and s not in k.good and s not in k.wolf]
+        if len(unknown) < 2:
+            unknown = [s for s in game.alive_seats() if s != me.seat]
+        if len(unknown) < 2:
+            return None
+        score = self.suspicion(game, me, k) if game.night_no > 1 else {}
+        unknown.sort(key=lambda s: -score.get(s, self.pref[s]))
+        pending = [(a, b) for a, b in self.my_pairs if a in unknown and b in unknown]
+        if pending:                        # 把上次的查殺拆開：其中一人配一個新的嫌疑人
+            a = pending[-1][0]
+            partner = next((s for s in unknown if s not in pending[-1]), None)
+            if partner is not None:
+                return a, partner
+        return unknown[0], unknown[1]
+
+    def on_pair_result(self, game: Game, me: Player, a: int, b: int, has_wolf: bool) -> None:
+        if has_wolf:
+            self.my_pairs.append((a, b))
+        else:
+            self.checks[a] = self.checks[b] = False
+
+    def choose_evil_gift(self, game: Game, me: Player) -> tuple[int, str] | None:
+        kinds = [g for g in EVIL_GIFTS if g not in game.evil_used]
+        pool = [s for s in game.alive_seats() if s != me.seat and s not in game.evil_received]
+        if not kinds or not pool or self.rng.random() < 0.25:
+            return None
+        kind = self.rng.choice(kinds)
+        if game.night_no == 1 or kind == "snow":
+            return self.rng.choice(pool), kind
+        # 惡靈夜曲、怨念糖果：送給大家最懷疑的人（容易被驗、被毒或被放逐）
+        k = self.analyze(game, me)
+        score = self.suspicion(game, me, k)
+        return max(pool, key=lambda s: score.get(s, 0)), kind
+
+    def make_wish(self, game: Game, me: Player) -> str | None:
+        if game.is_enemy(me):
+            return self.rng.choice(["decor", "decor", "cookie", "card"])
+        if me.role in (Role.SANTA, Role.XMAS_WITCH):
+            return "cookie"
+        return self.rng.choices(WISH_ORDER, [0.3, 0.3, 0.4])[0]
+
+    def block_gift(self, game: Game, me: Player, wishes: dict[int, str]) -> int | None:
+        pack = game.wolf_pack()
+        opts = [s for s in wishes if s != game.last_block and s not in pack]
+        if not opts:
+            return None
+        gods = [s for s in opts if game.claimed_role(s) in (Role.SANTA, Role.XMAS_WITCH, Role.GUARD, Role.HUNTER)]
+        cookie = [s for s in opts if wishes[s] == "cookie"]
+        for group in (gods, cookie):
+            if group:
+                return self.rng.choice(group)
+        return self.rng.choice(opts)
+
+    def give_gift(self, game: Game, me: Player, wishes: dict[int, str]) -> int | None:
+        pool = {s: w for s, w in wishes.items() if s not in self.gift_tried}
+        fresh = {s: w for s, w in pool.items() if w not in self.items_tried}
+        pool = fresh or pool                     # 優先送還沒送過的禮物
+        if not pool:
+            return None
+        if game.is_enemy(me):
+            mates = [s for s in pool if s in game.wolf_pack() and me.seat in game.wolf_pack()]
+            pick = self.rng.choice(mates or list(pool))
+        else:
+            k = self.analyze(game, me)
+            score = self.suspicion(game, me, k)
+            if k.trusted in pool:
+                pick = k.trusted
+            else:
+                good = [s for s in pool if s in k.good]
+                pick = good[0] if good else min(pool, key=lambda s: score.get(s, 0))
+        self.gift_tried.add(pick)
+        self.items_tried.add(pool[pick])
+        return pick
+
+    def on_gift(self, game: Game, me: Player, item: str | None) -> None:
+        self.gift = item
+
+    def on_card(self, game: Game, me: Player, roles: dict[int, Role]) -> None:
+        self.card_info.update(roles)
+        for t, r in roles.items():
+            if r.team is not Team.GOOD or t != me.seat:
+                self.checks.setdefault(t, r.team is Team.WOLF)
+
+    def elf_reveal(self, game: Game, me: Player, exiled: bool) -> bool:
+        if exiled:
+            return True
+        k = self.analyze(game, me)
+        return game.sheriff in k.wolf and k.trusted is not None   # 警長確定是狼：翻牌把警徽轉走
+
+    def elf_badge(self, game: Game, me: Player) -> int | None:
+        k = self.analyze(game, me)
+        if game.sheriff not in (None, me.seat) and game.sheriff not in k.wolf:
+            return None
+        alive = [s for s in game.alive_seats() if s != game.sheriff]
+        if not alive:
+            return None
+        if k.trusted in alive:
+            return k.trusted
+        score = self.suspicion(game, me, k)
+        return min(alive, key=lambda s: score.get(s, 0))
+
+    def _goblin_target(self, game: Game, me: Player, pool=None) -> int | None:
+        """聖誕矮靈不知道狼隊是誰：推大家最相信的人（真聖誕老公公機會最大）。"""
+        k = self.analyze(game, me)
+        cands = [s for s in (pool if pool is not None else game.alive_seats()) if s != me.seat]
+        if not cands:
+            return None
+        if k.trusted in cands and self.rng.random() < 0.6:
+            return k.trusted
+        score = self.suspicion(game, me, k)
+        return min(cands, key=lambda s: score.get(s, 0))
+
+    def _goblin_speech(self, game: Game, me: Player, last: bool) -> Speech:
+        target = self._goblin_target(game, me)
+        if last:
+            return Speech(me.seat, Role.VILLAGER, accuse=target, text="你們出錯人了")
+        return Speech(me.seat, accuse=target, text=f"{self.P.opener}，我是平民")
