@@ -1113,7 +1113,14 @@ class Game {
     const seats = this.players.map(p => p.seat);
     const running = [];
     if (this.claimRace && this.claimRaceMode === "compact") running.push(...[...this.claimRaceCandidates].sort((a, b) => a - b));
-    else if (this.xmasElection.size) running.push(...[...this.xmasElection].sort(bySeat));  // 聖誕板：固定聖誕老公公 vs 一隻悍跳狼
+    else if (this.xmasElection.size) {
+      // 聖誕板：固定聖誕老公公 vs 一隻悍跳狼，另外隨機 1～3 位電腦上警發言、觀察狀況（之後可以退水）
+      const pool = shuffle(seats.filter(s => !this.xmasElection.has(s) && !this.ctrl[s].isHuman));
+      const extras = pool.slice(0, 1 + Math.floor(Math.random() * 3));
+      const humans = [];
+      for (const s of seats) if (!this.xmasElection.has(s) && this.ctrl[s].isHuman && await this.ctrl[s].runForSheriff(this, this.p(s))) humans.push(s);
+      running.push(...[...new Set([...this.xmasElection, ...extras, ...humans])].sort(bySeat));
+    }
     else for (const s of seats) {
       if (this.claimRace && this.claimRaceCandidates.has(s)) running.push(s);
       else if (await this.ctrl[s].runForSheriff(this, this.p(s))) running.push(s);
@@ -1144,9 +1151,9 @@ class Game {
       this.say("（警上）" + renderSpeech(sp), "speech", s);
     }
     const withdrawn = [];
-    if (!(this.claimRace && this.claimRaceMode === "compact") && !this.xmasElection.size) {
+    if (!(this.claimRace && this.claimRaceMode === "compact")) {
       for (const s of [...running]) {  // 退水：發言結束後可以退出競選，退水的人不能投票
-        if (this.claimRace && this.claimRaceCandidates.has(s)) continue;
+        if ((this.claimRace && this.claimRaceCandidates.has(s)) || this.xmasElection.has(s)) continue;
         if (await this.ctrl[s].withdraw(this, this.p(s), [...running])) { running.splice(running.indexOf(s), 1); withdrawn.push(s); }
       }
       if (withdrawn.length) this.say(`退水：${withdrawn.join("、")}號`, "event");
@@ -4862,7 +4869,7 @@ $("sheet").innerHTML = `
   <h2>警徽流</h2>
   <p>預言家報「警徽流 5、9」代表今晚驗 5號、之後驗 9號。第二晚起晚上死的人沒有遺言，所以預言家晚上被刀時用警徽傳結果：交給 5號 代表 5號 是金水；交給別人或撕掉代表 5號 是查殺。沒照自己報的警徽流驗人，會被懷疑是假預言家。</p>
   <h2>狼人自爆</h2>
-  <p>狼人白天輪到自己發言時（包含警上）可以自爆：立即出局、沒有遺言，當天剩下的發言和投票全部跳過，直接天黑。狼王自爆可以發動狼王爪。警上自爆的話，這個練習場的規則是警徽流失，有些地方改成隔天再競選，要問主持人。聖誕警長的禮物：警上固定是聖誕老公公和一隻悍跳狼，警上不能自爆。</p>
+  <p>狼人白天輪到自己發言時（包含警上）可以自爆：立即出局、沒有遺言，當天剩下的發言和投票全部跳過，直接天黑。狼王自爆可以發動狼王爪。警上自爆的話，這個練習場的規則是警徽流失，有些地方改成隔天再競選，要問主持人。聖誕警長的禮物：警上一定有聖誕老公公和一隻悍跳狼，另外隨機幾位玩家上警發言（可以退水），警上不能自爆。</p>
   <h2>進階角色</h2>
   <dl class="terms">
     <dt>狼王</dt><dd>狼人陣營。被放逐或晚上出局可以發動狼王爪帶走一人；被毒、夢遊出局不能。</dd>

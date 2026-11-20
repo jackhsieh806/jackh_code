@@ -1235,7 +1235,12 @@ class Game:
         if self.claim_race_mode == "compact" and self.claim_race:
             running = sorted(self.claim_race_candidates)
         elif self.xmas_election:
-            running = sorted(self.xmas_election)   # 聖誕板：固定聖誕老公公 vs 一隻悍跳狼
+            # 聖誕板：固定聖誕老公公 vs 一隻悍跳狼，另外隨機 1～3 位電腦上警發言、觀察狀況（之後可以退水）
+            pool = [s for s in seats if s not in self.xmas_election and not self.controllers[s].is_human]
+            extras = self.rng.sample(pool, min(len(pool), self.rng.randint(1, 3)))
+            humans = [s for s in seats if s not in self.xmas_election and self.controllers[s].is_human
+                      and self.controllers[s].run_for_sheriff(self, self.players[s])]
+            running = sorted(self.xmas_election | set(extras) | set(humans))
         else:
             running = [s for s in seats if (
                 (self.claim_race and s in self.claim_race_candidates)
@@ -1265,9 +1270,9 @@ class Game:
             self._register_speech(speech)
             self.say(f"  🗣  {seat}號（警上）：{speech.render()}")
         withdrawn: list[int] = []
-        if not (self.claim_race_mode == "compact" and self.claim_race) and not self.xmas_election:
+        if not (self.claim_race_mode == "compact" and self.claim_race):
             for seat in list(running):    # 退水：發言結束後可以退出競選，退水的人不能投票
-                if self.claim_race and seat in self.claim_race_candidates:
+                if (self.claim_race and seat in self.claim_race_candidates) or seat in self.xmas_election:
                     continue
                 if self.controllers[seat].withdraw(self, self.players[seat], list(running)):
                     running.remove(seat)

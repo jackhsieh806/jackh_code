@@ -1307,22 +1307,25 @@ class ChristmasTest(unittest.TestCase):
             g._mark_dead(s, "vote")
         self.assertEqual(g.run_night().deaths, {11: "wolf"})
 
-    def test_election_is_santa_versus_one_fake_wolf(self):
+    def test_election_is_santa_versus_one_fake_wolf_plus_a_few_others(self):
         for seed in range(20):
             g = Game(XMAS_BOARD, rules=Rules(sheriff=True, self_explode=True), seed=seed, out=lambda _: None)
             g.setup()
             self.assertEqual(len(g.xmas_election), 2)
             self.assertIn(6, g.xmas_election)                      # 6 號是聖誕老公公
-            fake = g.xmas_fake
-            self.assertIn(fake, (1, 2, 3, 4))                      # 狼隊裡挑，聖誕矮靈不算
+            self.assertIn(g.xmas_fake, (1, 2, 3, 4))               # 狼隊裡挑，聖誕矮靈不算
             for p in g.players.values():                           # 想自爆、想退水也沒用
                 g.controllers[p.seat].self_explode = lambda g_, m: True
                 g.controllers[p.seat].withdraw = lambda g_, m, r: True
             g.run_dawn(g.run_night())
-            speeches = [sp for sp in g.days[0].speeches]
-            self.assertEqual(sorted(sp.seat for sp in speeches[:2]), sorted(g.xmas_election))
-            self.assertTrue(all(sp.claim is Role.SANTA for sp in speeches[:2]))
-            log = " ".join(g.sheriff_log)                         # 平票兩次 → 警徽落地隨機抽
+            election = [sp for sp in g.days[0].speeches]
+            runners = {sp.seat for sp in election}
+            self.assertTrue(g.xmas_election <= runners)
+            self.assertIn(len(runners), (3, 4, 5))                # 另外隨機 1～3 位
+            for sp in election:
+                if sp.seat in g.xmas_election:
+                    self.assertIs(sp.claim, Role.SANTA)
+            log = " ".join(g.sheriff_log)                         # 其他人都退水；平票兩次 → 警徽落地隨機抽
             self.assertTrue("隨機" in log or any(f"{x}號 當選" in log for x in g.xmas_election), log)
             self.assertIsNone(g.today.exploded)
 
