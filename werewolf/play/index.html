@@ -376,7 +376,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;"
 class Abort extends Error {}
 
 function mkSpeech(seat, o = {}) {
-  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false, findings: [], pairs: o.pairs ?? [] };
+  return { seat, claim: o.claim ?? null, checks: o.checks ?? new Map(), accuse: o.accuse ?? null, text: o.text ?? "", lastWords: false, findings: [], pairs: o.pairs ?? [], badgeFlow: o.badgeFlow ?? [], sheriffCall: o.sheriffCall ?? null };
 }
 function renderSpeech(sp) {
   const parts = [];
@@ -384,7 +384,9 @@ function renderSpeech(sp) {
   if (sp.pairs?.length) parts.push("雙驗：" + sp.pairs.map(([a, b, w]) => `${a}號+${b}號${w ? "有狼（查殺）" : "都是好人（金水）"}`).join("、"));
   if (sp.checks.size) parts.push("查驗：" + [...sp.checks].map(([t, w]) => `${t}號${w ? "是狼人（查殺）" : "是好人（金水）"}`).join("、"));
   if (sp.text) parts.push(sp.text);
-  if (sp.accuse != null) parts.push(`歸票 ${sp.accuse}號`);
+  if (sp.badgeFlow?.length) parts.push("警徽流：" + sp.badgeFlow.map(t => t + "號").join(sp.claim === "SANTA" && sp.badgeFlow.length === 2 ? "+" : "、"));
+  if (sp.accuse != null && sp.sheriffCall != null) parts.push(`我是警長，歸票 ${sp.accuse}號${sp.sheriffCall ? "：" + sp.sheriffCall : ""}`);
+  else if (sp.accuse != null) parts.push(`歸票 ${sp.accuse}號`);
   return parts.length ? parts.join("；") : "過。";
 }
 
@@ -413,6 +415,8 @@ class Game {
     this.giftsSent = new Set(); this.giftReceived = new Set(); this.giftNow = new Map(); this.giftLog = [];
     this.wishes = new Map(); this.lastBlock = null; this.delayed = []; this.delayedExile = [];
     this.ghosts = new Set(); this.dayOuts = []; this.nightGun = false;
+    // 警徽流：預言家公開接下來要驗誰，死後用交警徽的方式傳出查驗結果
+    this.badgeFlows = new Map(); this.flowBreaks = []; this.flowLog = []; this.lureHistory = new Map();
     this.badgeFrom = new Map();   // 新警長 -> 把警徽交給他的前任警長
     this.findings = [];           // 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
     // 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張反向
@@ -975,7 +979,7 @@ class Game {
       const c = await this.ctrl[tiger.seat].chooseLure(this, tiger, centers);
       if (centers.includes(c)) {
         this.lureRange = this.ring(c); this.lastLureRange = new Set(this.lureRange);
-        this.lastLureNight = n; this.lureUses++;
+        this.lastLureNight = n; this.lureUses++; this.lureHistory.set(n, new Set(this.lureRange));
         this.secret(`虎姑婆 ${tiger.seat}號 誘導 ${c}號：今晚只能查驗 ${[...this.lureRange].sort(bySeat).join("、")}號`);
       }
     }
@@ -1124,13 +1128,30 @@ class Game {
       this.registerSpeech(sp);
       this.say("（警上）" + renderSpeech(sp), "speech", s);
     }
-    const voters = seats.filter(s => !running.includes(s));
+    const withdrawn = [];
+    if (!(this.claimRace && this.claimRaceMode === "compact")) {
+      for (const s of [...running]) {  // 退水：發言結束後可以退出競選，退水的人不能投票
+        if (this.claimRace && this.claimRaceCandidates.has(s)) continue;
+        if (await this.ctrl[s].withdraw(this, this.p(s), [...running])) { running.splice(running.indexOf(s), 1); withdrawn.push(s); }
+      }
+      if (withdrawn.length) this.say(`退水：${withdrawn.join("、")}號`, "event");
+    }
+    if (!running.length) { this.say("上警的人全部退水，警徽流失。", "event"); this.sheriffLog.push("警徽流失（全部退水）"); this.phase = "day"; return; }
+    if (running.length === 1) {
+      this.sheriff = running[0];
+      this.sheriffLog.push(`第 ${this.nightNo} 天 ${this.sheriff}號 當選警長（其他人退水）`);
+      this.say(`只剩 ${this.sheriff}號 在警上，直接當選警長！`, "event");
+      this.phase = "day"; return;
+    }
+    const voters = seats.filter(s => !running.includes(s) && !withdrawn.includes(s));
     this.say("警長投票（警下玩家投票）", "sub");
     let votes = await this.collectVotes(running, voters, true);
     this.sheriffVotes = new Map(votes);
     let leaders = this.showVotes(votes, false);
     if (leaders.length > 1) {
-      this.say(`平票！${leaders.join("、")}號 PK，警下玩家重新投票。`, "event");
+      this.say(`平票！${leaders.join("、")}號 PK，各自再發言一次，警下玩家重新投票。`, "event");
+      await this.pkSpeeches(leaders);
+      this.phase = "election";
       votes = await this.collectVotes(leaders, voters, true);
       for (const [v, t] of votes) if (t != null) this.sheriffVotes.set(v, t);
       leaders = this.showVotes(votes, false);
@@ -1143,11 +1164,47 @@ class Game {
     }
     this.phase = "day";
   }
+  // 這位預言家昨天報的警徽流，今晚該驗的人（聖誕老公公是一組兩人）
+  flowTarget(seat) {
+    const flow = this.badgeFlows.get(seat);
+    if (!flow || flow.day !== this.nightNo - (this.phase === "night" ? 1 : 0)) return null;
+    return flow.next;
+  }
+  // 預言家晚上死亡、沒有遺言：交給今晚驗的人＝金水；沒交給他（給別人或撕警徽）＝查殺
+  readBadgeFlow(s, t) {
+    const last = this.nights[this.nights.length - 1];
+    if (!last || last.night !== this.nightNo || !last.deaths.has(s)) return;
+    const flow = this.badgeFlows.get(s);
+    if (!flow || flow.day !== this.nightNo - 1 || flow.next == null) return;
+    const claim = this.claims.get(s);
+    if (!claim) return;
+    const nxt = flow.next, given = t != null ? `把警徽交給 ${t}號` : "撕掉警徽";
+    let note, shown;
+    if (Array.isArray(nxt)) {  // 聖誕老公公的雙驗
+      const [a, b] = nxt;
+      shown = `${a}號+${b}號`;
+      if (nxt.includes(t)) { claim.checks.set(a, false); claim.checks.set(b, false); note = `${a}號、${b}號 都是金水`; }
+      else if (this.p(a).alive && this.p(b).alive) {
+        if (!claim.pairs.some(pr => pr[0] === a && pr[1] === b && pr[2])) claim.pairs.push([a, b, true]);
+        note = `${a}號、${b}號 裡有狼（查殺）`;
+      } else return;
+    } else {
+      shown = `${nxt}號`;
+      if (t === nxt) { claim.checks.set(nxt, false); note = `${nxt}號 是金水`; }
+      else if (this.p(nxt).alive) { claim.checks.set(nxt, true); note = `${nxt}號 是查殺`; }
+      else return;
+    }
+    const line = `${s}號 的警徽流今晚驗 ${shown}，他${given} → 代表 ${note}`;
+    this.flowLog.push(`第 ${this.nightNo} 天 ${line}`);
+    this.say(line, "event");
+  }
   async badgeCheck() {
     const s = this.sheriff;
     if (s == null || this.p(s).alive) return;
-    const t = await this.ctrl[s].passBadge(this, this.p(s));
-    if (t != null && t !== s && this.p(t)?.alive) {
+    let t = await this.ctrl[s].passBadge(this, this.p(s));
+    if (!(t != null && t !== s && this.p(t)?.alive)) t = null;
+    this.readBadgeFlow(s, t);
+    if (t != null) {
       this.sheriff = t;
       this.badgeFrom.set(t, s);
       this.sheriffLog.push(`第 ${this.nightNo} 天 ${s}號 把警徽移交給 ${t}號`);
@@ -1294,7 +1351,9 @@ class Game {
     let leaders = this.showVotes(day.votes);
     if (!leaders.length) { this.say("無人得票，今天沒有人出局。", "event"); return null; }
     if (leaders.length > 1) {
-      this.say(`平票！${leaders.join("、")}號 上 PK 台，其他人重新投票。`, "event");
+      this.say(`平票！${leaders.join("、")}號 上 PK 台發言，其他人重新投票。`, "event");
+      await this.pkSpeeches(leaders);
+      this.phase = "day";
       const pkVoters = voters.filter(v => !leaders.includes(v));
       day.pkVotes = await this.collectVotes(leaders, pkVoters);
       leaders = this.showVotes(day.pkVotes);
@@ -1303,6 +1362,16 @@ class Game {
     return leaders[0];
   }
 
+  // 平票的人在 PK 台上各發言一次
+  async pkSpeeches(leaders) {
+    this.phase = "pk";
+    for (const s of leaders) {
+      const sp = await this.ctrl[s].speak(this, this.p(s));
+      sp.seat = s;
+      this.registerSpeech(sp);
+      this.say("（PK 台）" + renderSpeech(sp), "speech", s);
+    }
+  }
   async markDead(s, cause) {
     const p = this.p(s); p.alive = false; p.deathCause = cause;
     if (this.phase !== "night") this.dayOuts.push(s);
@@ -1428,7 +1497,23 @@ class Game {
       this.claims.set(s, { role: sp.claim, checks, day, pairs });
     }
     sp.pairs = (sp.pairs || []).filter(([a, b]) => valid(a) && valid(b) && a !== b && a !== s && b !== s).map(([a, b, w]) => [a, b, !!w]);
-    if (sp.checks.size && ["SEER", "LANTERN", "LIGHT_SEER", "SANTA"].includes(this.claimedRole(s))) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
+    const card = this.claimedRole(s), flow = this.badgeFlows.get(s);
+    if (flow && flow.day === this.nightNo - 1 && flow.next != null && (sp.checks.size || sp.pairs.length)) {  // 有沒有照昨天報的警徽流驗人
+      const seen = new Set([...sp.checks.keys(), ...sp.pairs.flatMap(([a, b]) => [a, b]), ...(this.claims.get(s)?.checks.keys() || [])]);
+      const want = Array.isArray(flow.next) ? flow.next : [flow.next];
+      const lured = this.lureHistory.get(flow.day + 1);  // 被虎姑婆誘導、驗不到就不算
+      if (!want.some(t => seen.has(t)) && want.every(t => this.p(t).alive) && (!lured || want.every(t => lured.has(t)))
+          && !this.flowBreaks.some(b => b.seat === s && b.day === this.nightNo))
+        this.flowBreaks.push({ seat: s, day: this.nightNo, target: [...want].sort(bySeat) });
+    }
+    if (sp.checks.size && ["SEER", "LANTERN", "LIGHT_SEER", "SANTA"].includes(card)) for (const [t, w] of sp.checks) this.claims.get(s).checks.set(t, w);
+    sp.badgeFlow = [...new Set(sp.badgeFlow || [])].filter(t => valid(t) && t !== s).slice(0, 2);
+    if (sp.badgeFlow.length && ["SEER", "LANTERN", "SANTA"].includes(card)) {
+      const known = this.claims.get(s).checks;
+      const next = card === "SANTA" ? (sp.badgeFlow.length === 2 ? [...sp.badgeFlow] : null)
+        : (sp.badgeFlow.find(t => !known.has(t) && this.p(t).alive) ?? null);
+      this.badgeFlows.set(s, { targets: [...sp.badgeFlow], day: this.nightNo, next });
+    } else sp.badgeFlow = [];
     if (sp.pairs.length && this.claimedRole(s) === "SANTA") {
       const known = this.claims.get(s).pairs;
       for (const pr of sp.pairs) if (!known.some(k => k[0] === pr[0] && k[1] === pr[1] && k[2] === pr[2])) known.push(pr);
@@ -1558,6 +1643,9 @@ class Bot {
         if (mine != null && wolfTargets.size) { total++; if (wolfTargets.has(mine)) together++; }
       }
       if (total >= 2 && together === total) add(null, [p.seat], `${p.seat}號 每次都和已翻牌的狼投同一個人`, false);
+    }
+    for (const b of g.flowBreaks) {  // 沒照自己報的警徽流驗人
+      if (b.seat !== me.seat && !knownWolf.has(b.seat)) add(null, [b.seat], `${b.seat}號 昨天報的警徽流要驗 ${b.target.map(t => t + "號").join("、")}，今天卻沒有報他的結果`, false);
     }
     const told = new Set(g.findings.map(f => f.text));
     return out.filter(f => !told.has(f.text));
@@ -1928,6 +2016,8 @@ class Bot {
   chooseCheck(g, me) {
     if (g.lightDark) { const opts = g.checkOptions(me); return opts.length ? choice(opts) : null; }
     const opts = g.checkOptions(me);  // 可能被虎姑婆誘導限制
+    const planned = this.yesterdayFlow(g, me);
+    if (opts.includes(planned)) return planned;  // 照昨天報的警徽流驗
     let pool = opts.filter(s => !this.checks.has(s) && !this.raw.has(s));
     if (!pool.length) pool = opts;
     if (!pool.length) return null;
@@ -1946,7 +2036,33 @@ class Bot {
   speak(g, me) {
     const sp = this.speech(g, me, false);
     if (this.P.detective && !g.isEnemy(me)) this.addFindings(g, me, sp);
+    if (g.phase === "day" && g.sheriff === me.seat) this.sheriffCall(g, me, sp);
     return sp;
+  }
+  // 警長最後發言：一定要明確歸票，並說出理由
+  sheriffCall(g, me, sp) {
+    const alive = g.aliveSeats().filter(s => s !== me.seat);
+    if (!alive.length) return;
+    if (!alive.includes(sp.accuse)) {
+      const k = this.analyze(g, me);
+      if (g.christmas && me.role === "GOBLIN") sp.accuse = this.goblinTarget(g, me);
+      else if (g.isEnemy(me)) sp.accuse = this.wolfTarget(g);
+      else sp.accuse = this.top(this.suspicion(g, me, k), alive);
+    }
+    if (alive.includes(sp.accuse)) sp.sheriffCall = g.isEnemy(me) ? "" : this.explain(sp.accuse);
+  }
+  // 昨天報的警徽流今晚該驗的人（晚上查驗、隔天發言、天亮交警徽都看這個）
+  yesterdayFlow(g, me) {
+    const flow = g.badgeFlows.get(me.seat);
+    return flow && flow.day === g.nightNo - 1 ? flow.next : null;
+  }
+  // 真預言家報警徽流：挑兩個還沒驗過、最可疑的人
+  makeFlow(g, me, k, score) {
+    if (me.role === "SANTA") { const pair = this.choosePair(g, me); return pair ? [...pair] : []; }
+    const known = new Set([...this.checks.keys(), ...this.raw.keys(), ...this.myPairs.flat()]);
+    const pool = g.checkOptions(me).filter(s => !known.has(s) && !k.good.has(s) && !k.wolf.has(s));
+    const val = s => score.has(s) ? score.get(s) : this.pref[s];
+    return pool.sort((a, b) => val(b) - val(a)).slice(0, 2);
   }
   lastWords(g, me) {
     const sp = this.speech(g, me, true);
@@ -1962,7 +2078,7 @@ class Bot {
       const acc = k.cardAcc[me.role];
       const aliveWolves = [...k.wolf].filter(t => g.p(t).alive && t !== me.seat);
       const text = acc == null ? "我不知道自己是正確還是反向查驗，大家一起對資訊" : acc ? "我確定我是正確查驗" : "我是反向查驗，結果要反過來看";
-      return mkSpeech(me.seat, { claim: me.role, checks: new Map(this.raw), accuse: [...aliveWolves, top][0], text });
+      return mkSpeech(me.seat, { claim: me.role, checks: new Map(this.raw), accuse: [...aliveWolves, top][0], text, badgeFlow: last ? [] : this.makeFlow(g, me, k, score) });
     }
     if (me.role === "SANTA" && (this.checks.size || this.myPairs.length)) {
       const already = g.claimedRole(me.seat) === "SANTA";
@@ -1974,7 +2090,7 @@ class Bot {
         const unsure = pairs.flatMap(([a, b]) => [a, b]).filter(t => g.p(t).alive).sort((x, y) => (score.get(y) || 0) - (score.get(x) || 0));
         const rivals = [...k.claims.keys()].filter(c => c !== me.seat && g.p(c).alive);
         const accuse = [...wolves, ...rivals, ...unsure, top][0];
-        return mkSpeech(me.seat, { claim: "SANTA", checks, accuse, text: rivals.length ? "對跳的那位是假的聖誕老公公！" : "", pairs });
+        return mkSpeech(me.seat, { claim: "SANTA", checks, accuse, text: rivals.length ? "對跳的那位是假的聖誕老公公！" : "", pairs, badgeFlow: last ? [] : this.makeFlow(g, me, k, score) });
       }
     }
     if (this.cardInfo.size && g.christmas && !g.isEnemy(me)) {
@@ -1987,7 +2103,7 @@ class Bot {
         const aliveWolves = [...this.checks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
         const rivals = [...k.claims.keys()].filter(c => c !== me.seat && g.p(c).alive);
         const accuse = [...aliveWolves, ...rivals, top][0];
-        return mkSpeech(me.seat, { claim: "SEER", checks: new Map(this.checks), accuse, text: rivals.length ? "對跳的那位是悍跳狼！" : "" });
+        return mkSpeech(me.seat, { claim: "SEER", checks: new Map(this.checks), accuse, text: rivals.length ? "對跳的那位是悍跳狼！" : "", badgeFlow: last ? [] : this.makeFlow(g, me, k, score) });
       }
     }
     if (me.role === "LIGHT_SEER" && this.identityChecks.size) {
@@ -2037,18 +2153,20 @@ class Bot {
       const card = g.wolfPlan.fakeSeerRoles?.[me.seat] || g.wolfPlan.fakeSeerRole || "SEER";
       if (!this.fakeDays.has(g.nightNo) && !(last && (this.fakeChecks.size || this.fakePairs.length))) {
         this.fakeDays.add(g.nightNo);
-        if (card === "SANTA") this.inventPair(g, me, k, goodAlive); else this.inventCheck(g, me, k, goodAlive, card);
+        const planned = Math.random() < 0.75 ? this.yesterdayFlow(g, me) : null;
+        if (card === "SANTA") this.inventPair(g, me, k, goodAlive, planned); else this.inventCheck(g, me, k, goodAlive, card, planned);
       }
+      const flow = last ? [] : this.fakeFlow(g, me, k);
       const rivals = [...g.claimsOf(card).keys()].filter(c => c !== me.seat && g.p(c).alive);
       const fw = [...this.fakeChecks].filter(([t, w]) => w && g.p(t).alive).map(([t]) => t);
       fw.push(...this.fakePairs.filter(([, , w]) => w).flatMap(([a, b]) => [a, b]).filter(t => g.p(t).alive));
       if (card === "SANTA") {
         const others = goodAlive.filter(s => !this.fakeChecks.has(s));
-        return mkSpeech(me.seat, { claim: card, checks: new Map(this.fakeChecks), accuse: [...rivals, ...fw, ...others, null][0], text: rivals.length ? "對跳的那位是假的聖誕老公公" : "", pairs: [...this.fakePairs] });
+        return mkSpeech(me.seat, { claim: card, checks: new Map(this.fakeChecks), accuse: [...rivals, ...fw, ...others, null][0], text: rivals.length ? "對跳的那位是假的聖誕老公公" : "", pairs: [...this.fakePairs], badgeFlow: flow });
       }
       const others = goodAlive.filter(s => !this.fakeChecks.has(s));  // 不點自己發的金水
       const accuse = [...fw, ...rivals, ...others, null][0];
-      return mkSpeech(me.seat, { claim: card, checks: new Map(this.fakeChecks), accuse, text: rivals.length ? `我才是真的${R[card]}，對跳的是狼` : "" });
+      return mkSpeech(me.seat, { claim: card, checks: new Map(this.fakeChecks), accuse, text: rivals.length ? `我才是真的${R[card]}，對跳的是狼` : "", badgeFlow: flow });
     }
     const target = this.wolfTarget(g);
     if (last) return mkSpeech(me.seat, { claim: "VILLAGER", accuse: target, text: "你們出錯人了" });
@@ -2056,7 +2174,21 @@ class Bot {
     const fake = g.wolfPlan.fakeSeer;
     return mkSpeech(me.seat, { accuse: target, text: `${this.P.opener}，${fake != null && g.p(fake).alive ? `我站 ${fake}號 預言家` : "我是平民"}` });
   }
-  inventCheck(g, me, k, goodAlive, card = "SEER") {
+  // 悍跳狼也報警徽流：多半挑好人，偶爾放一個隊友（之後發金水）
+  fakeFlow(g, me, k) {
+    const used = new Set([...this.fakeChecks.keys(), ...this.fakePairs.flatMap(([a, b]) => [a, b])]);
+    const pool = g.aliveSeats().filter(s => s !== me.seat && !used.has(s));
+    const mates = pool.filter(s => k.wolf.has(s)), others = shuffle(pool.filter(s => !k.wolf.has(s)));
+    const flow = others.slice(0, 2);
+    if (mates.length && flow.length === 2 && Math.random() < 0.3) flow[1] = choice(mates);
+    return flow;
+  }
+  inventCheck(g, me, k, goodAlive, card = "SEER", planned = null) {
+    if (typeof planned === "number" && g.p(planned).alive && !this.fakeChecks.has(planned)) {
+      // 照自己報的警徽流編結果：隊友發金水、對跳的真預言家發查殺，其他一半一半
+      this.fakeChecks.set(planned, k.wolf.has(planned) ? false : g.claimsOf(card).has(planned) ? true : Math.random() < 0.5);
+      return;
+    }
     const unused = goodAlive.filter(s => !this.fakeChecks.has(s) && !g.p(s).revealed);
     const rivals = [...g.claimsOf(card).keys()].filter(c => unused.includes(c));  // 對同一張牌的真預言家發查殺
     const mates = g.aliveSeats().filter(s => k.wolf.has(s) && s !== me.seat && !this.fakeChecks.has(s));
@@ -2066,7 +2198,13 @@ class Bot {
     else if (unused.length) this.fakeChecks.set(choice(unused), Math.random() < 0.6);
   }
   // 悍跳聖誕老公公編雙驗：對真的聖誕老公公發查殺，或替隊友發金水
-  inventPair(g, me, k, goodAlive) {
+  inventPair(g, me, k, goodAlive, planned = null) {
+    if (Array.isArray(planned) && planned.every(t => g.p(t).alive)) {
+      const [a, b] = planned;
+      if (g.claimsOf("SANTA").has(a) || g.claimsOf("SANTA").has(b) || Math.random() < 0.5) this.fakePairs.push([a, b, true]);
+      else { this.fakeChecks.set(a, false); this.fakeChecks.set(b, false); }
+      return;
+    }
     const used = new Set([...this.fakeChecks.keys(), ...this.fakePairs.flatMap(([a, b]) => [a, b])]);
     const unused = goodAlive.filter(s => !used.has(s) && !g.p(s).revealed);
     const rivals = [...g.claimsOf("SANTA").keys()].filter(c => unused.includes(c));
@@ -2259,21 +2397,55 @@ class Bot {
     const val = c => score.has(c) ? score.get(c) : this.pref[c];
     return pool.length ? pool.reduce((a, b) => val(b) < val(a) ? b : a) : null;
   }
+  // 交警徽：給金水 > 已經跳出來的神 > 自己認為的好人，盡量不撕。
+  // 預言家晚上死亡時照警徽流：今晚驗的人是金水就交給他，查殺就交給別人（悍跳狼可以撕警徽誣陷）
   passBadge(g, me) {
     const alive = g.aliveSeats().filter(s => s !== me.seat);
     if (!alive.length) return null;
     const k = this.analyze(g, me);
+    const last = g.nights[g.nights.length - 1];
+    const diedAtNight = !!last && last.night === g.nightNo && last.deaths.has(me.seat);
+    const planned = diedAtNight ? this.yesterdayFlow(g, me) : null;
+    const plannedSet = new Set(Array.isArray(planned) ? planned : planned != null ? [planned] : []);
     if (g.isEnemy(me)) {
       const mates = alive.filter(s => k.wolf.has(s));
-      return mates.length && Math.random() < 0.6 ? choice(mates) : null;
+      if ((g.wolfPlan.fakeSeers || []).includes(me.seat)) {
+        const flagged = [...plannedSet].filter(t => mates.includes(t));
+        if (flagged.length) return flagged[0];  // 警徽交給警徽流上的隊友＝替他發金水
+        if (plannedSet.size) return null;       // 悍跳狼撕警徽：讓大家以為警徽流上的好人是查殺
+      }
+      if (mates.length) return choice(mates);
+      const claimers = new Set(g.seerClaims().keys());
+      const pool = alive.filter(s => !claimers.has(s));
+      return choice(pool.length ? pool : alive);
     }
-    if (alive.includes(k.trusted)) return k.trusted;
-    const good = alive.filter(s => k.good.has(s));
-    if (good.length) return good[0];
+    const isSeer = ["SEER", "LANTERN", "SANTA"].includes(me.role);
+    if (plannedSet.size && isSeer) {
+      const seen = new Map([...this.checks, ...this.raw]);
+      if ([...plannedSet].every(t => seen.get(t) === false)) {
+        const live = [...plannedSet].filter(t => alive.includes(t));
+        if (live.length) return live[0];  // 照警徽流：金水就交給他
+      }
+    }
+    const avoid = plannedSet.size && isSeer ? plannedSet : new Set();
+    let pool = alive.filter(s => !avoid.has(s) && !k.wolf.has(s));
+    if (!pool.length) pool = alive.filter(s => !k.wolf.has(s));
+    if (!pool.length) pool = alive;
+    const golds = [...this.checks].filter(([t, w]) => !w && pool.includes(t)).map(([t]) => t);
+    if (k.trusted != null) golds.push(...[...(k.claims.get(k.trusted) || new Map())].filter(([t, w]) => !w && pool.includes(t)).map(([t]) => t));
+    const gods = [...(pool.includes(k.trusted) ? [k.trusted] : []), ...pool.filter(s => GODS.has(g.claimedRole(s)) && !k.wolf.has(s))];
+    const good = pool.filter(s => k.good.has(s));
+    for (const grp of [golds, gods, good]) if (grp.length) return grp[0];
     const score = this.suspicion(g, me, k);
-    const val = s => score.get(s) ?? 0;
-    const best = alive.reduce((a, b) => val(b) < val(a) ? b : a);
-    return val(best) < this.P.tearBar ? best : null;  // 沒把握就撕警徽
+    return pool.reduce((a, b) => (score.get(b) ?? 0) < (score.get(a) ?? 0) ? b : a);
+  }
+  // 退水：自己不是預言家、警上已經有人跳預言家時，多半退水讓他拿警徽
+  withdraw(g, me, running) {
+    const cards = ["SEER", "LANTERN", "SANTA"];
+    if (cards.includes(g.claimedRole(me.seat)) || (g.wolfPlan.fakeSeers || []).includes(me.seat)) return false;
+    const seers = running.filter(c => c !== me.seat && cards.includes(g.claimedRole(c)));
+    if (g.isEnemy(me)) return Math.random() < (seers.length ? 0.5 : 0.2);
+    return Math.random() < (seers.length ? 0.75 : 0.25);
   }
   chooseDirection() { return Math.random() < 0.5 ? "left" : "right"; }
   selfExplode(g, me) {
@@ -2294,6 +2466,8 @@ class Bot {
   hunterPoisoned() {}
   // ---------------------------------------------------------------- 聖誕警長的禮物
   choosePair(g, me) {
+    const planned = this.yesterdayFlow(g, me);
+    if (g.phase === "night" && Array.isArray(planned) && planned.every(t => g.p(t).alive && t !== me.seat)) return [...planned];  // 照昨天報的警徽流驗
     const k = this.analyze(g, me);
     let unknown = g.aliveSeats().filter(s => s !== me.seat && !k.good.has(s) && !k.wolf.has(s));
     if (unknown.length < 2) unknown = g.aliveSeats().filter(s => s !== me.seat);
@@ -2440,6 +2614,8 @@ class Human {
     let seats = g.checkOptions(me).filter(s => !this.checks.has(s));
     if (!seats.length) seats = g.checkOptions(me);
     if (g.hasLantern) note += "。不能驗自己、翻牌騎士和騎金";
+    const planned = g.flowTarget(me.seat);
+    if (planned != null && !Array.isArray(planned)) note += `。你昨天報的警徽流：今晚驗 ${planned}號（不照著驗會被懷疑）`;
     return this.ui.pickSeat({ title: `${R[me.role]}：今晚要查驗誰？`, note, seats });
   }
   onCheckResult(g, me, t, w) {
@@ -2511,7 +2687,16 @@ class Human {
   }
   sheriffVote(g, me, cands) { return this.ui.pickSeat({ title: "警長投票：要投誰當警長？", seats: cands, none: "棄票" }); }
   passBadge(g, me) {
-    return this.ui.pickSeat({ title: "你是警長，出局前要把警徽交給誰？", seats: g.aliveSeats().filter(s => s !== me.seat), none: "撕掉警徽" });
+    let note = "建議：金水 > 已經跳的神 > 你認為的好人，盡量不撕。";
+    const flow = g.badgeFlows.get(me.seat), last = g.nights[g.nights.length - 1];
+    if (flow && flow.day === g.nightNo - 1 && flow.next != null && last && last.night === g.nightNo && last.deaths.has(me.seat)) {
+      const shown = Array.isArray(flow.next) ? `${flow.next[0]}號+${flow.next[1]}號` : `${flow.next}號`;
+      note += ` 你昨天報的警徽流今晚驗 ${shown}：是金水就交給他；查殺就交給別人，大家會解讀成查殺。`;
+    }
+    return this.ui.pickSeat({ title: "你是警長，出局前要把警徽交給誰？", note, seats: g.aliveSeats().filter(s => s !== me.seat), none: "撕掉警徽" });
+  }
+  async withdraw(g, me, running) {
+    return (await this.ui.choose({ title: "警上發言結束：要退水嗎？", note: `警上：${running.join("、")}號。退水後不能投警長票。`, options: [["no", "繼續競選"], ["yes", "退水"]] })) === "yes";
   }
   chooseDirection(g, me) {
     return this.ui.choose({ title: "你是警長：今天從哪邊開始發言？", note: "你會最後一個發言並歸票。", options: [["right", "警右（往大號）"], ["left", "警左（往小號）"]] });
@@ -2519,7 +2704,8 @@ class Human {
   // ---------------------------------------------------------------- 聖誕警長的禮物
   async choosePair(g, me) {
     const seats = g.aliveSeats().filter(s => s !== me.seat);
-    const note = "兩人裡有一狼或兩狼顯示查殺，兩個好人顯示金水。雪狼會被驗成好人。";
+    const planned = g.flowTarget(me.seat);
+    const note = "兩人裡有一狼或兩狼顯示查殺，兩個好人顯示金水。雪狼會被驗成好人。" + (Array.isArray(planned) ? `你昨天報的警徽流：今晚驗 ${planned[0]}號+${planned[1]}號（不照著驗會被懷疑）。` : "");
     const a = await this.ui.pickSeat({ title: "聖誕老公公：今晚查驗的第一位", note, seats });
     const b = await this.ui.pickSeat({ title: `聖誕老公公：和 ${a}號 一起查驗的第二位`, note, seats: seats.filter(s => s !== a) });
     return [a, b];
@@ -2741,6 +2927,7 @@ class UI {
       let claim = null, accuse = null;
       const checks = new Map();
       const pairs = []; let sel = [];  // 聖誕老公公的雙驗
+      let flow = [];  // 警徽流
       const box = document.createElement("div");
       box.style.cssText = "display:flex;flex-direction:column;gap:10px";
       el.appendChild(box);
@@ -2752,7 +2939,8 @@ class UI {
           <div class="field"><span class="label">宣稱身份</span><div class="chips" id="cl"></div></div>
           ${claim === "SEER" ? `<div class="field"><span class="label">報查驗（點一下＝金水，再點＝查殺，再點＝取消）</span><div class="seatpick" id="ck"></div></div>` : ""}
           ${claim === "SANTA" ? `<div class="field"><span class="label">報雙驗：先點兩個號碼，再按金水或查殺${pairs.length ? `（已報：${pairs.map(([a, b, w]) => `${a}+${b}${w ? "查殺" : "金水"}`).join("、")}）` : ""}</span><div class="seatpick" id="pk"></div><div class="bar"><button class="secondary" id="pg">金水</button><button class="secondary" id="pw">查殺</button><button class="secondary" id="px">清除</button></div></div>` : ""}
-          <div class="field"><span class="label">歸票</span><div class="seatpick" id="ac"></div></div>
+          ${["SEER", "LANTERN", "SANTA"].includes(claim) ? `<div class="field"><span class="label">警徽流（點兩個號碼${claim === "SANTA" ? "，一組兩人一起驗" : "，先驗第一個"}）：你晚上死掉時，警徽交給今晚驗的人＝金水，交給別人或撕掉＝查殺</span><div class="seatpick" id="fl"></div></div>` : ""}
+          <div class="field"><span class="label">${g.phase === "day" && g.sheriff === me.seat ? "歸票（你是警長，最後發言要明確歸票）" : "歸票"}</span><div class="seatpick" id="ac"></div></div>
           <input type="text" id="speech-text" maxlength="80" placeholder="補充一句話（可空白）">
           <div class="bar"><button class="primary" id="say">${last ? "說完遺言" : "發言"}</button></div>`;
         const cl = box.querySelector("#cl");
@@ -2760,7 +2948,7 @@ class UI {
         [[null, "不宣稱"], ...ROLE_ORDER.filter(r => onBoard.has(r)).map(r => [r, R[r]])].forEach(([r, label]) => {
           const b = document.createElement("button");
           b.className = "chip"; b.textContent = label; b.setAttribute("aria-pressed", String(claim === r));
-          b.onclick = () => { claim = r; if (r !== "SEER") checks.clear(); if (r !== "SANTA") { pairs.length = 0; sel = []; } keep(); draw(); };
+          b.onclick = () => { claim = r; if (r !== "SEER") checks.clear(); if (r !== "SANTA") { pairs.length = 0; sel = []; } if (!["SEER", "LANTERN", "SANTA"].includes(r)) flow = []; keep(); draw(); };
           cl.appendChild(b);
         });
         const ck = box.querySelector("#ck");
@@ -2785,6 +2973,15 @@ class UI {
           box.querySelector("#pw").onclick = () => addPair(true);
           box.querySelector("#px").onclick = () => { pairs.length = 0; sel = []; keep(); draw(); };
         }
+        const fl = box.querySelector("#fl");
+        if (fl) for (const s of alive) {
+          const b = document.createElement("button");
+          const i = flow.indexOf(s);
+          b.innerHTML = `${s}${i >= 0 ? `<small>${claim === "SANTA" ? "雙驗" : i === 0 ? "先驗" : "再驗"}</small>` : ""}`;
+          b.setAttribute("aria-pressed", String(i >= 0));
+          b.onclick = () => { flow = flow.includes(s) ? flow.filter(x => x !== s) : [...flow, s].slice(-2); keep(); draw(); };
+          fl.appendChild(b);
+        }
         const ac = box.querySelector("#ac");
         for (const s of alive) {
           const b = document.createElement("button");
@@ -2797,7 +2994,8 @@ class UI {
         box.querySelector("#say").onclick = () => {
           const ck = new Map(checks);
           for (const [a, b, w] of pairs) if (!w) { ck.set(a, false); ck.set(b, false); }  // 金水雙驗 = 兩個都是好人
-          done(mkSpeech(me.seat, { claim, checks: ck, accuse, text: input.value.trim(), pairs: pairs.filter(([, , w]) => w) }));
+          const call = g.phase === "day" && g.sheriff === me.seat && accuse != null ? "" : null;
+          done(mkSpeech(me.seat, { claim, checks: ck, accuse, text: input.value.trim(), pairs: pairs.filter(([, , w]) => w), badgeFlow: [...flow], sheriffCall: call }));
         };
         const bar = box.querySelector("#say").parentElement;
         bar.appendChild(this.quitButton());
@@ -2920,6 +3118,7 @@ function showResult(g, winner, humanSeat) {
       <div class="field"><h3>夜晚行動</h3><ol class="godlog">${g.godLog.map(l => `<li>${l.round ? `第 ${l.round} 夜` : "開局"}：${esc(l.msg)}</li>`).join("")}</ol></div>
       ${voteRows ? `<div class="field"><h3>票型</h3><div class="votes">${voteRows}</div></div>` : ""}
       ${g.christmas ? `<div class="field"><h3>禮物</h3><ul class="godlog">${[...g.giftLog, ...g.evilLog].map(l => `<li>${esc(l)}</li>`).join("") || "<li>沒有送出任何禮物</li>"}</ul></div>` : ""}
+      ${g.flowLog.length ? `<div class="field"><h3>警徽流解讀</h3><ul class="godlog">${g.flowLog.map(l => `<li>${esc(l)}</li>`).join("")}</ul></div>` : ""}
       ${g.sheriffLog.length ? `<div class="field"><h3>警長</h3><ul class="godlog">${g.sheriffLog.map(l => `<li>${esc(l)}</li>`).join("")}</ul></div>` : ""}
       ${claims ? `<div class="field"><h3>預言家宣稱</h3><ul class="godlog">${claims}</ul></div>` : ""}
       ${mine}
@@ -4577,12 +4776,15 @@ $("sheet").innerHTML = `
   <div class="flow"><span>攝夢人選夢遊者</span><i>→</i><span>奇蹟商人交易</span><i>→</i><span>幸運兒用道具</span><i>→</i><span>守衛守人</span><i>→</i><span>狼人殺人（覺醒狼王親傳）</span><i>→</i><span>女巫用藥</span><i>→</i><span>預言家查驗</span><i>→</i><span>天亮公布死訊</span><i>→</i><span>遺言／獵人開槍</span><i>→</i><span>輪流發言</span><i>→</i><span>投票放逐</span></div>
   <h2>警長競選</h2>
   <ol>
-    <li>第一天天亮後、公布死訊之前競選。想當警長的人上警，依序在警上發言，真預言家通常會上警報查驗。</li>
+    <li>第一天天亮後、公布死訊之前競選。想當警長的人上警，依序在警上發言，真預言家通常會上警報查驗和警徽流。</li>
+    <li>警上發言結束後可以退水，退水的人也不能投票；只剩一人就直接當選。</li>
     <li>沒上警的警下玩家投票，上警的人不能投。沒人上警或全員上警，警徽流失。</li>
-    <li>平票的人 PK，警下再投一次；再平就警徽流失。</li>
-    <li>警長投票算 1.5 票，決定發言方向（警左或警右），自己最後發言並歸票。</li>
-    <li>警長出局時，可以把警徽交給任一存活玩家，或撕掉警徽。</li>
+    <li>平票的人在 PK 台上各再發言一次，警下再投一次；再平就警徽流失。</li>
+    <li>警長投票算 1.5 票，決定發言方向（警左或警右），自己最後發言並明確歸票。</li>
+    <li>警長出局時，可以把警徽交給任一存活玩家，或撕掉警徽。習慣是給金水、已經跳的神、自己認為的好人，盡量不撕；悍跳狼才常撕警徽。</li>
   </ol>
+  <h2>警徽流</h2>
+  <p>預言家報「警徽流 5、9」代表今晚驗 5號、之後驗 9號。第二晚起晚上死的人沒有遺言，所以預言家晚上被刀時用警徽傳結果：交給 5號 代表 5號 是金水；交給別人或撕掉代表 5號 是查殺。沒照自己報的警徽流驗人，會被懷疑是假預言家。</p>
   <h2>狼人自爆</h2>
   <p>狼人白天輪到自己發言時（包含警上）可以自爆：立即出局、沒有遺言，當天剩下的發言和投票全部跳過，直接天黑。狼王自爆可以發動狼王爪。警上自爆的話，這個練習場的規則是警徽流失，有些地方改成隔天再競選，要問主持人。</p>
   <h2>進階角色</h2>

@@ -80,6 +80,11 @@ def review(game: Game, human_seat: int | None = None) -> None:
         for line in game.gift_log + game.evil_log or ["沒有送出任何禮物"]:
             print(f"  {line}")
 
+    if game.flow_log:
+        print("\n📜 警徽流解讀：")
+        for line in game.flow_log:
+            print(f"  {line}")
+
     if game.sheriff_log:
         print("\n警長：")
         for line in game.sheriff_log:

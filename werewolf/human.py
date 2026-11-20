@@ -123,6 +123,9 @@ class HumanController(Controller):
         else:
             print()
         options = game.check_options(me)
+        planned = game.flow_target(me.seat)
+        if planned is not None:
+            print(f"  你昨天報的警徽流：今晚驗 {planned}號（不照著驗會被懷疑）")
         if game.lure_range is not None:
             print(f"  ⚠️ 虎姑婆的誘導生效：今晚只能查驗 {'、'.join(map(str, sorted(game.lure_range)))}號")
         if game.has_lantern:
@@ -177,11 +180,20 @@ class HumanController(Controller):
                 bits = item.split()
                 if len(bits) == 2 and bits[0].isdigit() and bits[1] in ("狼", "好"):
                     checks[int(bits[0])] = bits[1] == "狼"
+        flow: list[int] = []
+        if claim in (Role.SEER, Role.LANTERN_SEER, Role.SANTA):
+            hint = "一組兩人，例如：5 9 表示 5號+9號 一起驗" if claim is Role.SANTA else "例如：5 9 表示先驗 5號、再驗 9號"
+            print(f"  報警徽流（{hint}；Enter 略過）")
+            print("  約定：你晚上死掉時，警徽交給今晚驗的人＝他是金水；交給別人或撕掉＝他是查殺。")
+            flow = [int(x) for x in ask("  > ").replace(",", " ").split() if x.isdigit()][:2]
         # 警長競選時昨晚死訊還沒公布，所有座位都能選，避免洩漏死訊
         pool = list(game.players) if game.phase == "election" else game.alive_seats()
-        accuse = ask_seat("  要指認（歸票）誰", [s for s in pool if s != me.seat])
+        label = "  你是警長，最後發言要明確歸票：歸票誰" if game.phase == "day" and game.sheriff == me.seat \
+            else "  要指認（歸票）誰"
+        accuse = ask_seat(label, [s for s in pool if s != me.seat])
         text = ask("  補充發言（可空白）> ")
-        return Speech(me.seat, claim, checks, accuse, text, pairs=pairs)
+        call = "" if game.phase == "day" and game.sheriff == me.seat and accuse is not None else None
+        return Speech(me.seat, claim, checks, accuse, text, pairs=pairs, badge_flow=flow, sheriff_call=call)
 
     def vote(self, game: Game, me: Player, candidates: list[int]) -> int | None:
         options = [c for c in candidates if c != me.seat]
@@ -203,6 +215,9 @@ class HumanController(Controller):
     # ------------------------------------------------------------ 聖誕警長的禮物
     def choose_pair(self, game: Game, me: Player) -> tuple[int, int] | None:
         print("\n🎅 聖誕老公公請睜眼，今晚查驗兩名玩家：有一狼或兩狼顯示查殺，兩個好人顯示金水。")
+        planned = game.flow_target(me.seat)
+        if isinstance(planned, tuple):
+            print(f"  你昨天報的警徽流：今晚驗 {planned[0]}號+{planned[1]}號（不照著驗會被懷疑）")
         options = [s for s in game.alive_seats() if s != me.seat]
         a = ask_seat("第一位", options, allow_none=False)
         b = ask_seat("第二位", [s for s in options if s != a], allow_none=False)
@@ -309,6 +324,10 @@ class HumanController(Controller):
         print("\n🐾 覺醒狼王把一次狼王爪親傳給你！出局時（被毒、夢遊除外）可以帶走一人。")
 
     # ------------------------------------------------------------ 警長與自爆
+    def withdraw(self, game: Game, me: Player, running: list[int]) -> bool:
+        return ask_yes(f"\n🏳  警上發言結束（警上：{'、'.join(map(str, running))}號）。{me.seat}號 要退水嗎？"
+                       "（退水後不能投警長票）")
+
     def run_for_sheriff(self, game: Game, me: Player) -> bool:
         print("\n🎖  警長競選開始。")
         return ask_yes(f"{me.seat}號 要上警（競選警長）嗎")
@@ -317,7 +336,13 @@ class HumanController(Controller):
         return ask_seat(f"\n🎖  {me.seat}號 請投警長票（0=棄票）", candidates)
 
     def pass_badge(self, game: Game, me: Player) -> int | None:
-        print("\n🎖  你是警長，出局前要把警徽交給誰？")
+        print("\n🎖  你是警長，出局前要把警徽交給誰？（建議：金水 > 已經跳的神 > 你認為的好人，盡量不撕）")
+        flow = game.badge_flows.get(me.seat)
+        if flow and flow["day"] == game.night_no - 1 and flow["next"] is not None and game.nights \
+                and me.seat in game.nights[-1].deaths:
+            nxt = flow["next"]
+            shown = f"{nxt[0]}號+{nxt[1]}號" if isinstance(nxt, tuple) else f"{nxt}號"
+            print(f"  📜 你昨天報的警徽流今晚驗 {shown}：是金水就交給他；查殺就交給別人，大家會解讀成查殺。")
         return ask_seat("移交警徽給（0=撕掉警徽）", [s for s in game.alive_seats() if s != me.seat])
 
     def choose_direction(self, game: Game, me: Player) -> str:

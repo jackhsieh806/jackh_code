@@ -180,6 +180,7 @@ class DayFlowTest(unittest.TestCase):
             g.controllers[s] = Scripted(vote=lambda g_, m, c, t=t: t if t in c else None)
         g.controllers[1] = Scripted(vote=lambda *_: None)
         g.controllers[2] = Scripted(vote=lambda *_: None)
+        g.setup()
         self.assertIsNone(g._vote_phase())
 
 
@@ -331,6 +332,7 @@ class SheriffTest(unittest.TestCase):
         for s in range(1, 11):
             ctrls[s] = Scripted(**idle(run_for_sheriff=lambda g, m: m.seat in running,
                                        sheriff_vote=lambda g, m, c: votes.get(m.seat),
+                                       withdraw=lambda g, m, r: False,
                                        self_explode=lambda g, m: False, **extra.get(s, {})))
         g = quiet_game(BOARD, ctrls, rules=Rules(sheriff=True, self_explode=True))
         g.setup()
@@ -1312,6 +1314,125 @@ class ChristmasTest(unittest.TestCase):
         self.assertIsNone(g.check_winner())
         g._elf_reveal(g.players[10])
         self.assertEqual(g.check_winner(), Team.WOLF)
+
+
+class BadgeFlowTest(unittest.TestCase):
+    """警徽流：預言家晚上死亡、沒有遺言時，用交警徽的方式傳出查驗結果。"""
+
+    def flow_game(self, flow, kill=4, extra=None):
+        o = {1: {"choose_kill": lambda g, m: kill if g.night_no == 2 else None}}
+        o.update(extra or {})
+        ctrls = {s: Scripted(**idle(**o.get(s, {}))) for s in range(1, 11)}
+        for s in (4, 2):   # 4 號真預言家、2 號可能悍跳：用一般電腦決定查驗和交警徽
+            ctrls[s] = Scripted(**{k: v for k, v in idle(**o.get(s, {})).items()
+                                   if k not in ("choose_check",)})
+        g = quiet_game(BOARD, ctrls)
+        g.setup()
+        g.run_night()
+        g.days.append(DayRecord(1))
+        return g
+
+    def declare(self, g, seat, flow, claim=Role.SEER, checks=None):
+        g._register_speech(Speech(seat, claim, checks or {}, badge_flow=flow))
+        g.sheriff = seat
+
+    def test_gold_goes_to_flow_target(self):
+        g = self.flow_game([9, 10])
+        self.declare(g, 4, [9, 10])
+        g.run_dawn(g.run_night())
+        self.assertFalse(g.players[4].alive)
+        self.assertEqual(g.sheriff, 9)
+        self.assertIs(g.claims[4]["checks"][9], False)
+        self.assertIn("9號 是金水", g.flow_log[-1])
+
+    def test_wolf_result_passes_elsewhere_and_reads_as_kill(self):
+        g = self.flow_game([1, 9])
+        self.declare(g, 4, [1, 9])
+        g.run_dawn(g.run_night())
+        self.assertNotIn(g.sheriff, (None, 1))                # 不撕警徽、也不給狼
+        self.assertIs(g.claims[4]["checks"][1], True)
+        self.assertIn("1號 是查殺", g.flow_log[-1])
+
+    def test_fake_seer_sheriff_tears_badge_to_frame(self):
+        g = self.flow_game([9, 10], kill=2)
+        g.wolf_plan["fake_seers"] = [2]
+        self.declare(g, 2, [9, 10])
+        g.run_dawn(g.run_night())
+        self.assertIsNone(g.sheriff)
+        self.assertIs(g.claims[2]["checks"][9], True)        # 好人 9 號被誣陷成查殺
+
+    def test_breaking_the_flow_is_noticed(self):
+        g = self.flow_game([9, 10])
+        self.declare(g, 4, [9, 10])
+        g.night_no = 2
+        g.days.append(DayRecord(2))
+        g._register_speech(Speech(4, Role.SEER, {10: False}))
+        self.assertEqual(g.flow_breaks[-1]["target"], [9])
+        found = g.controllers[6].find_loopholes(g, g.players[6], g.controllers[6].analyze(g, g.players[6]))
+        self.assertTrue(any("警徽流" in f["text"] for f in found))
+
+    def test_good_sheriff_prefers_gold_and_never_tears(self):
+        g = quiet_game(BOARD)
+        g.setup()
+        g.night_no = 1
+        g.days.append(DayRecord(1))
+        g._register_speech(Speech(4, Role.SEER, {9: False}))
+        g.sheriff = 6
+        g._mark_dead(6, "wolf")
+        bot = g.controllers[6]
+        bot.pref = {s: 0 for s in g.players}
+        bot.pref[4] = 1                                         # 6 號相信 4 號預言家
+        self.assertEqual(bot.pass_badge(g, g.players[6]), 9)    # 4 號的金水
+        for s in range(1, 11):
+            if s != 6:
+                self.assertIsNotNone(bot.pass_badge(g, g.players[6]))
+
+
+class ElectionFlowTest(unittest.TestCase):
+    def test_withdraw_leaves_single_candidate_elected(self):
+        ctrls = {s: Scripted(**idle(run_for_sheriff=lambda g, m: m.seat in (4, 9),
+                                    withdraw=lambda g, m, r: m.seat == 9,
+                                    sheriff_vote=never, self_explode=lambda g, m: False))
+                 for s in range(1, 11)}
+        g = quiet_game(BOARD, ctrls, rules=Rules(sheriff=True, self_explode=True))
+        g.setup()
+        g.run_dawn(g.run_night())
+        self.assertEqual(g.sheriff, 4)
+        self.assertIn("退水", g.sheriff_log[-1])
+
+    def test_withdrawn_cannot_vote(self):
+        voted = []
+        ctrls = {s: Scripted(**idle(run_for_sheriff=lambda g, m: m.seat in (4, 5, 9),
+                                    withdraw=lambda g, m, r: m.seat == 9,
+                                    sheriff_vote=lambda g, m, c: voted.append(m.seat) or 4,
+                                    self_explode=lambda g, m: False))
+                 for s in range(1, 11)}
+        g = quiet_game(BOARD, ctrls, rules=Rules(sheriff=True, self_explode=True))
+        g.setup()
+        g.run_dawn(g.run_night())
+        self.assertNotIn(9, voted)
+        self.assertEqual(g.sheriff, 4)
+
+    def test_pk_candidates_speak_before_revote(self):
+        g = quiet_game(BOARD)
+        g.days.append(DayRecord(1))
+        votes = {s: (1 if s % 2 else 2) for s in range(3, 11)}
+        for s, t in votes.items():
+            g.controllers[s] = Scripted(vote=lambda g_, m, c, t=t: t if t in c else None)
+        g.setup()
+        g._vote_phase()
+        self.assertEqual([sp.seat for sp in g.today.speeches], [1, 2])
+
+    def test_bot_sheriff_always_calls_a_vote(self):
+        g = quiet_game(BOARD)
+        g.setup()
+        g.night_no = 1
+        g.days.append(DayRecord(1))
+        g.phase = "day"
+        g.sheriff = 9
+        sp = g.controllers[9].speak(g, g.players[9])
+        self.assertIn(sp.accuse, g.alive_seats())
+        self.assertIn("我是警長，歸票", sp.render())
 
 
 class SimulationTest(unittest.TestCase):
