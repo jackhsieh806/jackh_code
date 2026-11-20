@@ -72,6 +72,8 @@ class Speech:
     last_words: bool = False
     findings: list[dict] = field(default_factory=list)   # 推理高手公開的邏輯漏洞
     pairs: list[tuple[int, int, bool]] = field(default_factory=list)  # 聖誕老公公一次驗兩人：(a, b, 有狼?)
+    badge_flow: list[int] = field(default_factory=list)  # 警徽流：接下來要驗的人（聖誕老公公是一組兩人）
+    sheriff_call: str | None = None        # 警長歸票的理由（None 代表不是警長歸票）
 
     def render(self) -> str:
         parts = []
@@ -87,7 +89,12 @@ class Speech:
             parts.append(f"查驗結果：{items}")
         if self.text:
             parts.append(self.text)
-        if self.accuse is not None:
+        if self.badge_flow:
+            parts.append("警徽流：" + ("+".join if len(self.badge_flow) == 2 and self.claim is Role.SANTA
+                                       else "、".join)(f"{t}號" for t in self.badge_flow))
+        if self.accuse is not None and self.sheriff_call is not None:
+            parts.append(f"我是警長，歸票 {self.accuse}號" + (f"：{self.sheriff_call}" if self.sheriff_call else ""))
+        elif self.accuse is not None:
             parts.append(f"我認為 {self.accuse}號 是狼，歸票 {self.accuse}號")
         return "；".join(parts) if parts else "過。"
 
@@ -162,6 +169,9 @@ class Controller:
     def pass_claw(self, game: "Game", me: Player) -> int | None: return None
     def on_claw(self, game: "Game", me: Player) -> None: ...
     def run_for_sheriff(self, game: "Game", me: Player) -> bool: return False
+    def withdraw(self, game: "Game", me: Player, running: list[int]) -> bool:
+        """警上發言結束後要不要退水（退水的人不能投警長票）。"""
+        return False
     def sheriff_vote(self, game: "Game", me: Player, candidates: list[int]) -> int | None: return None
     def pass_badge(self, game: "Game", me: Player) -> int | None:
         """警長出局時移交警徽，回傳 None 代表撕掉警徽。"""
@@ -295,6 +305,11 @@ class Game:
         self.ghosts: set[int] = set()             # 翻牌的聖誕小精靈：出局狀態但留在場上發言
         self.day_outs: list[int] = []             # 今天白天出局的人（聖誕卡片用）
         self.night_gun = False                    # 正在結算夜晚死亡者的技能（夜槍）
+        # 警徽流：預言家公開接下來要驗誰，死後用交警徽的方式傳出查驗結果
+        self.badge_flows: dict[int, dict] = {}    # seat -> {"targets", "day", "next"}
+        self.flow_breaks: list[dict] = []         # 沒照自己報的警徽流驗人
+        self.flow_log: list[str] = []
+        self.lure_history: dict[int, set[int]] = {}   # 每晚虎姑婆誘導的查驗範圍
         # 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張是反向查驗
         self.has_lantern = any(p.role is Role.LANTERN_SEER for p in self.players.values())
         self.seer_card_accurate = self.rng.random() < 0.5 if self.has_lantern else True
@@ -686,6 +701,7 @@ class Game:
                 self.lure_range = self._ring(c)
                 self.last_lure_range = set(self.lure_range)
                 self.last_lure_night = n
+                self.lure_history[n] = set(self.lure_range)
                 self.lure_uses += 1
                 rng = "、".join(map(str, sorted(self.lure_range)))
                 self.secret(f"虎姑婆({tiger.seat}號) 誘導 {c}號：今晚只能查驗 {rng}號")
@@ -1230,13 +1246,36 @@ class Game:
             speech.seat = seat
             self._register_speech(speech)
             self.say(f"  🗣  {seat}號（警上）：{speech.render()}")
-        voters = [s for s in seats if s not in running]
+        withdrawn: list[int] = []
+        if not (self.claim_race_mode == "compact" and self.claim_race):
+            for seat in list(running):    # 退水：發言結束後可以退出競選，退水的人不能投票
+                if self.claim_race and seat in self.claim_race_candidates:
+                    continue
+                if self.controllers[seat].withdraw(self, self.players[seat], list(running)):
+                    running.remove(seat)
+                    withdrawn.append(seat)
+            if withdrawn:
+                self.say(f"🏳  退水：{'、'.join(map(str, withdrawn))}號")
+        if not running:
+            self.say("上警的人全部退水，警徽流失。")
+            self.sheriff_log.append("警徽流失（全部退水）")
+            self.phase = "day"
+            return
+        if len(running) == 1:
+            self.sheriff = running[0]
+            self.sheriff_log.append(f"第{self.night_no}天 {self.sheriff}號 當選警長（其他人退水）")
+            self.say(f"🎖  只剩 {self.sheriff}號 在警上，直接當選警長！")
+            self.phase = "day"
+            return
+        voters = [s for s in seats if s not in running and s not in withdrawn]
         self.say("—— 警長投票（警下玩家投票）——")
         votes = self._collect_votes(running, voters, sheriff=True)
         self.sheriff_votes = dict(votes)
         leaders = self._show_votes(votes, weighted=False)
         if len(leaders) > 1:
-            self.say(f"⚖️  平票！{'、'.join(map(str, leaders))}號 PK，警下玩家重新投票。")
+            self.say(f"⚖️  平票！{'、'.join(map(str, leaders))}號 PK，各自再發言一次，警下玩家重新投票。")
+            self._pk_speeches(leaders)
+            self.phase = "election"
             votes = self._collect_votes(leaders, voters, sheriff=True)
             self.sheriff_votes.update({v: t for v, t in votes.items() if t is not None})
             leaders = self._show_votes(votes, weighted=False)
@@ -1256,7 +1295,10 @@ class Game:
             return
         p = self.players[s]
         t = self.controllers[s].pass_badge(self, p)
-        if t is not None and t != s and t in self.alive_seats():
+        if not (t is not None and t != s and t in self.alive_seats()):
+            t = None
+        self._read_badge_flow(s, t)
+        if t is not None:
             self.sheriff = t
             self.badge_from[t] = s
             self.sheriff_log.append(f"第{self.night_no}天 {s}號 把警徽移交給 {t}號")
@@ -1270,6 +1312,53 @@ class Game:
                 self._random_sheriff()
             else:
                 self.say(f"🎖  警長 {s}號 撕掉了警徽，之後沒有警長。")
+
+    def flow_target(self, seat: int):
+        """這位預言家昨天報的警徽流，今晚該驗的人（聖誕老公公是一組兩人）；沒有就回傳 None。"""
+        flow = self.badge_flows.get(seat)
+        if not flow or flow["day"] != self.night_no - (1 if self.phase == "night" else 0):
+            return None
+        return flow["next"]
+
+    def _read_badge_flow(self, s: int, t: int | None) -> None:
+        """預言家晚上死亡、沒有遺言：照他報的警徽流解讀交警徽的方式。
+        交給今晚該驗的人＝金水；沒交給他（給別人或撕警徽）＝查殺。"""
+        last = self.nights[-1] if self.nights else None
+        if last is None or last.night != self.night_no or s not in last.deaths:
+            return
+        flow = self.badge_flows.get(s)
+        if not flow or flow["day"] != self.night_no - 1 or flow["next"] is None:
+            return
+        nxt = flow["next"]
+        claim = self.claims.get(s)
+        if claim is None:
+            return
+        given = f"把警徽交給 {t}號" if t is not None else "撕掉警徽"
+        if isinstance(nxt, tuple):          # 聖誕老公公的雙驗
+            a, b = nxt
+            if t in nxt:
+                claim["checks"].update({a: False, b: False})
+                note = f"{a}號、{b}號 都是金水"
+            elif self.players[a].alive and self.players[b].alive:
+                if (a, b, True) not in claim["pairs"]:
+                    claim["pairs"].append((a, b, True))
+                note = f"{a}號、{b}號 裡有狼（查殺）"
+            else:
+                return
+            shown = f"{a}號+{b}號"
+        else:
+            if t == nxt:
+                claim["checks"][nxt] = False
+                note = f"{nxt}號 是金水"
+            elif self.players[nxt].alive:
+                claim["checks"][nxt] = True
+                note = f"{nxt}號 是查殺"
+            else:
+                return
+            shown = f"{nxt}號"
+        line = f"{s}號 的警徽流今晚驗 {shown}，他{given} → 代表 {note}"
+        self.flow_log.append(f"第{self.night_no}天 {line}")
+        self.say(f"📜 {line}")
 
     def _try_explode(self, p: Player) -> bool:
         """狼人自爆：立即出局（無遺言），當天剩下的流程跳過。"""
@@ -1421,7 +1510,9 @@ class Game:
             self.say("無人得票，今天沒有人出局。")
             return None
         if len(leaders) > 1:
-            self.say(f"⚖️  平票！{'、'.join(map(str, leaders))}號 上 PK 台，由其他人重新投票。")
+            self.say(f"⚖️  平票！{'、'.join(map(str, leaders))}號 上 PK 台發言，由其他人重新投票。")
+            self._pk_speeches(leaders)
+            self.phase = "day"
             pk_voters = [v for v in voters if v not in leaders]
             day.pk_votes = self._collect_votes(leaders, pk_voters)
             leaders = self._show_votes(day.pk_votes)
@@ -1429,6 +1520,16 @@ class Game:
                 self.say("再次平票（或無人投票），今天沒有人出局。")
                 return None
         return leaders[0]
+
+    def _pk_speeches(self, leaders: list[int]) -> None:
+        """平票的人在 PK 台上各發言一次。"""
+        self.phase = "pk"
+        for seat in leaders:
+            p = self.players[seat]
+            speech = self.controllers[seat].speak(self, p)
+            speech.seat = seat
+            self._register_speech(speech)
+            self.say(f"  🗣  {seat}號（PK 台）：{speech.render()}")
 
     # ------------------------------------------------------------ 死亡處理
     def _mark_dead(self, seat: int, cause: str) -> None:
@@ -1644,8 +1745,30 @@ class Game:
                                  "pairs": pairs}
         speech.pairs = [(a, b, bool(w)) for a, b, w in speech.pairs
                         if a in valid and b in valid and a != b and seat not in (a, b)]
-        if speech.checks and self.claimed_role(seat) in (Role.SEER, Role.LANTERN_SEER, Role.LIGHT_SEER, Role.SANTA):
+        card = self.claimed_role(seat)
+        flow = self.badge_flows.get(seat)
+        if flow and flow["day"] == self.night_no - 1 and flow["next"] is not None and (speech.checks or speech.pairs):
+            nxt = flow["next"]                 # 有沒有照昨天報的警徽流驗人
+            seen = set(speech.checks) | {t for a, b, _ in speech.pairs for t in (a, b)} \
+                | set(self.claims[seat]["checks"]) if seat in self.claims else set(speech.checks)
+            want = set(nxt) if isinstance(nxt, tuple) else {nxt}
+            lured = self.lure_history.get(flow["day"] + 1)   # 被虎姑婆誘導、驗不到就不算
+            if not (want & seen) and all(self.players[x].alive for x in want) \
+                    and (lured is None or want <= lured) \
+                    and not any(b["seat"] == seat and b["day"] == self.night_no for b in self.flow_breaks):
+                self.flow_breaks.append({"seat": seat, "day": self.night_no, "target": sorted(want)})
+        if speech.checks and card in (Role.SEER, Role.LANTERN_SEER, Role.LIGHT_SEER, Role.SANTA):
             self.claims[seat]["checks"].update(speech.checks)
+        speech.badge_flow = [t for t in dict.fromkeys(speech.badge_flow) if t in valid and t != seat][:2]
+        if speech.badge_flow and card in (Role.SEER, Role.LANTERN_SEER, Role.SANTA):
+            known = self.claims[seat]["checks"]
+            if card is Role.SANTA:
+                nxt = tuple(speech.badge_flow) if len(speech.badge_flow) == 2 else None
+            else:
+                nxt = next((t for t in speech.badge_flow if t not in known and self.players[t].alive), None)
+            self.badge_flows[seat] = {"targets": list(speech.badge_flow), "day": self.night_no, "next": nxt}
+        else:
+            speech.badge_flow = []
         if speech.pairs and self.claimed_role(seat) is Role.SANTA:
             known = self.claims[seat].setdefault("pairs", [])
             known += [pr for pr in speech.pairs if pr not in known]
