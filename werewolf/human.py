@@ -348,7 +348,11 @@ class HumanController(Controller):
             nxt = flow["next"]
             shown = f"{nxt[0]}號+{nxt[1]}號" if isinstance(nxt, tuple) else f"{nxt}號"
             print(f"  📜 你昨天報的警徽流今晚驗 {shown}：是金水就交給他；查殺就交給別人，大家會解讀成查殺。")
-        return ask_seat("移交警徽給（0=撕掉警徽）", [s for s in game.alive_seats() if s != me.seat])
+        options = [s for s in game.alive_seats() if s != me.seat]
+        if me.role in (Role.SEER, Role.LANTERN_SEER, Role.SANTA, Role.LIGHT_SEER) and options:
+            print("  （你是真預言家，不能撕警徽，請交給你相信的人）")
+            return ask_seat("移交警徽給", options, allow_none=False)
+        return ask_seat("移交警徽給（0=撕掉警徽）", options)
 
     def choose_direction(self, game: Game, me: Player) -> str:
         seats = game.alive_seats()

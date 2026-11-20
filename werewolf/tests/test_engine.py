@@ -1410,6 +1410,17 @@ class BadgeFlowTest(unittest.TestCase):
                 self.assertIsNotNone(bot.pass_badge(g, g.players[6]))
 
 
+class RealSeerNeverTearsTest(unittest.TestCase):
+    def test_bot_real_seers_never_tear_the_badge(self):
+        seers = (Role.SEER, Role.LANTERN_SEER, Role.SANTA, Role.LIGHT_SEER)
+        for key in ("2", "9", "10", "11"):
+            for seed in range(60):
+                g = Game(deal(PRESETS[key][1], random.Random(seed)), seed=seed, out=lambda _: None)
+                g.play()
+                torn = [g.players[s].role for _, s in g.badge_torn]
+                self.assertFalse([r for r in torn if r in seers], (key, seed))
+
+
 class ElectionFlowTest(unittest.TestCase):
     def test_withdraw_leaves_single_candidate_elected(self):
         ctrls = {s: Scripted(**idle(run_for_sheriff=lambda g, m: m.seat in (4, 9),
