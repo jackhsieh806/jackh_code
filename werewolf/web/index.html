@@ -2762,7 +2762,9 @@ class Human {
       const shown = Array.isArray(flow.next) ? `${flow.next[0]}號+${flow.next[1]}號` : `${flow.next}號`;
       note += ` 你昨天報的警徽流今晚驗 ${shown}：是金水就交給他；查殺就交給別人，大家會解讀成查殺。`;
     }
-    return this.ui.pickSeat({ title: "你是警長，出局前要把警徽交給誰？", note, seats: g.aliveSeats().filter(s => s !== me.seat), none: "撕掉警徽" });
+    const realSeer = ["SEER", "LANTERN", "SANTA", "LIGHT_SEER"].includes(me.role);
+    if (realSeer) note += " 你是真預言家，不能撕警徽。";
+    return this.ui.pickSeat({ title: "你是警長，出局前要把警徽交給誰？", note, seats: g.aliveSeats().filter(s => s !== me.seat), none: realSeer ? null : "撕掉警徽" });
   }
   async withdraw(g, me, running) {
     return (await this.ui.choose({ title: "警上發言結束：要退水嗎？", note: `警上：${running.join("、")}號。退水後不能投警長票。`, options: [["no", "繼續競選"], ["yes", "退水"]] })) === "yes";
