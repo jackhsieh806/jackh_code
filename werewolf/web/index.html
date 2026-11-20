@@ -403,6 +403,8 @@ class Game {
     this.ghosts = new Set(); this.dayOuts = []; this.nightGun = false;
     // 警徽流：預言家公開接下來要驗誰，死後用交警徽的方式傳出查驗結果
     this.badgeFlows = new Map(); this.flowBreaks = []; this.flowLog = []; this.lureHistory = new Map();
+    // 發言互動：這一輪（警上、白天、PK 台）的發言順序與已經講過的話
+    this.speakOrder = []; this.roundSpeeches = [];
     this.badgeFrom = new Map();   // 新警長 -> 把警徽交給他的前任警長
     this.findings = [];           // 公開的邏輯漏洞：{speaker, day, liar, suspects, text, certain, public}
     // 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張反向
@@ -444,6 +446,17 @@ class Game {
         if (wolfOrder.length === 2) this.claimRaceFakeRoles[wolfOrder[1]] = oppositeRole;
         this.wolfPlan = { fakeSeers: wolfOrder, fakeSeer: wolfOrder[0], fakeSeerRoles: this.claimRaceFakeRoles };
       } else this.claimRace = false;
+    }
+    // 聖誕警長的禮物：警上固定是聖誕老公公和一隻悍跳狼（狼隊裡隨機挑，聖誕矮靈不算）
+    this.xmasElection = new Set(); this.xmasFake = null;
+    if (this.christmas) {
+      const santa = this.players.find(p => p.role === "SANTA");
+      const pack = [...this.wolfPack()];
+      if (santa && pack.length) {
+        this.xmasFake = choice(pack);
+        this.xmasElection = new Set([santa.seat, this.xmasFake]);
+        this.wolfPlan = { fakeSeers: [this.xmasFake], fakeSeer: this.xmasFake, fakeSeerRole: "SANTA" };
+      }
     }
   }
   p(s) { return this.players[s - 1]; }
@@ -1086,6 +1099,7 @@ class Game {
     const seats = this.players.map(p => p.seat);
     const running = [];
     if (this.claimRace && this.claimRaceMode === "compact") running.push(...[...this.claimRaceCandidates].sort((a, b) => a - b));
+    else if (this.xmasElection.size) running.push(...[...this.xmasElection].sort(bySeat));  // 聖誕板：固定聖誕老公公 vs 一隻悍跳狼
     else for (const s of seats) {
       if (this.claimRace && this.claimRaceCandidates.has(s)) running.push(s);
       else if (await this.ctrl[s].runForSheriff(this, this.p(s))) running.push(s);
@@ -1096,9 +1110,10 @@ class Game {
       this.phase = "day"; return;
     }
     this.say(`上警：${running.join("、")}號`);
+    this.speakOrder = [...running]; this.roundSpeeches = [];
     for (const s of running) {
       const p = this.p(s);
-      if (await this.tryExplode(p)) {
+      if (!this.christmas && await this.tryExplode(p)) {  // 聖誕板警上不能自爆
         if (this.lightDark && !this.electionPostponed) {  // 雙爆才吞警徽
           this.electionPostponed = this.electionPending = true;
           this.say("警長競選中有人自爆，警長競選延到明天。", "event");
@@ -1115,7 +1130,7 @@ class Game {
       this.say("（警上）" + renderSpeech(sp), "speech", s);
     }
     const withdrawn = [];
-    if (!(this.claimRace && this.claimRaceMode === "compact")) {
+    if (!(this.claimRace && this.claimRaceMode === "compact") && !this.xmasElection.size) {
       for (const s of [...running]) {  // 退水：發言結束後可以退出競選，退水的人不能投票
         if (this.claimRace && this.claimRaceCandidates.has(s)) continue;
         if (await this.ctrl[s].withdraw(this, this.p(s), [...running])) { running.splice(running.indexOf(s), 1); withdrawn.push(s); }
@@ -1243,6 +1258,7 @@ class Game {
     if (day.exploded != null) { this.phase = "night"; await this.io.pause("天黑"); return null; }
     this.phase = "day";
     const order = await this.speechOrder();
+    this.speakOrder = [...order]; this.roundSpeeches = [];
     this.say(`發言（從 ${order[0]}號 開始${this.sheriff != null ? "，警長最後" : ""}）`, "sub");
     for (const s of order) {
       const p = this.p(s);
@@ -1351,6 +1367,7 @@ class Game {
   // 平票的人在 PK 台上各發言一次
   async pkSpeeches(leaders) {
     this.phase = "pk";
+    this.speakOrder = [...leaders]; this.roundSpeeches = [];
     for (const s of leaders) {
       const sp = await this.ctrl[s].speak(this, this.p(s));
       sp.seat = s;
@@ -1505,6 +1522,7 @@ class Game {
       for (const pr of sp.pairs) if (!known.some(k => k[0] === pr[0] && k[1] === pr[1] && k[2] === pr[2])) known.push(pr);
     }
     if (this.today) this.today.speeches.push(sp);
+    if (!sp.lastWords && ["election", "day", "pk"].includes(this.phase)) this.roundSpeeches.push(sp);
     for (const f of sp.findings || []) this.findings.push({ ...f, speaker: s, day: this.nightNo });
   }
 }
@@ -1847,9 +1865,12 @@ class Bot {
       v += soft; why(s, soft, "村姑查驗的線索指向他");
       let pattern = 0;  // 看票型與發言：攻擊可信的人很可疑（越重證據的個性越看重）
       for (const d of g.days) {
-        for (const sp of d.speeches) if (sp.seat === s && sp.accuse != null) {
+        d.speeches.forEach((sp, i) => {
+          if (sp.seat !== s || sp.accuse == null) return;
           if (k.good.has(sp.accuse) || sp.accuse === k.trusted) pattern += 5 * ev; else if (k.wolf.has(sp.accuse)) pattern -= 2 * ev;
-        }
+          // 被點名就反咬點他的人（對方不是確定的狼）
+          if (!k.wolf.has(sp.accuse) && sp.accuse !== me.seat && d.speeches.slice(0, i).some(prev => prev.seat === sp.accuse && prev.accuse === s)) pattern += 3 * ev;
+        });
         if (d === today) continue;
         for (const votes of [d.votes, d.pkVotes]) {
           const t = votes.get(s);
@@ -1857,7 +1878,7 @@ class Bot {
           if (k.good.has(t) || t === k.trusted) pattern += 5 * ev; else if (k.wolf.has(t)) pattern -= 3 * ev;
         }
       }
-      v += pattern; why(s, pattern, "他的發言和票型一直針對可信的人");
+      v += pattern; why(s, pattern, "他的發言和票型一直針對可信的人，或被點名就反咬");
       const hint = k.hints.get(s) || 0;
       v += hint; why(s, hint, k.hintWhy.get(s) || "");
       base.set(s, v);
@@ -1909,13 +1930,15 @@ class Bot {
     }
     // 今天的指認：只採信「我不懷疑的人」說的話
     const score = new Map([...base].filter(([s]) => g.p(s).alive));
-    if (today) for (const sp of today.speeches) {
+    if (today) today.speeches.forEach((sp, i) => {
       if (score.has(sp.accuse) && sp.seat !== me.seat && (base.has(sp.seat) ? base.get(sp.seat) : -99) < 8) {
-        const w = (sp.seat === k.trusted ? 3 : 1.5) * this.P.follow / 1.5;
+        let w = (sp.seat === k.trusted ? 3 : 1.5) * this.P.follow / 1.5;
+        // 被點名之後才回頭點對方（反打），參考價值打折；越重證據的個性越不吃這套
+        if (today.speeches.slice(0, i).some(prev => prev.seat === sp.accuse && prev.accuse === sp.seat)) w *= Math.max(0.1, 0.5 - 0.2 * this.P.evidence);
         score.set(sp.accuse, score.get(sp.accuse) + w);
         why(sp.accuse, w, "不少我信得過的人也點他");
       }
-    }
+    });
     return score;
   }
   // 說出懷疑某人的主要理由（最多 n 個）
@@ -2022,8 +2045,60 @@ class Bot {
   speak(g, me) {
     const sp = this.speech(g, me, false);
     if (this.P.detective && !g.isEnemy(me)) this.addFindings(g, me, sp);
+    if (["election", "day", "pk"].includes(g.phase)) this.interact(g, me, sp);
     if (g.phase === "day" && g.sheriff === me.seat) this.sheriffCall(g, me, sp);
     return sp;
+  }
+  // 發言互動：被點名就辯解、反打；回應前面的人；前置位保守、後置位總結
+  interact(g, me, sp) {
+    const today = g.today;
+    if (!today) return;
+    const k = this.analyze(g, me), enemy = g.isEnemy(me);
+    const score = enemy ? new Map() : this.suspicion(g, me, k);
+    const mates = g.wolfPack().has(me.seat) ? k.wolf : new Set();
+    const earlier = g.roundSpeeches.filter(x => x.seat !== me.seat);
+    const alive = new Set(g.aliveSeats());
+    const parts = [];
+    // 1. 今天被點名：辯解，必要時反打點我的人
+    const accusers = [...new Set(today.speeches.filter(x => x.accuse === me.seat && x.seat !== me.seat && alive.has(x.seat)).map(x => x.seat))];
+    if (accusers.length) {
+      const names = accusers.slice(-3).map(a => a + "號").join("、") + (accusers.length > 3 ? ` 等 ${accusers.length} 人` : "");
+      const claim = g.claimedRole(me.seat);
+      let iam = ["SEER", "LANTERN", "SANTA"].includes(claim) ? `我才是真的${R[claim]}` : "我是好人";
+      if (sp.text.includes("真的") || sp.text.includes("悍跳")) iam = "他們站錯邊了";  // 原本的發言已經說了自己才是真的
+      let line = (g.phase === "pk" ? "我在 PK 台上，" : "") + `${names} 點我，${iam}`;
+      const last = accusers[accusers.length - 1];
+      const counter = enemy ? (mates.has(last) ? null : last) : (k.wolf.has(last) || (score.get(last) || 0) >= Math.max(8, this.P.accuseBar) ? last : null);
+      if (counter != null && !(k.wolf.has(sp.accuse) && !mates.has(sp.accuse))) { sp.accuse = counter; line += `，我反而覺得 ${counter}號 在帶節奏`; }
+      parts.push(line);
+    }
+    // 2. 回應前面的人：偶爾同意和我點同一個人的；有人點我確定是好人（或隊友）就說不認同，前面講過的不重複
+    const target = sp.accuse;
+    const said = earlier.map(x => x.text).join(" ");
+    const agree = earlier.slice(-4).filter(x => target != null && x.accuse === target && x.text);
+    if (agree.length && Math.random() < 0.4) parts.push(`同意 ${choice(agree).seat}號 的看法`);
+    const protect = enemy ? mates : new Set([...k.good, ...(k.trusted != null ? [k.trusted] : [])]);
+    for (const x of [...earlier].reverse()) {
+      if (x.accuse == null || x.accuse === me.seat || x.accuse === target || !protect.has(x.accuse) || !alive.has(x.accuse) || said.includes(`${x.seat}號 點 ${x.accuse}號 我不認同`)) continue;
+      const why = !enemy && k.good.has(x.accuse) ? "，我確定他是好人" : !enemy && x.accuse === k.trusted ? "，我站他的邊" : "";
+      parts.push(`${x.seat}號 點 ${x.accuse}號 我不認同${why}`);
+      break;
+    }
+    // 3. 位置：第一個發言的人資訊少先保守，最後幾位總結大家的方向
+    const order = g.speakOrder.filter(s => alive.has(s) || g.ghosts.has(s));
+    if (g.phase === "day" && order.includes(me.seat) && order.length >= 5) {
+      const pos = order.indexOf(me.seat);
+      if (pos === 0 && !accusers.length && !sp.claim) parts.push("前置位資訊不多，先表個態，後面再聽");
+      else if (pos >= order.length - 3) {
+        const tally = new Map();
+        for (const x of earlier) if (alive.has(x.accuse)) tally.set(x.accuse, (tally.get(x.accuse) || 0) + 1);
+        if (tally.size) {
+          const [t, n] = [...tally].reduce((a, b) => b[1] > a[1] ? b : a);
+          if (n >= 2) parts.push(`總結前面：多數人點 ${t}號（${n} 位），${t === sp.accuse ? "我也跟" : "但我不跟"}`);
+        }
+      }
+    }
+    if (parts.length) sp.text = [...parts.slice(0, 3), ...(sp.text ? [sp.text] : [])].join("；");
   }
   // 警長最後發言：一定要明確歸票，並說出理由
   sheriffCall(g, me, sp) {
@@ -2068,7 +2143,7 @@ class Bot {
     }
     if (me.role === "SANTA" && (this.checks.size || this.myPairs.length)) {
       const already = g.claimedRole(me.seat) === "SANTA";
-      if (last || already || this.myPairs.length || k.claims.size || Math.random() < this.P.claim) {
+      if (last || already || this.myPairs.length || k.claims.size || g.phase === "election" || Math.random() < this.P.claim) {
         const checks = new Map(this.checks);
         for (const [a, b] of this.myPairs) for (const t of [a, b]) if (k.wolf.has(t)) checks.set(t, true);
         const pairs = this.myPairs.filter(([a, b]) => !checks.has(a) && !checks.has(b)).map(([a, b]) => [a, b, true]);
@@ -2562,6 +2637,7 @@ class Human {
     else if (g.lightDark && me.role === "DARK_SEER") msg += g.darkSeerAwake ? " 你已加入黑暗隊。" : " 你尚未加入黑暗隊。";
     else if (g.christmas && me.role === "GOBLIN") msg += " 你和狼人不見面，狼人也不知道你是誰。";
     else if (isWolf(me)) msg += ` 狼隊友：${g.players.filter(p => g.wolfPack().has(p.seat) && p.seat !== me.seat).map(p => p.seat + (p.role !== "WEREWOLF" ? `（${R[p.role]}）` : "")).join("、")}號。`;
+    if (g.christmas && g.xmasElection.has(me.seat)) msg += me.role === "SANTA" ? " 本局警上固定是你和一隻悍跳狼：第一天上警請報雙驗結果和警徽流。" : " 你是本局的悍跳狼：第一天要上警跳【聖誕老公公】，和真的聖誕老公公對跳。";
     this.ui.say(msg, "private");
   }
   chooseGuard(g, me) {
@@ -4772,7 +4848,7 @@ $("sheet").innerHTML = `
   <h2>警徽流</h2>
   <p>預言家報「警徽流 5、9」代表今晚驗 5號、之後驗 9號。第二晚起晚上死的人沒有遺言，所以預言家晚上被刀時用警徽傳結果：交給 5號 代表 5號 是金水；交給別人或撕掉代表 5號 是查殺。沒照自己報的警徽流驗人，會被懷疑是假預言家。</p>
   <h2>狼人自爆</h2>
-  <p>狼人白天輪到自己發言時（包含警上）可以自爆：立即出局、沒有遺言，當天剩下的發言和投票全部跳過，直接天黑。狼王自爆可以發動狼王爪。警上自爆的話，這個練習場的規則是警徽流失，有些地方改成隔天再競選，要問主持人。</p>
+  <p>狼人白天輪到自己發言時（包含警上）可以自爆：立即出局、沒有遺言，當天剩下的發言和投票全部跳過，直接天黑。狼王自爆可以發動狼王爪。警上自爆的話，這個練習場的規則是警徽流失，有些地方改成隔天再競選，要問主持人。聖誕警長的禮物：警上固定是聖誕老公公和一隻悍跳狼，警上不能自爆。</p>
   <h2>進階角色</h2>
   <dl class="terms">
     <dt>狼王</dt><dd>狼人陣營。被放逐或晚上出局可以發動狼王爪帶走一人；被毒、夢遊出局不能。</dd>

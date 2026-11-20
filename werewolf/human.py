@@ -52,6 +52,11 @@ class HumanController(Controller):
                      if p.seat in game.wolf_pack() and p.role is not Role.WEREWOLF and p.seat != me.seat]
             if kings:
                 print(f"   隊友中的特殊狼：{'、'.join(kings)}")
+        if game.christmas and me.seat in game.xmas_election:
+            if me.role is Role.SANTA:
+                print("   🎖  本局警上固定是你和一隻悍跳狼：第一天上警請報雙驗結果和警徽流。")
+            else:
+                print("   🎖  你是本局的悍跳狼：第一天要上警跳【聖誕老公公】，和真的聖誕老公公對跳。")
         print("=" * 50)
 
     def _alive_hint(self, game: Game) -> None:

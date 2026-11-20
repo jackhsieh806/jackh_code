@@ -470,12 +470,16 @@ class BotController(Controller):
             ev = self.P.evidence
             pattern = 0.0
             for d in game.days:  # 看票型與發言：攻擊可信的人很可疑（越重證據的個性越看重）
-                for sp in d.speeches:
+                for i, sp in enumerate(d.speeches):
                     if sp.seat == s and sp.accuse is not None:
                         if sp.accuse in k.good or sp.accuse == k.trusted:
                             pattern += 5 * ev
                         elif sp.accuse in k.wolf:
                             pattern -= 2 * ev
+                        # 被點名就反咬點他的人（對方不是確定的狼）
+                        if sp.accuse not in k.wolf and sp.accuse != me.seat and any(
+                                prev.seat == sp.accuse and prev.accuse == s for prev in d.speeches[:i]):
+                            pattern += 3 * ev
                 if d is today:
                     continue
                 for votes in (d.votes, d.pk_votes):
@@ -485,7 +489,7 @@ class BotController(Controller):
                     elif tgt in k.wolf:
                         pattern -= 3 * ev
             v += pattern
-            why(s, pattern, "他的發言和票型一直針對可信的人")
+            why(s, pattern, "他的發言和票型一直針對可信的人，或被點名就反咬")
             v += self.soft.get(s, 0)
             why(s, self.soft.get(s, 0), "村姑查驗的線索指向他")
             v += k.hints.get(s, 0)
@@ -548,9 +552,12 @@ class BotController(Controller):
         # 今天的指認：只採信「我不懷疑的人」說的話
         score = {s: v for s, v in base.items() if game.players[s].alive}
         if today:
-            for sp in today.speeches:
+            for i, sp in enumerate(today.speeches):
                 if sp.accuse in score and sp.seat != me.seat and base.get(sp.seat, -99) < 8:
                     w = (3 if sp.seat == k.trusted else 1.5) * self.P.follow / 1.5
+                    # 被點名之後才回頭點對方（反打），參考價值打折；越重證據的個性越不吃這套
+                    if any(prev.seat == sp.accuse and prev.accuse == sp.seat for prev in today.speeches[:i]):
+                        w *= max(0.1, 0.5 - 0.2 * self.P.evidence)
                     score[sp.accuse] += w
                     why(sp.accuse, w, "不少我信得過的人也點他")
         return score
@@ -685,9 +692,83 @@ class BotController(Controller):
         speech = self._speech(game, me, last=False)
         if self.P.detective and not game.is_enemy(me):
             self._add_findings(game, me, speech)
+        if game.phase in ("election", "day", "pk"):
+            self._interact(game, me, speech)
         if game.phase == "day" and game.sheriff == me.seat:
             self._sheriff_call(game, me, speech)
         return speech
+
+    def _interact(self, game: Game, me: Player, speech: Speech) -> None:
+        """發言互動：被點名就辯解、反打；回應前面的人；前置位保守、後置位總結。"""
+        today = game.today
+        if today is None:
+            return
+        k = self.analyze(game, me)
+        score = {} if game.is_enemy(me) else self.suspicion(game, me, k)
+        enemy = game.is_enemy(me)
+        mates = k.wolf if me.seat in game.wolf_pack() else set()
+        earlier = [sp for sp in game.round_speeches if sp.seat != me.seat]
+        alive = set(game.alive_seats())
+        parts: list[str] = []
+
+        # 1. 今天被點名：辯解，必要時反打點我的人
+        accusers = list(dict.fromkeys(sp.seat for sp in today.speeches
+                                      if sp.accuse == me.seat and sp.seat != me.seat and sp.seat in alive))
+        if accusers:
+            names = "、".join(f"{a}號" for a in accusers[-3:]) + (f" 等 {len(accusers)} 人" if len(accusers) > 3 else "")
+            claim = game.claimed_role(me.seat)
+            iam = f"我才是真的{claim.value}" if claim in (Role.SEER, Role.LANTERN_SEER, Role.SANTA) else "我是好人"
+            if "真的" in speech.text or "悍跳" in speech.text:
+                iam = "他們站錯邊了"                  # 原本的發言已經說了自己才是真的
+            line = (f"我在 PK 台上，" if game.phase == "pk" else "") + f"{names} 點我，{iam}"
+            last = accusers[-1]
+            if enemy:
+                counter = last if last not in mates else None
+            else:
+                counter = last if (last in k.wolf or score.get(last, 0) >= max(8.0, self.P.accuse_bar)) else None
+            if counter is not None and speech.accuse not in k.wolf - mates:
+                speech.accuse = counter
+                line += f"，我反而覺得 {counter}號 在帶節奏"
+            parts.append(line)
+
+        # 2. 回應前面的人：偶爾同意某個有講理由、和我點同一個人的人；
+        #    有人點我確定是好人（或我的隊友）時說不認同，同一句話前面已經有人講過就不重複
+        target = speech.accuse
+        said = " ".join(sp.text for sp in earlier)
+        agree = [sp for sp in earlier[-4:] if target is not None and sp.accuse == target and sp.text]
+        if agree and self.rng.random() < 0.4:
+            parts.append(f"同意 {self.rng.choice(agree).seat}號 的看法")
+        protect = mates if enemy else (k.good | ({k.trusted} if k.trusted is not None else set()))
+        for sp in reversed(earlier):
+            if sp.accuse is None or sp.accuse in (me.seat, target) or sp.accuse not in protect \
+                    or sp.accuse not in alive or f"{sp.seat}號 點 {sp.accuse}號 我不認同" in said:
+                continue
+            why = ""
+            if not enemy and sp.accuse in k.good:
+                why = "，我確定他是好人"
+            elif not enemy and sp.accuse == k.trusted:
+                why = "，我站他的邊"
+            parts.append(f"{sp.seat}號 點 {sp.accuse}號 我不認同{why}")
+            break
+
+        # 3. 位置：第一個發言的人資訊少先保守，最後幾位總結大家的方向
+        order = [s for s in game.speak_order if s in alive or s in game.ghosts]
+        if game.phase == "day" and me.seat in order and len(order) >= 5:
+            pos = order.index(me.seat)
+            if pos == 0 and not accusers and speech.claim is None:
+                parts.append("前置位資訊不多，先表個態，後面再聽")
+            elif pos >= len(order) - 3:
+                tally: dict[int, int] = {}
+                for sp in earlier:
+                    if sp.accuse in alive:
+                        tally[sp.accuse] = tally.get(sp.accuse, 0) + 1
+                if tally:
+                    top_t, n = max(tally.items(), key=lambda kv: kv[1])
+                    if n >= 2:
+                        follow = "我也跟" if top_t == speech.accuse else "但我不跟"
+                        parts.append(f"總結前面：多數人點 {top_t}號（{n} 位），{follow}")
+        if parts:
+            speech.text = "；".join(parts[:3] + ([speech.text] if speech.text else []))
 
     def _sheriff_call(self, game: Game, me: Player, speech: Speech) -> None:
         """警長最後發言：一定要明確歸票，並說出理由。"""
@@ -732,7 +813,8 @@ class BotController(Controller):
             return Speech(me.seat, me.role, dict(self.raw), (alive_wolves or [top])[0], text, badge_flow=flow)
         if me.role is Role.SANTA and (self.checks or self.my_pairs):
             already = game.claimed_role(me.seat) is Role.SANTA
-            if last or already or self.my_pairs or k.claims or self.rng.random() < self.P.claim:
+            if last or already or self.my_pairs or k.claims or game.phase == "election" \
+                    or self.rng.random() < self.P.claim:
                 checks = dict(self.checks)
                 for a, b in self.my_pairs:
                     for t in (a, b):
