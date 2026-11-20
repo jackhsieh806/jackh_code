@@ -1307,6 +1307,28 @@ class ChristmasTest(unittest.TestCase):
             g._mark_dead(s, "vote")
         self.assertEqual(g.run_night().deaths, {11: "wolf"})
 
+    def test_election_is_santa_versus_one_fake_wolf_plus_a_few_others(self):
+        for seed in range(20):
+            g = Game(XMAS_BOARD, rules=Rules(sheriff=True, self_explode=True), seed=seed, out=lambda _: None)
+            g.setup()
+            self.assertEqual(len(g.xmas_election), 2)
+            self.assertIn(6, g.xmas_election)                      # 6 號是聖誕老公公
+            self.assertIn(g.xmas_fake, (1, 2, 3, 4))               # 狼隊裡挑，聖誕矮靈不算
+            for p in g.players.values():                           # 想自爆、想退水也沒用
+                g.controllers[p.seat].self_explode = lambda g_, m: True
+                g.controllers[p.seat].withdraw = lambda g_, m, r: True
+            g.run_dawn(g.run_night())
+            election = [sp for sp in g.days[0].speeches]
+            runners = {sp.seat for sp in election}
+            self.assertTrue(g.xmas_election <= runners)
+            self.assertIn(len(runners), (3, 4, 5))                # 另外隨機 1～3 位
+            for sp in election:
+                if sp.seat in g.xmas_election:
+                    self.assertIs(sp.claim, Role.SANTA)
+            log = " ".join(g.sheriff_log)                         # 其他人都退水；平票兩次 → 警徽落地隨機抽
+            self.assertTrue("隨機" in log or any(f"{x}號 當選" in log for x in g.xmas_election), log)
+            self.assertIsNone(g.today.exploded)
+
     def test_wolves_win_when_gods_are_out_counting_revealed_elf(self):
         g = xmas_game()
         for s in (6, 7, 8, 9):
@@ -1433,6 +1455,48 @@ class ElectionFlowTest(unittest.TestCase):
         sp = g.controllers[9].speak(g, g.players[9])
         self.assertIn(sp.accuse, g.alive_seats())
         self.assertIn("我是警長，歸票", sp.render())
+
+
+class InteractionTest(unittest.TestCase):
+    """發言互動：被點名辯解反打、回應前面的人、後置位總結。"""
+
+    def day(self):
+        g = quiet_game(BOARD)
+        g.setup()
+        g.night_no = 1
+        g.days.append(DayRecord(1))
+        g.phase = "day"
+        g.speak_order = list(range(1, 11))
+        g.round_speeches = []
+        return g
+
+    def test_accused_good_player_defends_and_counters_a_known_wolf(self):
+        g = self.day()
+        g.players[1].revealed = True                       # 1 號已經翻牌是狼
+        g._register_speech(Speech(1, accuse=9))
+        sp = g.controllers[9].speak(g, g.players[9])
+        self.assertIn("1號 點我", sp.text)
+        self.assertEqual(sp.accuse, 1)
+
+    def test_disagrees_when_someone_attacks_a_proven_good(self):
+        g = self.day()
+        g.players[8].revealed = True                       # 8 號白痴翻牌，確定是好人
+        g._register_speech(Speech(2, accuse=8))
+        sp = g.controllers[10].speak(g, g.players[10])
+        self.assertIn("2號 點 8號 我不認同", sp.text)
+
+    def test_late_speaker_sums_up(self):
+        g = self.day()
+        for seat in (1, 2, 3):
+            g._register_speech(Speech(seat, accuse=7))
+        sp = g.controllers[10].speak(g, g.players[10])
+        self.assertIn("總結前面：多數人點 7號（3 位）", sp.text)
+
+    def test_first_speaker_is_cautious(self):
+        g = self.day()
+        g.speak_order = [9, 10, 1, 2, 3, 4, 5, 6, 7, 8]
+        sp = g.controllers[9].speak(g, g.players[9])
+        self.assertIn("前置位資訊不多", sp.text)
 
 
 class SimulationTest(unittest.TestCase):

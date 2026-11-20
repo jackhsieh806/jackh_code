@@ -310,6 +310,9 @@ class Game:
         self.flow_breaks: list[dict] = []         # 沒照自己報的警徽流驗人
         self.flow_log: list[str] = []
         self.lure_history: dict[int, set[int]] = {}   # 每晚虎姑婆誘導的查驗範圍
+        # 發言互動：這一輪（警上、白天、PK 台）的發言順序與已經講過的話
+        self.speak_order: list[int] = []
+        self.round_speeches: list[Speech] = []
         # 燈影預言家：開局由主持人決定哪張預言家牌查驗正確，另一張是反向查驗
         self.has_lantern = any(p.role is Role.LANTERN_SEER for p in self.players.values())
         self.seer_card_accurate = self.rng.random() < 0.5 if self.has_lantern else True
@@ -369,6 +372,18 @@ class Game:
                     "fake_seer": fake_seer,
                     "fake_seer_roles": fake_roles,
                 }
+
+        # 聖誕警長的禮物：警上固定是聖誕老公公和一隻悍跳狼（狼隊裡隨機挑，聖誕矮靈不算）
+        self.xmas_election: set[int] = set()
+        self.xmas_fake: int | None = None
+        if self.christmas:
+            santa = next((p.seat for p in self.players.values() if p.role is Role.SANTA), None)
+            pack = sorted(self.wolf_pack())
+            if santa is not None and pack:
+                self.xmas_fake = self.rng.choice(pack)
+                self.xmas_election = {santa, self.xmas_fake}
+                self.wolf_plan = {"fake_seers": [self.xmas_fake], "fake_seer": self.xmas_fake,
+                                  "fake_seer_role": Role.SANTA}
 
     # ------------------------------------------------------------ 查詢工具
     def alive(self) -> list[Player]:
@@ -1219,6 +1234,13 @@ class Game:
         seats = sorted(self.players)
         if self.claim_race_mode == "compact" and self.claim_race:
             running = sorted(self.claim_race_candidates)
+        elif self.xmas_election:
+            # 聖誕板：固定聖誕老公公 vs 一隻悍跳狼，另外隨機 1～3 位電腦上警發言、觀察狀況（之後可以退水）
+            pool = [s for s in seats if s not in self.xmas_election and not self.controllers[s].is_human]
+            extras = self.rng.sample(pool, min(len(pool), self.rng.randint(1, 3)))
+            humans = [s for s in seats if s not in self.xmas_election and self.controllers[s].is_human
+                      and self.controllers[s].run_for_sheriff(self, self.players[s])]
+            running = sorted(self.xmas_election | set(extras) | set(humans))
         else:
             running = [s for s in seats if (
                 (self.claim_race and s in self.claim_race_candidates)
@@ -1230,9 +1252,10 @@ class Game:
             self.phase = "day"
             return
         self.say(f"上警：{'、'.join(map(str, running))}號")
+        self.speak_order, self.round_speeches = list(running), []
         for seat in running:
             p = self.players[seat]
-            if self._try_explode(p):
+            if not self.christmas and self._try_explode(p):   # 聖誕板警上不能自爆
                 if self.light_dark and not self.election_postponed:
                     self.election_postponed = self.election_pending = True   # 雙爆才吞警徽
                     self.say("警長競選中有人自爆，警長競選延到明天。")
@@ -1249,7 +1272,7 @@ class Game:
         withdrawn: list[int] = []
         if not (self.claim_race_mode == "compact" and self.claim_race):
             for seat in list(running):    # 退水：發言結束後可以退出競選，退水的人不能投票
-                if self.claim_race and seat in self.claim_race_candidates:
+                if (self.claim_race and seat in self.claim_race_candidates) or seat in self.xmas_election:
                     continue
                 if self.controllers[seat].withdraw(self, self.players[seat], list(running)):
                     running.remove(seat)
@@ -1402,6 +1425,7 @@ class Game:
             return None
         self.phase = "day"
         order = self.speech_order()
+        self.speak_order, self.round_speeches = list(order), []
         self.say(f"\n—— 發言環節（從 {order[0]}號 開始）——")
         for seat in order:
             p = self.players[seat]
@@ -1524,6 +1548,7 @@ class Game:
     def _pk_speeches(self, leaders: list[int]) -> None:
         """平票的人在 PK 台上各發言一次。"""
         self.phase = "pk"
+        self.speak_order, self.round_speeches = list(leaders), []
         for seat in leaders:
             p = self.players[seat]
             speech = self.controllers[seat].speak(self, p)
@@ -1774,5 +1799,7 @@ class Game:
             known += [pr for pr in speech.pairs if pr not in known]
         if self.today is not None:
             self.today.speeches.append(speech)
+        if not speech.last_words and self.phase in ("election", "day", "pk"):
+            self.round_speeches.append(speech)
         for f in speech.findings:
             self.findings.append({**f, "speaker": seat, "day": self.night_no})
